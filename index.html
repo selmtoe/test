@@ -2206,28 +2206,25 @@ reset() {
     
     spawnNewPiece() {
         this.player.pieceType = this.nextQueue.shift();
-this.nextQueue.push(this.minoGenerator.next().value);
+        this.nextQueue.push(this.minoGenerator.next().value);
         
         this.player.rotation = 0;
         this.canHold = true;
         this.lastMoveWasRotation = false;
         this.player.x = Math.floor(BOARD_WIDTH / 2) - Math.floor(TETROMINOS[this.player.pieceType].center[0]) -1;
-const shape = this.getShape(this.player.pieceType, this.player.rotation);
+
+        const shape = this.getShape(this.player.pieceType, this.player.rotation);
         this.player.y = 19;
         if (this.checkCollision(this.player.x, this.player.y, shape)) {
             this.player.y = 18;
-if (this.checkCollision(this.player.x, this.player.y, shape)) {
+            if (this.checkCollision(this.player.x, this.player.y, shape)) {
 
                  this.gameOver = true;
-}
-        }
-        if (this.isAi && !this.gameOver) {
-            this.requestAiMove();
+            }
         }
     }
 
     isActionPressed(action) {
-
         const binding = this.keyBindings[action];
         if (binding?.type === 'key' && this.keys[binding.value]) return true;
         
@@ -2335,14 +2332,16 @@ return;
 }
 
         if (this.isAi) {
+            if (!this.isAiThinking) {
+                this.requestAiMove();
+}
             return;
-        }
+}
 
         if (this.ruleHooks.onUpdate && typeof this.ruleHooks.onUpdate === 'function') {
             try {
                 this.ruleHooks.onUpdate(this.gameApi, this);
 } catch (e) {
-
                 console.error("Rule error onUpdate:", e);
 this.gameOver = true;
                 return;
@@ -2996,76 +2995,76 @@ requestAiMove() {
         }
 
         return null;
-
-        }
+    }
 
     async executeAiMove(move) {
-        this.isAiThinking = false;
-
         if (this.gameOver || !move) {
-return;
+            this.isAiThinking = false;
+            return;
         }
 
         if (this.player.pieceType !== move.piece) {
             if (this.canHold) {
                 this.hold();
-await new Promise(resolve => setTimeout(resolve, 30));
+                await new Promise(resolve => setTimeout(resolve, 30));
             } else {
-return;
+                this.isAiThinking = false;
+                return;
             }
         }
 
         const startState = { x: this.player.x, y: this.player.y, r: this.player.rotation };
-const targetState = { x: move.x, y: move.y, r: move.rotation };
+        const targetState = { x: move.x, y: move.y, r: move.rotation };
         const minoType = this.player.pieceType;
-if (minoType === 'I') {
+        if (minoType === 'I') {
             targetState.x += 1;
-startState.x += 1;
+            startState.x += 1;
         }
         const pathfinderBoard = this.board.map(row => row.map(cell => (cell === null ? 0 : 1)));
-const path = this.findShortestPath_forAI(startState, targetState, minoType, pathfinderBoard);
+
+        const path = this.findShortestPath_forAI(startState, targetState, minoType, pathfinderBoard);
 
         if (path) {
             for (const action of path) {
                 switch (action) {
-                    case '←': this.player.x--;
-break;
+                    case '←': this.player.x--; break;
                     case '→': this.player.x++; break;
                     case '↓': this.player.y++; break;
                     case 'R': {
                         const newState = this.tryRotate_forAI(minoType, this.player.x, this.player.y, this.player.rotation, 1, pathfinderBoard);
-if (newState) {
+                        if (newState) {
                             this.player.x = newState.x;
-this.player.y = newState.y;
+                            this.player.y = newState.y;
                             this.player.rotation = newState.r;
                         }
                         break;
-}
+                    }
                     case 'L': {
                         const newState = this.tryRotate_forAI(minoType, this.player.x, this.player.y, this.player.rotation, -1, pathfinderBoard);
-if (newState) {
+                        if (newState) {
                             this.player.x = newState.x;
-this.player.y = newState.y;
+                            this.player.y = newState.y;
                             this.player.rotation = newState.r;
                         }
                         break;
-}
+                    }
                     case '↑':
                         this.player.y = this.getGhostY();
-break;
+                        break;
                 }
                 await new Promise(resolve => setTimeout(resolve, 30));
-}
+            }
         }
 
         this.player.rotation = move.rotation;
-this.player.x = move.x;
+        this.player.x = move.x;
         this.player.y = move.y;
         
         this.lockPiece();
+
+        this.isAiThinking = false;
     }
 }
-
 
 function setupEditors() { ['p1', 'p2'].forEach(setupPlayerEditor);
 }
