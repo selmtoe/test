@@ -3465,7 +3465,7 @@ function populateAiSettingsTab() {
     inputTime.type = 'number';
     inputTime.min = 50;
     inputTime.max = 5000;
-    inputTime.step = 50;
+    inputTime.step = 0;
     inputTime.value = gameSettings.aiThinkingTime;
     inputTime.onchange = e => {
         gameSettings.aiThinkingTime = Math.max(50, Math.min(5000, parseInt(e.target.value, 10)));
