@@ -4343,6 +4343,15 @@ if (gameSettings.touchControlsEnabled) {
 
 document.getElementById('backToEditorBtn').addEventListener('click', () => {
         gameState = 'EDITING';
+        
+        if (players.length > 0) {
+            players.forEach(p => {
+                if (p.aiWorker) {
+                    p.aiWorker.terminate();
+                }
+            });
+        }
+        
         players = [];
         loadGameSettings();
         document.getElementById('game-container').style.display = 'none';
@@ -4352,7 +4361,8 @@ document.getElementById('backToEditorBtn').addEventListener('click', () => {
         
         virtualController.hide();
         
-        const aiDebugDisplay = document.getElementById('ai-debug-display');
+     
+   const aiDebugDisplay = document.getElementById('ai-debug-display');
         const aiDebugControls = document.getElementById('ai-debug-controls');
         if(aiDebugDisplay) aiDebugDisplay.style.display = 'none';
         if(aiDebugControls) aiDebugControls.style.display = 'none';
