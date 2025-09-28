@@ -1539,7 +1539,11 @@ self.onmessage = (e) => {
             initialLayout = Array(TetrisBoard.HEIGHT).fill(null).map(() => Array(TetrisBoard.WIDTH).fill(null));
         }
         
-        const board = createBoardFromLayout(initialLayout);
+                const board = createBoardFromLayout(initialLayout);
+        
+        const chosenNodeID = bestNodeIDAtDepth1;
+        pruneAndReroot(chosenNodeID);
+
         const rootNode = nodeMap.get("");
         if (rootNode && rootNode.board && boardsAreEqual(rootNode.board, board)) {
             self.postMessage({type: 'debug', message: '探索木を引き継ぎました'});
@@ -1550,12 +1554,13 @@ self.onmessage = (e) => {
         currentMinoSequence = nextString.split('');
         runAI(board, currentMinoSequence, isB2B, ren);
         
-        isThinking = true;
-        thinkingLoop();
+        if (!isThinking) {
+            isThinking = true;
+            thinkingLoop();
+        }
 
-    } else if (type === 'stop') {
-        isThinking = false;
-        
+
+} else if (type === 'stop') {
         let bestMove = null;
         if (bestNodeIDAtDepth1 !== "" && nodeMap.has(bestNodeIDAtDepth1)) {
             bestMove = nodeMap.get(bestNodeIDAtDepth1).place;
@@ -1579,9 +1584,6 @@ self.onmessage = (e) => {
                 }
             }
         }
-        
-        const chosenNodeID = bestNodeIDAtDepth1;
-        pruneAndReroot(chosenNodeID);
         
         if (bestMove && bestMove.pieceType !== ' ') {
             let finalX;
@@ -1608,6 +1610,7 @@ self.onmessage = (e) => {
             self.postMessage(null);
         }
     }
+
 };
 `;
 
