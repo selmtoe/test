@@ -1564,6 +1564,20 @@ self.onmessage = (e) => {
         let bestMove = null;
         if (bestNodeIDAtDepth1 !== "" && nodeMap.has(bestNodeIDAtDepth1)) {
             bestMove = nodeMap.get(bestNodeIDAtDepth1).place;
+            
+            const rootNode = nodeMap.get("");
+            if (rootNode) {
+                for (const childId of rootNode.childrenIDs) {
+                    if (nodeMap.has(childId)) {
+                        const childNode = nodeMap.get(childId);
+                        if (childId === bestNodeIDAtDepth1) {
+                            childNode.acc_eval += 999999;
+                        } else {
+                            childNode.acc_eval -= 999999;
+                        }
+                    }
+                }
+            }
         } else {
             const rootNode = nodeMap.get("");
             if (rootNode && rootNode.childrenIDs.length > 0) {
@@ -4451,10 +4465,15 @@ document.getElementById('settingsBtn').addEventListener('click', () => openUnifi
             .catch(err => console.error('Service Worker registration failed:', err));
     }
     
-
 document.getElementById('retryBtn').addEventListener('click', () => {
         if (gameState !== 'PLAYING' || !players.length) return;
         
+        players.forEach(p => {
+            if (p.aiWorker) {
+                p.aiWorker.terminate();
+            }
+        });
+
         loadGameSettings();
         
         let currentRunSettings = { ...gameSettings };
