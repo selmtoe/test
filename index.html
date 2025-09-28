@@ -2333,12 +2333,14 @@ return;
 
         if (this.isAi) {
             if (!this.isAiThinking) {
-                this.requestAiMove();
-}
+                this.isAiThinking = true;
+                this.aiWorker.postMessage({ type: 'stop' });
+            }
             return;
-}
+        }
 
         if (this.ruleHooks.onUpdate && typeof this.ruleHooks.onUpdate === 'function') {
+
             try {
                 this.ruleHooks.onUpdate(this.gameApi, this);
 } catch (e) {
@@ -2446,11 +2448,17 @@ hold() {
             this.player.y = 19;
             if (this.checkCollision(this.player.x, this.player.y, shape)) {
                 this.player.y = 18;
-                if (this.checkCollision(this.player.x, this.player.y, shape)) {
-                     this.gameOver = true;
-                }
-            }
-        } else {
+                // 
+if (this.checkCollision(this.player.x, this.player.y, shape)) {
+
+                 this.gameOver = true;
+}
+        }
+        if (this.isAi) {
+            this.requestAiMove();
+        }
+    }
+ else {
             this.holdPiece = this.player.pieceType;
             this.spawnNewPiece();
         }
@@ -2782,17 +2790,11 @@ requestAiMove() {
             isB2B: this.isB2B,
             ren: this.ren + 1,
         };
-        
         if (this.aiWorker) {
             this.aiWorker.postMessage(aiWorkerStartPayload);
-
-            setTimeout(() => {
-                if (this.isAiThinking) {
-                    this.aiWorker.postMessage({ type: 'stop' });
-                }
-            }, gameSettings.aiThinkingTime);
-}
+        }
     }
+
 
     getMinoShape_forAI(type, rotation) {
         rotation = rotation % 4;
@@ -3064,9 +3066,10 @@ requestAiMove() {
         this.player.x = move.x;
         this.player.y = move.y;
         
-        this.lockPiece();
-
         this.isAiThinking = false;
+        this.lockPiece();
+    }
+
     }
 }
 
