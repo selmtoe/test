@@ -2012,8 +2012,6 @@ let gameSettings = {
     showEffects: true,
     touchControlsEnabled: 'ontouchstart' in window,
     aiThinkingTime: 500,
-    aiMoveDelay: 30,
-    aiSdfDelay: 30,
 };
 
 const COLORS = { 'I': '#00f0f0', 'O': '#f0f000', 'T': '#a000f0', 'L': '#f0a000', 'J': '#0000f0', 'S': '#00f000', 'Z': '#f00000', 'G': '#999999', 'E': '#808080' };
@@ -3510,43 +3508,11 @@ function populateAiSettingsTab() {
     inputTime.max = 5000;
     inputTime.step = 0;
     inputTime.value = gameSettings.aiThinkingTime;
-inputTime.onchange = e => {
+    inputTime.onchange = e => {
         gameSettings.aiThinkingTime = Math.max(50, Math.min(5000, parseInt(e.target.value, 10)));
     };
-itemTime.append(labelTime, inputTime);
+    itemTime.append(labelTime, inputTime);
     list.appendChild(itemTime);
-
-    const itemMoveDelay = document.createElement('div');
-    itemMoveDelay.className = 'setting-item';
-    const labelMoveDelay = document.createElement('span');
-    labelMoveDelay.textContent = '操作毎の待機時間 (ms)';
-    const inputMoveDelay = document.createElement('input');
-    inputMoveDelay.type = 'number';
-    inputMoveDelay.min = 20;
-    inputMoveDelay.max = 1000;
-    inputMoveDelay.step = 1;
-    inputMoveDelay.value = gameSettings.aiMoveDelay;
-    inputMoveDelay.onchange = e => {
-        gameSettings.aiMoveDelay = Math.max(20, Math.min(1000, parseInt(e.target.value, 10)));
-    };
-    itemMoveDelay.append(labelMoveDelay, inputMoveDelay);
-    list.appendChild(itemMoveDelay);
-
-    const itemSdfDelay = document.createElement('div');
-    itemSdfDelay.className = 'setting-item';
-    const labelSdfDelay = document.createElement('span');
-    labelSdfDelay.textContent = 'AIのSFD (ms)';
-    const inputSdfDelay = document.createElement('input');
-    inputSdfDelay.type = 'number';
-    inputSdfDelay.min = 0;
-    inputSdfDelay.max = 1000;
-    inputSdfDelay.step = 1;
-    inputSdfDelay.value = gameSettings.aiSdfDelay;
-    inputSdfDelay.onchange = e => {
-        gameSettings.aiSdfDelay = Math.max(0, Math.min(1000, parseInt(e.target.value, 10)));
-    };
-    itemSdfDelay.append(labelSdfDelay, inputSdfDelay);
-    list.appendChild(itemSdfDelay);
 }
 
 function openUnifiedSettingsModal(initialTab = 'general') {
