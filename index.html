@@ -3466,8 +3466,8 @@ function populateAiSettingsTab() {
     list.appendChild(itemType);
 
     const settingDetails = {
-        aiMoveDelay: { label: 'AIの操作待機時間 (ms)', min: 20, max: 500, step: 1 },
-        aiSdfDelay: { label: 'AIのSDF待機時間 (ms)', min: 0, max: 500, step: 1 }
+        aiMoveDelay: { label: 'AIの操作入力間隔 (ms)', min: 20, max: 500, step: 1 },
+        aiSdfDelay: { label: 'AI SDF (ms)', min: 0, max: 500, step: 1 }
     };
     
     Object.keys(settingDetails).forEach(key => {
