@@ -2467,28 +2467,7 @@ lockPiece() {
         if (!this.player.pieceType) return;
         let tspinResult = this.checkForTSpin();
 
-        // AI操作の場合の独立したTスピン判定 (一時的なもので、後で削除する予定)
-        if (this.isAi && this.player.pieceType === 'T' ) {
-            const shape = this.getShape(this.player.pieceType, this.player.rotation);
-            let isCoveredFromAbove = false;
-            for (const block of shape) {
-                const blockX = Math.floor(this.player.x + block[0]);
-                const blockY = Math.floor(this.player.y + block[1]);
-
-                // 設置ミノの上が埋まっている→Tspin
-                if (blockY - 1 < 0 || (this.board[blockY - 1] && this.board[blockY - 1][blockX] !== null)) {
-                    isCoveredFromAbove = true;
-                    break;
-                }
-            }
-            // 1つでも上が埋まっていれば、他の条件に関わらずT-Spinとする
-            if (isCoveredFromAbove) {
-                tspinResult = 'TSPIN';
-            }
-        }
-
         const shape = this.getShape(this.player.pieceType, this.player.rotation);
-
         this.specialMoveText = [];
         let moveText = '';
 
