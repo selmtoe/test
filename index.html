@@ -2055,6 +2055,34 @@ const TETROMINOS = {
 const SRS_OFFSETS = { "JLSTZ": { "0_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], "1_0": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], "1_2": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], "2_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], "2_3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], "3_2": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], "3_0": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], "0_3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], }, "I": { "0_1": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], "1_0": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], "1_2": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], "2_1": [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], "2_3": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], "3_2": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], "3_0": [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], "0_3": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], } };
 
 let players = [], gameMode = '1P', gameState = 'EDITING', lastTime = 0, mainCanvas, ctx, aiWorkerBlob;
+let aiDebugTimestamps = {};
+
+function updateAiTimestampsDisplay() {
+    const display = document.getElementById('ai-tree-debug-display');
+    if (!display || Object.keys(aiDebugTimestamps).length === 0) return;
+
+    const { requestStart, responseReceived, executionStart, lockStart, executionEnd } = aiDebugTimestamps;
+    let html = '<strong>AI Timings (ms)</strong><br>';
+
+    if (requestStart && responseReceived) {
+        html += `Req -> Res: ${(responseReceived - requestStart).toFixed(1)}<br>`;
+    }
+    if (responseReceived && executionStart) {
+        html += `Res -> Exec: ${(executionStart - responseReceived).toFixed(1)}<br>`;
+    }
+    if (executionStart && lockStart) {
+        html += `Exec -> Lock: ${(lockStart - executionStart).toFixed(1)}<br>`;
+    }
+    if (executionStart && executionEnd) {
+        html += `Execution Time: ${(executionEnd - executionStart).toFixed(1)}<br>`;
+    }
+     if (executionEnd && requestStart > executionEnd) {
+        html += `Idle Time: ${(requestStart - executionEnd).toFixed(1)}<br>`;
+    }
+
+    display.innerHTML = html;
+}
+
 
 function updateAiDebugDisplay(payload) {
     const display = document.getElementById('ai-debug-display');
@@ -2164,11 +2192,13 @@ if (debugDisplay) {
                         debugDisplay.style.display = 'block';
                         debugDisplay.textContent = `Nodes: ${e.data.count}`;
                     }
-                } else if (gameState === 'PLAYING' && this.isAiThinking) {
+} else if (gameState === 'PLAYING' && this.isAiThinking) {
+                    aiDebugTimestamps.responseReceived = performance.now();
+                    updateAiTimestampsDisplay();
                     this.executeAiMove(e.data);
-}
+                }
             };
-}
+        }
 
         this.keys = {};
         const pData = editorData[`p${id}`];
@@ -2465,6 +2495,8 @@ hold() {
 
 lockPiece() {
         if (!this.player.pieceType) return;
+        aiDebugTimestamps.lockStart = performance.now();
+        updateAiTimestampsDisplay();
         let tspinResult = this.checkForTSpin();
 
         const shape = this.getShape(this.player.pieceType, this.player.rotation);
@@ -2732,6 +2764,8 @@ drawMessage(t) { const cX = PLAYFIELD_WIDTH / 2; const cY = CANVAS_HEIGHT / 2; c
 
 requestAiMove() {
         this.isAiThinking = true;
+        aiDebugTimestamps.requestStart = performance.now();
+        updateAiTimestampsDisplay();
         const debugPayload = {
             playerId: this.id,
             board: this.board,
@@ -2983,7 +3017,9 @@ requestAiMove() {
         return null;
     }
 
-    async executeAiMove(move) {
+async executeAiMove(move) {
+        aiDebugTimestamps.executionStart = performance.now();
+        updateAiTimestampsDisplay();
         if (this.gameOver || !move) {
             this.isAiThinking = false;
             return;
@@ -3055,11 +3091,11 @@ requestAiMove() {
         this.player.y = move.y;
         
         this.lockPiece();
-
+        aiDebugTimestamps.executionEnd = performance.now();
+        updateAiTimestampsDisplay();
         this.isAiThinking = false;
     }
 }
-
 function setupEditors() { ['p1', 'p2'].forEach(setupPlayerEditor);
 }
 
