@@ -1493,19 +1493,19 @@ function thinkingLoop() {
                 if (availableMinosForExpand.length > 0) {
                     for (const pieceForExpansion of availableMinosForExpand) {
                         expand(selectedNodeID, boardStateForExpansion, pieceForExpansion, placementsToSelectedNode);
-                    }
+}
                 }
             }
         }
     }
 
+    self.postMessage({ type: 'nodeCount', count: nodeMap.size });
     setTimeout(thinkingLoop, 0);
 }
 
 self.onmessage = (e) => {
     const { type, boardString, nextString, isB2B, ren } = e.data;
-
-    if (type === 'start') {
+if (type === 'start') {
         const createBoardFromLayout = (layout) => {
             const board = new TetrisBoard();
             const layoutHeight = layout.length;
@@ -2150,13 +2150,19 @@ class Player {
         this.isAiThinking = false;
         this.aiWorker = null;
 
-        if (this.isAi) {
+if (this.isAi) {
             this.aiWorker = new Worker(URL.createObjectURL(aiWorkerBlob));
 this.aiWorker.onmessage = (e) => {
                 if (e.data && e.data.type === 'debug') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
-                    if (debugDisplay) {
+if (debugDisplay) {
                         debugDisplay.textContent = e.data.message;
+}
+                } else if (e.data && e.data.type === 'nodeCount') {
+                    const debugDisplay = document.getElementById('ai-tree-debug-display');
+                    if (debugDisplay) {
+                        debugDisplay.style.display = 'block';
+                        debugDisplay.textContent = `Nodes: ${e.data.count}`;
                     }
                 } else if (gameState === 'PLAYING' && this.isAiThinking) {
                     this.executeAiMove(e.data);
@@ -2166,6 +2172,7 @@ this.aiWorker.onmessage = (e) => {
 
         this.keys = {};
         const pData = editorData[`p${id}`];
+
         this.initialHold = pData.hold;
         this.board = pData.board.map(row => [...row]);
         this.minoGenerator = createMinoGenerator(pData.nextQueue);
