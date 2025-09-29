@@ -2011,7 +2011,8 @@ let gameSettings = {
     maxNext: 8,
     showEffects: true,
     touchControlsEnabled: 'ontouchstart' in window,
-    aiThinkingTime: 500,
+    aiMoveDelay: 30,
+    aiSdfDelay: 30,
 };
 
 const COLORS = { 'I': '#00f0f0', 'O': '#f0f000', 'T': '#a000f0', 'L': '#f0a000', 'J': '#0000f0', 'S': '#00f000', 'Z': '#f00000', 'G': '#999999', 'E': '#808080' };
@@ -3072,11 +3073,12 @@ async executeAiMove(move) {
                         }
                         break;
                     }
-                    case '↑':
+case '↑':
                         this.player.y = this.getGhostY();
                         break;
                 }
-                await new Promise(resolve => setTimeout(resolve, 30));
+                const delay = action === '↓' ? gameSettings.aiSdfDelay : gameSettings.aiMoveDelay;
+                await new Promise(resolve => setTimeout(resolve, delay));
             }
         }
 
@@ -3498,21 +3500,26 @@ function populateAiSettingsTab() {
     itemType.append(labelType, selectType);
     list.appendChild(itemType);
 
-    const itemTime = document.createElement('div');
-    itemTime.className = 'setting-item';
-    const labelTime = document.createElement('span');
-    labelTime.textContent = 'AIの思考時間 (ms)';
-    const inputTime = document.createElement('input');
-    inputTime.type = 'number';
-    inputTime.min = 50;
-    inputTime.max = 5000;
-    inputTime.step = 0;
-    inputTime.value = gameSettings.aiThinkingTime;
-    inputTime.onchange = e => {
-        gameSettings.aiThinkingTime = Math.max(50, Math.min(5000, parseInt(e.target.value, 10)));
+    const settingDetails = {
+        aiMoveDelay: { label: 'AIの操作待機時間 (ms)', min: 20, max: 500, step: 1 },
+        aiSdfDelay: { label: 'AIのSDF待機時間 (ms)', min: 0, max: 500, step: 1 }
     };
-    itemTime.append(labelTime, inputTime);
-    list.appendChild(itemTime);
+    
+    Object.keys(settingDetails).forEach(key => {
+        const item = document.createElement('div');
+        item.className = 'setting-item';
+        const label = document.createElement('span');
+        label.textContent = settingDetails[key].label;
+        const input = document.createElement('input');
+        input.type = 'number';
+        Object.assign(input, settingDetails[key]);
+        input.value = gameSettings[key];
+        input.onchange = e => {
+            gameSettings[key] = Math.max(settingDetails[key].min, Math.min(settingDetails[key].max, parseInt(e.target.value, 10)));
+        };
+        item.append(label, input);
+        list.appendChild(item);
+    });
 }
 
 function openUnifiedSettingsModal(initialTab = 'general') {
