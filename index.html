@@ -2056,34 +2056,6 @@ const TETROMINOS = {
 const SRS_OFFSETS = { "JLSTZ": { "0_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], "1_0": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], "1_2": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], "2_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], "2_3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], "3_2": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], "3_0": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], "0_3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], }, "I": { "0_1": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], "1_0": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], "1_2": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], "2_1": [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], "2_3": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], "3_2": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], "3_0": [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], "0_3": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], } };
 
 let players = [], gameMode = '1P', gameState = 'EDITING', lastTime = 0, mainCanvas, ctx, aiWorkerBlob;
-let aiDebugTimestamps = {};
-
-function updateAiTimestampsDisplay() {
-    const display = document.getElementById('ai-tree-debug-display');
-    if (!display || Object.keys(aiDebugTimestamps).length === 0) return;
-
-    const { requestStart, responseReceived, executionStart, lockStart, executionEnd } = aiDebugTimestamps;
-    let html = '<strong>AI Timings (ms)</strong><br>';
-
-    if (requestStart && responseReceived) {
-        html += `Req -> Res: ${(responseReceived - requestStart).toFixed(1)}<br>`;
-    }
-    if (responseReceived && executionStart) {
-        html += `Res -> Exec: ${(executionStart - responseReceived).toFixed(1)}<br>`;
-    }
-    if (executionStart && lockStart) {
-        html += `Exec -> Lock: ${(lockStart - executionStart).toFixed(1)}<br>`;
-    }
-    if (executionStart && executionEnd) {
-        html += `Execution Time: ${(executionEnd - executionStart).toFixed(1)}<br>`;
-    }
-     if (executionEnd && requestStart > executionEnd) {
-        html += `Idle Time: ${(requestStart - executionEnd).toFixed(1)}<br>`;
-    }
-
-    display.innerHTML = html;
-}
-
 
 function updateAiDebugDisplay(payload) {
     const display = document.getElementById('ai-debug-display');
@@ -2189,13 +2161,11 @@ if (debugDisplay) {
 }
                 } else if (e.data && e.data.type === 'nodeCount') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
-                    if (debugDisplay) {
-                        debugDisplay.style.display = 'block';
-                        debugDisplay.textContent = `Nodes: ${e.data.count}`;
+if (debugDisplay) {
+                        
                     }
 } else if (gameState === 'PLAYING' && this.isAiThinking) {
-                    aiDebugTimestamps.responseReceived = performance.now();
-                    updateAiTimestampsDisplay();
+                    
                     this.executeAiMove(e.data);
                 }
             };
@@ -2496,8 +2466,7 @@ hold() {
 
 lockPiece() {
         if (!this.player.pieceType) return;
-        aiDebugTimestamps.lockStart = performance.now();
-        updateAiTimestampsDisplay();
+        
         let tspinResult = this.checkForTSpin();
 
         const shape = this.getShape(this.player.pieceType, this.player.rotation);
@@ -2764,10 +2733,7 @@ const rX = PLAYFIELD_X_OFFSET + PLAYFIELD_WIDTH + PADDING + NEXT_AREA_WIDTH / 2;
 drawMessage(t) { const cX = PLAYFIELD_WIDTH / 2; const cY = CANVAS_HEIGHT / 2; ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(0, -0.5*BLOCK_SIZE, PLAYFIELD_WIDTH, CANVAS_HEIGHT); ctx.fillStyle = '#FFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `bold ${BLOCK_SIZE * 1.5}px "Orbitron"`; ctx.fillText(t, cX, cY); ctx.textBaseline = 'alphabetic'; }
 
 requestAiMove() {
-        this.isAiThinking = true;
-        aiDebugTimestamps = {};
-        aiDebugTimestamps.requestStart = performance.now();
-        updateAiTimestampsDisplay();
+        this.isAiThinking = true; 
         const debugPayload = {
             playerId: this.id,
             board: this.board,
@@ -3019,7 +2985,6 @@ requestAiMove() {
         return null;
     }
 async executeAiMove(move) {
-        aiDebugTimestamps.executionStart = performance.now();
         
         if (this.gameOver || !move) {
             this.isAiThinking = false;
@@ -3088,15 +3053,14 @@ async executeAiMove(move) {
             this.lastMoveWasRotation = lastMeaningfulAction === 'R' || lastMeaningfulAction === 'L';
         } else {
             this.lastMoveWasRotation = false;
-        }
+}
 
         this.player.rotation = move.rotation;
         this.player.x = move.x;
         this.player.y = move.y;
         
         this.lockPiece();
-        aiDebugTimestamps.executionEnd = performance.now();
-        updateAiTimestampsDisplay();
+        
         this.isAiThinking = false;
     }
 }
