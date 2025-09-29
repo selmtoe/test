@@ -2764,6 +2764,7 @@ drawMessage(t) { const cX = PLAYFIELD_WIDTH / 2; const cY = CANVAS_HEIGHT / 2; c
 
 requestAiMove() {
         this.isAiThinking = true;
+        aiDebugTimestamps = {};
         aiDebugTimestamps.requestStart = performance.now();
         updateAiTimestampsDisplay();
         const debugPayload = {
