@@ -3018,10 +3018,9 @@ requestAiMove() {
 
         return null;
     }
-
 async executeAiMove(move) {
         aiDebugTimestamps.executionStart = performance.now();
-        updateAiTimestampsDisplay();
+        
         if (this.gameOver || !move) {
             this.isAiThinking = false;
             return;
@@ -3030,7 +3029,7 @@ async executeAiMove(move) {
         if (this.player.pieceType !== move.piece) {
             if (this.canHold) {
                 this.hold();
-                await new Promise(resolve => setTimeout(resolve, 30));
+                await new Promise(resolve => setTimeout(resolve, gameSettings.aiMoveDelay));
             } else {
                 this.isAiThinking = false;
                 return;
@@ -3045,14 +3044,13 @@ async executeAiMove(move) {
             startState.x += 1;
         }
         const pathfinderBoard = this.board.map(row => row.map(cell => (cell === null ? 0 : 1)));
-
         const path = this.findShortestPath_forAI(startState, targetState, minoType, pathfinderBoard);
 
         if (path) {
             for (const action of path) {
                 switch (action) {
                     case '←': this.player.x--;
-                    break;
+                        break;
                     case '→': this.player.x++; break;
                     case '↓': this.player.y++; break;
                     case 'R': {
@@ -3073,11 +3071,14 @@ async executeAiMove(move) {
                         }
                         break;
                     }
-case '↑':
+                    case '↑':
                         this.player.y = this.getGhostY();
                         break;
                 }
-                const delay = action === '↓' ? gameSettings.aiSdfDelay : gameSettings.aiMoveDelay;
+                let delay = gameSettings.aiMoveDelay;
+                if (action === '↓') {
+                    delay = gameSettings.aiSdfDelay;
+                }
                 await new Promise(resolve => setTimeout(resolve, delay));
             }
         }
