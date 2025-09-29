@@ -3013,7 +3013,8 @@ requestAiMove() {
         if (path) {
             for (const action of path) {
                 switch (action) {
-                    case '←': this.player.x--; break;
+                    case '←': this.player.x--;
+                    break;
                     case '→': this.player.x++; break;
                     case '↓': this.player.y++; break;
                     case 'R': {
@@ -3040,6 +3041,13 @@ requestAiMove() {
                 }
                 await new Promise(resolve => setTimeout(resolve, 30));
             }
+        }
+
+        if (path && path.length > 0) {
+            const lastMeaningfulAction = path.at(-1) === '↑' && path.length > 1 ? path.at(-2) : path.at(-1);
+            this.lastMoveWasRotation = lastMeaningfulAction === 'R' || lastMeaningfulAction === 'L';
+        } else {
+            this.lastMoveWasRotation = false;
         }
 
         this.player.rotation = move.rotation;
