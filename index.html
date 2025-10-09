@@ -3014,7 +3014,7 @@ requestAiMove() {
                         nextState = { x: x + 1, y: y, r: r };
                         break;
                     case '↓':
-                        nextState = { x: x, y: y + 1, r: r }
+                        nextState = { x: x, y: y + 1, r: r };
                         break;
                     case 'R':
                         nextState = this.tryRotate_forAI(minoType, x, y, r, 1, currentBoard);
@@ -3068,7 +3068,7 @@ requestAiMove() {
         }
 
         if (alternativeTarget) {
-            const queue2 = [[start.x, start.y, start.r, []]] 
+            const queue2 = [[start.x, start.y, start.r, []]];
             const visited2 = new Set([`${start.x},${start.y},${start.r}`]);
             while (queue2.length > 0) {
                  const [x, y, r, path] = queue2.shift();
