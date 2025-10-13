@@ -2771,7 +2771,7 @@ ctx.fillRect(meterX, meterMaxHeight - pendingHeight - queuedHeight + (0.5*BLOCK_
         ctx.font = `bold ${BLOCK_SIZE * 0.8}px "Orbitron"`;
         const charSpacing = BLOCK_SIZE * 0.6;
         const totalWidth = this.elapsedTimeText.length * charSpacing;
-        let startX = (HOLD_AREA_WIDTH / 2) - (totalWidth / 2);
+        let startX = (HOLD_AREA_WIDTH / 2) - (totalWidth / 2) -20;
 
         for (let i = 0; i < this.elapsedTimeText.length; i++) {
             const char = this.elapsedTimeText[i];
