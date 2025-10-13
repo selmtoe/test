@@ -2242,7 +2242,10 @@ this.nextQueue = [];
         this.isExecutingSequence = false;
         this.drawnBlocks.clear();
         this.isDrawingOnBoard = false;
-        this.holdPiece = this.initialHold; this.canHold = true;
+        this.holdPiece = this.initialHold;
+this.canHold = true;
+        this.ghostBlocks = [];
+        this.minoHistory = [];
 this.gravityTimer = gameSettings.gravity; this.lockTimer = 0;
 
         this.dasTimer = 0; this.arrTimer = 0; this.sdfTimer = 0; this.dasDirection = 0;
@@ -2479,21 +2482,32 @@ draw() {
 
         if (!this.gameOver && !this.gameClear && !this.isClearingLine && this.player.pieceType) { const shape = this.getShape(this.player.pieceType, this.player.rotation);
 const ghostY = this.getGhostY(); if (ghostY > this.player.y) this.drawPiece(shape, this.player.x, ghostY, this.player.pieceType, true); this.drawPiece(shape, this.player.x, this.player.y, this.player.pieceType, false);
+}
+        if (this.ghostBlocks.length > 0) {
+            this.ghostBlocks.forEach(block => {
+                if (block && block.type && Object.keys(activeSkin).includes(block.type)) {
+                    const screenY = block.y - this.viewY;
+                    if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
+                       this.drawBlock(block.type, block.x * BLOCK_SIZE, screenY * BLOCK_SIZE, true);
+                    }
+                }
+            });
         }
         if (this.drawnBlocks.size > 0) {
             ctx.fillStyle = '#FFFFFF';
-            ctx.globalAlpha = 0.8;
+ctx.globalAlpha = 0.8;
             for (const key of this.drawnBlocks.keys()) {
                 const [x, y] = key.split(',').map(Number);
-                const screenY = y - this.viewY;
+const screenY = y - this.viewY;
                 if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
                     ctx.fillRect(x * BLOCK_SIZE, screenY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-                }
+}
             }
             ctx.globalAlpha = 1.0;
-        }
+}
         this.drawSpecialMoveText();
         if (this.gameOver) this.drawMessage("GAME OVER");
+
         else if (this.gameClear) this.drawMessage("CLEAR!");
         ctx.restore(); ctx.restore();
     }
@@ -2547,14 +2561,15 @@ lockPiece() {
         if (!this.player.pieceType) return;
         
         let tspinResult = this.checkForTSpin();
-
+        this.minoHistory.push({ pieceType: this.player.pieceType, x: this.player.x, y: this.player.y, rotation: this.player.rotation });
         const shape = this.getShape(this.player.pieceType, this.player.rotation);
         this.specialMoveText = [];
         let moveText = '';
-
-        for (const b of shape) { const bx = Math.floor(this.player.x + b[0]), by = Math.floor(this.player.y + b[1]); if (by >= 0) this.board[by][bx] = this.player.pieceType; }
+for (const b of shape) { const bx = Math.floor(this.player.x + b[0]), by = Math.floor(this.player.y + b[1]);
+if (by >= 0) this.board[by][bx] = this.player.pieceType; }
         
         const lines = this.clearLines();
+
         const isPC = lines > 0 && this.board.every(row => row.every(cell => cell === null));
         
         let attack = 0;
@@ -4619,23 +4634,45 @@ type : null;
                         lines: lines,
                         receivedTime: performance.now()
                     });
-                }
+}
             },
             forceSetting: (key, value) => {
                 if (key in currentRunSettings) {
                     currentRunSettings[key] = value;
-                } else {
+} else {
                     console.warn(`Rule tried to force unknown setting: ${key}`);
+}
+            },
+            addGhostBlock: (player, x, y, type) => {
+                const targetPlayer = (player === p1Proxy && players[0]) ? players[0] : (player === p2Proxy && players[1]) ? players[1] : null;
+                if (targetPlayer && Object.keys(COLORS).includes(type)) {
+                    targetPlayer.ghostBlocks.push({ x: Math.floor(x), y: Math.floor(y), type });
+                }
+            },
+            clearGhostBlocks: (player) => {
+                const targetPlayer = (player === p1Proxy && players[0]) ? players[0] : (player === p2Proxy && players[1]) ? players[1] : null;
+                if (targetPlayer) {
+                    targetPlayer.ghostBlocks = [];
+                }
+            },
+            getMinoHistory: (player) => {
+                const targetPlayer = (player === p1Proxy && players[0]) ? players[0] : (player === p2Proxy && players[1]) ? players[1] : null;
+                return targetPlayer ? [...targetPlayer.minoHistory] : [];
+            },
+            setNextQueue: (player, newQueue) => {
+                const targetPlayer = (player === p1Proxy && players[0]) ? players[0] : (player === p2Proxy && players[1]) ? players[1] : null;
+                if (targetPlayer && Array.isArray(newQueue)) {
+                    const validPieces = Object.keys(TETROMINOS);
+                    const validatedQueue = newQueue.filter(p => validPieces.includes(p));
+                    targetPlayer.nextQueue = validatedQueue.slice(0, gameSettings.maxNext);
                 }
             },
             p1: p1Proxy,
             p2: p2Proxy
         };
-
-        
-        if (editorData.rule.code) {
+if (editorData.rule.code) {
             try {
-                const combinedCode = editorData.rule.code + 
+                const combinedCode = editorData.rule.code +
                     `\nreturn { 
                         onInit: typeof onInit === 'function' ? onInit : undefined,
      onPieceLock: typeof onPieceLock === 'function' ? onPieceLock : undefined,
@@ -5032,16 +5069,38 @@ document.getElementById('retryBtn').addEventListener('click', () => {
             forceSetting: (key, value) => {
                 if (key in currentRunSettings) {
                     currentRunSettings[key] = value;
-                } else {
+} else {
                     console.warn(`Rule tried to force unknown setting: ${key}`);
+}
+            },
+            addGhostBlock: (player, x, y, type) => {
+                const targetPlayer = (player === p1Proxy && players[0]) ? players[0] : (player === p2Proxy && players[1]) ? players[1] : null;
+                if (targetPlayer && Object.keys(COLORS).includes(type)) {
+                    targetPlayer.ghostBlocks.push({ x: Math.floor(x), y: Math.floor(y), type });
+                }
+            },
+            clearGhostBlocks: (player) => {
+                const targetPlayer = (player === p1Proxy && players[0]) ? players[0] : (player === p2Proxy && players[1]) ? players[1] : null;
+                if (targetPlayer) {
+                    targetPlayer.ghostBlocks = [];
+                }
+            },
+            getMinoHistory: (player) => {
+                const targetPlayer = (player === p1Proxy && players[0]) ? players[0] : (player === p2Proxy && players[1]) ? players[1] : null;
+                return targetPlayer ? [...targetPlayer.minoHistory] : [];
+            },
+            setNextQueue: (player, newQueue) => {
+                const targetPlayer = (player === p1Proxy && players[0]) ? players[0] : (player === p2Proxy && players[1]) ? players[1] : null;
+                if (targetPlayer && Array.isArray(newQueue)) {
+                    const validPieces = Object.keys(TETROMINOS);
+                    const validatedQueue = newQueue.filter(p => validPieces.includes(p));
+                    targetPlayer.nextQueue = validatedQueue.slice(0, gameSettings.maxNext);
                 }
             },
             p1: p1Proxy,
             p2: p2Proxy
         };
-
-     
-   if (editorData.rule.code) {
+if (editorData.rule.code) {
             try {
                 const combinedCode = editorData.rule.code + 
                     `\nreturn { 
