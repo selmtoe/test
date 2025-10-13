@@ -2260,9 +2260,11 @@ this.gravityTimer = gameSettings.gravity; this.lockTimer = 0;
         this.specialMoveText = [];
         this.specialMoveTextTimer = 0;
         this.customUIText = null;
+        this.elapsedTimeText = '0:00.000';
         this.lastGarbageHoleX = -1;
         this.spawnNewPiece();
-}
+    }
+
     
     spawnNewPiece() {
         this.player.pieceType = this.nextQueue.shift();
@@ -2317,14 +2319,22 @@ case 'rotateCW':  this.rotate(1); break;
     }
 update(dt) {
         if (this.gameOver || this.gameClear || this.isExecutingSequence) return;
-if (this.specialMoveTextTimer > 0) {
+        if (this.specialMoveTextTimer > 0) {
             this.specialMoveTextTimer -= dt;
         }
 
-this.processGarbageQueue();
+        if (this.gameApi && typeof this.gameApi.getTime === 'function') {
+            const totalMilliseconds = this.gameApi.getTime();
+            const minutes = Math.floor(totalMilliseconds / 60000);
+            const seconds = Math.floor((totalMilliseconds % 60000) / 1000);
+            const milliseconds = Math.floor(totalMilliseconds % 1000);
+            this.elapsedTimeText = `${minutes}:${String(seconds).padStart(2, '0')}.${String(milliseconds).padStart(3, '0')}`;
+        }
 
+this.processGarbageQueue();
         const left = this.isActionPressed('left');
         const right = this.isActionPressed('right');
+
         const horizDir = left ? -1 : (right ? 1 : 0);
         if (horizDir !== 0) {
             if (this.dasDirection !== horizDir) { 
@@ -2755,12 +2765,16 @@ ctx.fillRect(meterX, meterMaxHeight - pendingHeight - queuedHeight + (0.5*BLOCK_
             ctx.fillStyle = '#FFFFFF';
             ctx.fillText(this.customUIText, HOLD_AREA_WIDTH / 2, 300);
             ctx.font = `bold ${BLOCK_SIZE * 1.2}px "Orbitron"`;
-}
+        }
+
+        ctx.font = `bold ${BLOCK_SIZE * 0.8}px "Orbitron"`;
+        ctx.fillText(this.elapsedTimeText, HOLD_AREA_WIDTH / 2, CANVAS_HEIGHT - 20);
 
         ctx.fillStyle = '#FFF';
-const rX = PLAYFIELD_X_OFFSET + PLAYFIELD_WIDTH + PADDING + NEXT_AREA_WIDTH / 2;
+        const rX = PLAYFIELD_X_OFFSET + PLAYFIELD_WIDTH + PADDING + NEXT_AREA_WIDTH / 2;
 
         ctx.fillText('NEXT', rX, 40);
+
         for (let i = 0; i < gameSettings.maxNext; i++) {
             const pT = this.nextQueue[i];
             if (!pT) continue;
