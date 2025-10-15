@@ -2102,10 +2102,10 @@ const TETROMINOS = {
 };
 const SRS_OFFSETS = { "JLSTZ": { "0_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], "1_0": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], "1_2": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], "2_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], "2_3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], "3_2": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], "3_0": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], "0_3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], }, "I": { "0_1": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], "1_0": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], "1_2": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], "2_1": [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], "2_3": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], "3_2": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], "3_0": [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], "0_3": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], } };
 
-let players = [], gameMode = '1P', gameState = 'EDITING', lastTime = 0, mainCanvas, ctx, aiWorkerBlob, ruleIframe = null;
+let players = [], gameMode = '1P', gameState = 'EDITING', lastTime = 0, mainCanvas, ctx, aiWorkerBlob;
+
 function updateAiDebugDisplay(payload) {
     const display = document.getElementById('ai-debug-display');
-
     if (!display) return;
 
     // 盤面データをJavaScriptの2D配列形式の文字列に変換します
@@ -2414,14 +2414,18 @@ return;
             return;
 }
 
-        if (ruleIframe) {
-            ruleIframe.contentWindow.postMessage({ type: 'onUpdate', payload: { playerId: this.id } }, '*');
+        if (this.ruleHooks.onUpdate && typeof this.ruleHooks.onUpdate === 'function') {
+            try {
+                this.ruleHooks.onUpdate(this.gameApi, this);
+} catch (e) {
+                console.error("Rule error onUpdate:", e);
+this.gameOver = true;
+                return;
+            }
         }
-
         if (this.gameOver || this.gameClear) return;
         if (this.isActionPressed('softDrop')) {
              if (gameSettings.sdf > 0) {
-
                 this.sdfTimer += dt;
                 if (this.sdfTimer >= gameSettings.sdf) {
                     this.move(0, 1);
@@ -2653,19 +2657,23 @@ lockPiece() {
             } else {
                 if (this.pendingGarbage > 0) { const offset = Math.min(this.pendingGarbage, remainingAttack); this.pendingGarbage -= offset; remainingAttack -= offset; }
                 if (remainingAttack > 0) { for (let i=0; i < this.garbageQueue.length && remainingAttack > 0; i++) { const offset = Math.min(this.garbageQueue[i].lines, remainingAttack); this.garbageQueue[i].lines -= offset; remainingAttack -= offset; } this.garbageQueue = this.garbageQueue.filter(g => g.lines > 0); }
-                if (remainingAttack > 0) { this.opponent.addGarbage(remainingAttack);
-}
+                if (remainingAttack > 0) { this.opponent.addGarbage(remainingAttack); }
             }
         }
-
-        if (ruleIframe) {
-            ruleIframe.contentWindow.postMessage({ type: 'onPieceLock', payload: { playerId: this.id, moveInfo } }, '*');
+        
+        if (this.ruleHooks.onPieceLock && typeof this.ruleHooks.onPieceLock === 'function') {
+             try {
+                this.ruleHooks.onPieceLock(this.gameApi, this, moveInfo);
+            } catch (e) {
+                console.error("Rule error onPieceLock:", e);
+                this.gameOver = true;
+            }
         }
-
         if (this.gameOver || this.gameClear) return;
-        if (this.specialMoveText.length > 0) {
-            this.specialMoveTextTimer = 1500;
 
+
+if (this.specialMoveText.length > 0) {
+            this.specialMoveTextTimer = 1500;
         }
 
         if (this.nextQueue[0] === 'E') {    
@@ -4569,56 +4577,63 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    function startGame(isRetry = false) {
-        if (isRetry && (gameState !== 'PLAYING' || !players.length)) return;
-
-        if (players.length > 0) {
-            players.forEach(p => {
-                if (p.aiWorker) p.aiWorker.terminate();
-            });
-        }
-        if (ruleIframe) {
-            document.body.removeChild(ruleIframe);
-            ruleIframe = null;
-        }
-
-        loadGameSettings();
+document.getElementById('startGameBtn').addEventListener('click', () => {
         let currentRunSettings = { ...gameSettings };
+        let userFunctions = {};
         let startTime = performance.now();
-        const wasHoldDisabled = isRetry ? players[0].holdDisabled : autoStartParams.nh;
-
+        
         players = [];
-        const p1_isAi = document.getElementById('p1-ai-toggle').checked;
+const p1_isAi = document.getElementById('p1-ai-toggle').checked;
         const p2_isAi = document.getElementById('p2-ai-toggle').checked;
-
+        
         if (gameMode === '1P') {
             const player = new Player('1', 0, keyBindings.p1, 0, p1_isAi);
-            player.holdDisabled = wasHoldDisabled;
+player.holdDisabled = autoStartParams.nh;
             players.push(player);
-        } else {
+} else {
             const p1 = new Player('1', 0, keyBindings.p1, 0, p1_isAi);
-            p1.holdDisabled = wasHoldDisabled;
+            p1.holdDisabled = autoStartParams.nh;
             const p2 = new Player('2', PLAYER_CANVAS_WIDTH, keyBindings.p2, 1, p2_isAi);
-            p2.holdDisabled = wasHoldDisabled;
+            p2.holdDisabled = autoStartParams.nh;
             p1.opponent = p2;
-            p2.opponent = p1;
+p2.opponent = p1;
             players.push(p1, p2);
         }
 
         const createPlayerProxy = (player) => {
             if (!player) return null;
-            return {
-                id: player.id,
-                get stats() { return { ...player.stats }; },
+return {
+                get stats() { return player.stats;
+},
+                board: {
+                    hasBlock: (x, y) => {
+                        if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) return true;
+return player.board[y][x] !== null;
+                    },
+                    placeBlock: (x, y, type) => {
+                        if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
+                           player.board[y][x] = Object.keys(COLORS).includes(type) ?
+type : null;
+                        }
+                    },
+                },
             };
-        };
+};
 
         const p1Proxy = createPlayerProxy(players[0]);
         const p2Proxy = createPlayerProxy(players[1]);
 
         const gameApi = {
-            win: (playerId) => {
-                const targetPlayer = players.find(p => p.id === playerId);
+            win: (player) => {
+                let targetPlayer = null;
+                if (player instanceof Player) {
+                    targetPlayer = player;
+                } else if (player === p1Proxy) {
+                    targetPlayer = players[0];
+                } else if (player === p2Proxy) {
+                    targetPlayer = players[1];
+                }
+
                 if (targetPlayer) {
                     targetPlayer.gameClear = true;
                     const message = 'clear';
@@ -4626,30 +4641,62 @@ document.addEventListener('DOMContentLoaded', () => {
                     window.parent.postMessage(message, targetOrigin);
                 }
             },
-            lose: (playerId) => {
-                const targetPlayer = players.find(p => p.id === playerId);
-                if (targetPlayer) targetPlayer.gameOver = true;
-            },
-            displayGhostBlock: (playerId, x, y, type) => {
-                const targetPlayer = players.find(p => p.id === playerId);
-                if (targetPlayer && x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
-                    const pieceType = Object.keys(COLORS).includes(type) ? type : null;
-                    targetPlayer.customGhosts.push({ x, y, pieceType });
+            lose: (player) => {
+                let targetPlayer = null;
+                if (player instanceof Player) {
+                    targetPlayer = player;
+                } else if (player === p1Proxy) {
+                    targetPlayer = players[0];
+                } else if (player === p2Proxy) {
+                    targetPlayer = players[1];
+                }
+
+                if (targetPlayer) {
+                    targetPlayer.gameOver = true;
                 }
             },
-            clearAllGhostBlocks: (playerId) => {
-                const targetPlayer = players.find(p => p.id === playerId);
-                if (targetPlayer) targetPlayer.customGhosts = [];
+            displayGhostBlock: (player, x, y, type) => {
+                const targetPlayer = (player === p1Proxy && players[0]) ?
+                    players[0] :
+                    (player === p2Proxy && players[1]) ?
+                    players[1] : null;
+                if (targetPlayer) {
+                    if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
+                        const pieceType = Object.keys(COLORS).includes(type) ? type : null;
+                        targetPlayer.customGhosts.push({x, y, pieceType});
+                    }
+                }
             },
-            setCustomUIText: (playerId, text) => {
-                const targetPlayer = players.find(p => p.id === playerId);
-                if (targetPlayer) targetPlayer.customUIText = String(text);
+            clearAllGhostBlocks: (player) => {
+                const targetPlayer = (player === p1Proxy && players[0]) ?
+                    players[0] :
+                    (player === p2Proxy && players[1]) ?
+                    players[1] : null;
+                if (targetPlayer) {
+                    targetPlayer.customGhosts = [];
+                }
+            },
+            setCustomUIText: (player, text) => {
+                const targetPlayer = (player === p1Proxy && players[0]) ?
+players[0] :
+                    (player === p2Proxy && players[1]) ?
+players[1] : null;
+                if (targetPlayer) {
+
+                    targetPlayer.customUIText = String(text);
+                }
             },
             getTime: () => performance.now() - startTime,
-            sendAttack: (receivingPlayerId, lines) => {
-                const targetPlayer = players.find(p => p.id === receivingPlayerId);
+            sendAttack: (receivingPlayer, lines) => {
+                const targetPlayer = (receivingPlayer === p1Proxy && players[0]) ?
+                    players[0] :
+                    (receivingPlayer === p2Proxy && players[1]) ?
+                    players[1] : null;
                 if (targetPlayer) {
-                    targetPlayer.garbageQueue.push({ lines, receivedTime: performance.now() });
+                    targetPlayer.garbageQueue.push({
+                        lines: lines,
+                        receivedTime: performance.now()
+                    });
                 }
             },
             forceSetting: (key, value) => {
@@ -4658,135 +4705,88 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     console.warn(`Rule tried to force unknown setting: ${key}`);
                 }
-            }
+            },
+            p1: p1Proxy,
+            p2: p2Proxy
         };
 
-        window.addEventListener('message', function handleIframeApiCall(event) {
-            if (event.source !== ruleIframe.contentWindow) return;
-            const { type, func, payload } = event.data;
-            if (type === 'apiCall') {
-                if (typeof gameApi[func] === 'function') {
-                    gameApi[func](...payload);
-                }
-            } else if (type === 'initError') {
-                alert('カスタムルールコードの実行中にエラーが発生しました:\n' + payload.error);
-                console.error("Custom rule script error:", payload.error);
-                document.getElementById('backToEditorBtn').click();
+        
+        if (editorData.rule.code) {
+            try {
+                const combinedCode = editorData.rule.code + 
+                    `\nreturn { 
+                        onInit: typeof onInit === 'function' ? onInit : undefined,
+     onPieceLock: typeof onPieceLock === 'function' ? onPieceLock : undefined,
+                        onUpdate: typeof onUpdate === 'function' ?
+onUpdate : undefined
+                    };`;
+const ruleScript = new Function('api', combinedCode);
+                const returnedFuncs = ruleScript(gameApi);
+if (returnedFuncs.onInit) {
+                    returnedFuncs.onInit(gameApi);
+}
+                userFunctions = returnedFuncs;
+} catch (e) {
+                alert('カスタムルールコードの実行中にエラーが発生しました:\n' + e.message);
+console.error("Custom rule script error:", e);
+                return;
             }
+        }
+        
+        players.forEach(p => {
+            p.ruleHooks = userFunctions;
+            p.gameApi = gameApi;
         });
 
-        if (editorData.rule.code) {
-            ruleIframe = document.createElement('iframe');
-            ruleIframe.style.display = 'none';
-            ruleIframe.sandbox = 'allow-scripts';
+        const originalSettingsBeforeRun = { ...gameSettings };
+Object.assign(gameSettings, currentRunSettings);
 
-            const iframeScript = `
-                let userFunctions = {};
-                const p1Proxy = { id: '1' };
-                const p2Proxy = ${gameMode === '2P' ? '{ id: \'2\' }' : 'null'};
-
-                const apiProxy = {
-                    win: (player) => parent.postMessage({ type: 'apiCall', func: 'win', payload: [player.id] }, '*'),
-                    lose: (player) => parent.postMessage({ type: 'apiCall', func: 'lose', payload: [player.id] }, '*'),
-                    displayGhostBlock: (player, x, y, type) => parent.postMessage({ type: 'apiCall', func: 'displayGhostBlock', payload: [player.id, x, y, type] }, '*'),
-                    clearAllGhostBlocks: (player) => parent.postMessage({ type: 'apiCall', func: 'clearAllGhostBlocks', payload: [player.id] }, '*'),
-                    setCustomUIText: (player, text) => parent.postMessage({ type: 'apiCall', func: 'setCustomUIText', payload: [player.id, text] }, '*'),
-                    getTime: () => parent.postMessage({ type: 'apiCall', func: 'getTime', payload: [] }, '*'),
-                    sendAttack: (player, lines) => parent.postMessage({ type: 'apiCall', func: 'sendAttack', payload: [player.id, lines] }, '*'),
-                    forceSetting: (key, value) => parent.postMessage({ type: 'apiCall', func: 'forceSetting', payload: [key, value] }, '*'),
-                    p1: p1Proxy,
-                    p2: p2Proxy
-                };
-
-                self.addEventListener('message', (e) => {
-                    const { type, payload } = e.data;
-                    try {
-                        switch (type) {
-                            case 'init':
-                                const combinedCode = payload.code + \`\\nreturn { 
-                                    onInit: typeof onInit === 'function' ? onInit : undefined,
-                                    onPieceLock: typeof onPieceLock === 'function' ? onPieceLock : undefined,
-                                    onUpdate: typeof onUpdate === 'function' ? onUpdate : undefined
-                                };\`;
-                                const ruleScript = new Function('api', combinedCode);
-                                userFunctions = ruleScript(apiProxy);
-                                if (userFunctions.onInit) {
-                                    userFunctions.onInit(apiProxy);
-                                }
-                                break;
-                            case 'onPieceLock':
-                                if (userFunctions.onPieceLock) {
-                                    const playerProxy = payload.playerId === '1' ? p1Proxy : p2Proxy;
-                                    userFunctions.onPieceLock(apiProxy, playerProxy, payload.moveInfo);
-                                }
-                                break;
-                            case 'onUpdate':
-                                if (userFunctions.onUpdate) {
-                                    const playerProxy = payload.playerId === '1' ? p1Proxy : p2Proxy;
-                                    userFunctions.onUpdate(apiProxy, playerProxy);
-                                }
-                                break;
-                        }
-                    } catch (err) {
-                        parent.postMessage({ type: 'initError', payload: { error: err.message } }, '*');
-                    }
-                });
-            `;
-            const iframeBlob = new Blob([iframeScript], { type: 'application/javascript' });
-            ruleIframe.src = URL.createObjectURL(iframeBlob);
-
-            ruleIframe.onload = () => {
-                ruleIframe.contentWindow.postMessage({ type: 'init', payload: { code: editorData.rule.code } }, '*');
-                URL.revokeObjectURL(iframeBlob);
-            };
-            document.body.appendChild(ruleIframe);
-        }
-
-        Object.assign(gameSettings, currentRunSettings);
-
-        gameState = 'PLAYING';
-        document.getElementById('editor-container').style.display = 'none';
+        gameState = 'PLAYING'; 
+        document.getElementById('editor-container').style.display = 'none'; 
         document.getElementById('game-container').style.display = 'block';
         document.getElementById('scan-controls').style.display = 'none';
         document.getElementById('game-controls').style.display = 'flex';
-        const ruleDescDisplay = document.getElementById('rule-description-display');
+const ruleDescDisplay = document.getElementById('rule-description-display');
         if (editorData.rule.description) {
             ruleDescDisplay.innerText = editorData.rule.description;
-            ruleDescDisplay.style.display = 'block';
+ruleDescDisplay.style.display = 'block';
             const p1OffsetX = 0;
             const leftPos = p1OffsetX + PADDING;
-            const topPos = 160;
+            const topPos = 160; 
             ruleDescDisplay.style.left = `${leftPos}px`;
-            ruleDescDisplay.style.top = `${topPos}px`;
+ruleDescDisplay.style.top = `${topPos}px`;
             ruleDescDisplay.style.maxWidth = `${HOLD_AREA_WIDTH - PADDING}px`;
         } else {
             ruleDescDisplay.style.display = 'none';
-        }
+}
         
         if (autoStartParams.hb) {
             document.getElementById('backToEditorBtn').style.display = 'none';
-        } else {
+} else {
             document.getElementById('backToEditorBtn').style.display = '';
-        }
+}
 
         ctx.setTransform(1, 0, 0, 1, 0, 0);
+
         if (gameMode === '1P') {
             mainCanvas.width = PLAYER_CANVAS_WIDTH * RESOLUTION_SCALE;
-            mainCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
+mainCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
             mainCanvas.style.width = PLAYER_CANVAS_WIDTH + 'px';
             mainCanvas.style.height = CANVAS_HEIGHT + 'px';
-        } else {
+}
+        else {
             const totalWidth = PLAYER_CANVAS_WIDTH * 2;
-            mainCanvas.width = totalWidth * RESOLUTION_SCALE;
+mainCanvas.width = totalWidth * RESOLUTION_SCALE; 
             mainCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
             mainCanvas.style.width = totalWidth + 'px';
             mainCanvas.style.height = CANVAS_HEIGHT + 'px';
         }
+
         
         autoStartParams = { ss: false, nh: false, hb: false };
         ctx.scale(RESOLUTION_SCALE, RESOLUTION_SCALE);
 
-        if (gameSettings.touchControlsEnabled && gameSettings.touchControlType === 'button') {
+if (gameSettings.touchControlsEnabled && gameSettings.touchControlType === 'button') {
             virtualController.show();
         }
 
@@ -4801,11 +4801,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         setTimeout(updateScale, 0);
-    }
-    
-    document.getElementById('startGameBtn').addEventListener('click', () => startGame(false));
+    });
 
-    document.getElementById('backToEditorBtn').addEventListener('click', () => {
+
+document.getElementById('backToEditorBtn').addEventListener('click', () => {
         gameState = 'EDITING';
         
         if (players.length > 0) {
@@ -4814,10 +4813,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     p.aiWorker.terminate();
                 }
             });
-        }
-        if (ruleIframe) {
-            document.body.removeChild(ruleIframe);
-            ruleIframe = null;
         }
         
         players = [];
@@ -4833,6 +4828,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const aiDebugControls = document.getElementById('ai-debug-controls');
         if(aiDebugDisplay) aiDebugDisplay.style.display = 'none';
         if(aiDebugControls) aiDebugControls.style.display = 'none';
+
         setTimeout(updateScale, 0);
     });
     
@@ -4843,8 +4839,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }); 
         document.getElementById(`pptLoader-${pId}`).addEventListener('change', e => { 
-            if (e.target.files && 
-e.target.files[0]) {
+            if (e.target.files && e.target.files[0]) {
                 processPptImage(e.target.files[0]);
             }
         });
@@ -4856,6 +4851,7 @@ e.target.files[0]) {
     const scaleY = mainCanvas.height / rect.height;
     const pos = { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
     if (gameState==='SCAN_BL') scanState.bottomLeft=pos; else if (gameState==='SCAN_TR') scanState.topRight=pos; updateScanUI(); });
+
     const getDrawCoordsFromEvent = (e) => {
         if (!players[0]) return null;
         const rect = mainCanvas.getBoundingClientRect();
@@ -4868,7 +4864,7 @@ e.target.files[0]) {
 
     const handleDrawStartOnBoard = e => {
         if (gameState !== 'PLAYING' || !gameSettings.touchControlsEnabled || gameSettings.touchControlType !== 'draw' || !players[0] || players[0].isExecutingSequence) return;
-        e.preventDefault();
+e.preventDefault();
         players[0].isDrawingOnBoard = true;
         const coords = getDrawCoordsFromEvent(e);
 
@@ -4887,6 +4883,7 @@ e.target.files[0]) {
             }
         }
     };
+
     const handleDrawEndOnBoard = e => {
         if (gameState !== 'PLAYING' || !gameSettings.touchControlsEnabled || gameSettings.touchControlType !== 'draw' || !players[0] || !players[0].isDrawingOnBoard) return;
         e.preventDefault();
@@ -4902,9 +4899,11 @@ e.target.files[0]) {
     mainCanvas.addEventListener('touchmove', handleDrawMoveOnBoard, { passive: false });
     mainCanvas.addEventListener('touchend', handleDrawEndOnBoard, { passive: false });
     mainCanvas.addEventListener('touchcancel', handleDrawEndOnBoard, { passive: false });
+
     document.getElementById('settingsBtn').addEventListener('click', () => openUnifiedSettingsModal('general'));
     document.getElementById('p1-key-config-btn').addEventListener('click', () => openUnifiedSettingsModal('p1-keys'));
     document.getElementById('p2-key-config-btn').addEventListener('click', () => openUnifiedSettingsModal('p2-keys'));
+
     document.getElementById('settings-close').addEventListener('click', () => {
         saveGameSettings();
         try { localStorage.setItem('tetrisKeyBindings', JSON.stringify(keyBindings)); } 
@@ -4913,10 +4912,12 @@ e.target.files[0]) {
         document.getElementById('settings-modal').style.display = 'none';
         isBindingKey = false; bindingPlayer = null; bindingAction = null;
     });
+
     document.getElementById('vc-edit-layout-btn').addEventListener('click', () => {
         document.getElementById('settings-modal').style.display = 'none';
         virtualController.startEditMode();
     });
+
     const touchModeButtons = document.querySelectorAll('#p1-touch-mode-selection .button');
         touchModeButtons.forEach(button => {
         button.addEventListener('click', () => {
@@ -4925,17 +4926,18 @@ e.target.files[0]) {
             touchModeButtons.forEach(btn => btn.classList.remove('active'));
             button.classList.add('active');
             document.getElementById('p1-touch-button-controls').style.display = newMode === 'button' ? 'flex' : 'none';
-       
-             document.getElementById('p1-touch-draw-controls').style.display = newMode === 'draw' ? 'flex' : 'none';
+            document.getElementById('p1-touch-draw-controls').style.display = newMode === 'draw' ? 'flex' : 'none';
        
  });
     });
+
     document.getElementById('vc-save-and-close-btn').addEventListener('click', () => {
 
         virtualController.endEditMode();
     });
     document.getElementById('vc-copy-layout-btn').addEventListener('click', virtualController.copyLayoutsToClipboard);
     document.getElementById('vc-paste-layout-btn').addEventListener('click', virtualController.importLayoutsFromClipboard);
+
     document.addEventListener('keydown', e => {
         if (isBindingKey) {
             e.preventDefault();
@@ -4943,14 +4945,12 @@ e.target.files[0]) {
             if (keyLabel === ' ') keyLabel = 'Space';
             bindKey({ type: 'key', value: e.key.toLowerCase(), label: keyLabel });
         } 
-        else if (gameState === 'PLAYING') 
-{
+        else if (gameState === 'PLAYING') {
             players.forEach(p => {
                 p.keys[e.key.toLowerCase()] = true;
                 Object.keys(p.keyBindings).forEach(action => {
                     const binding = p.keyBindings[action];
-                    if (binding.type === 'key' && binding.value === 
-e.key.toLowerCase()) {
+                    if (binding.type === 'key' && binding.value === e.key.toLowerCase()) {
                         p.handlePress(action);
                     }
                 });
@@ -4962,6 +4962,7 @@ e.key.toLowerCase()) {
             players.forEach(p => p.keys[e.key.toLowerCase()] = false );
         }
     });
+
     const manifest = {
         "name": "Tetris Simulator", "short_name": "TetrisSim", "start_url": ".",
         "display": "standalone", "background_color": "#1a1a2e", "theme_color": "#1a1a2e",
@@ -4976,21 +4977,19 @@ e.key.toLowerCase()) {
     if ('serviceWorker' in navigator) {
         const swCode = `
             const CACHE_NAME = 'tetris-sim-cache-v1';
-self.addEventListener('install', event => {
+            self.addEventListener('install', event => {
                 event.waitUntil(
                     caches.open(CACHE_NAME).then(cache => {
                         return cache.add(location.pathname);
                     })
-              
-  );
+                );
             });
-self.addEventListener('fetch', event => {
+            self.addEventListener('fetch', event => {
                 event.respondWith(
                     caches.match(event.request).then(response => {
                         return response || fetch(event.request);
                     })
-            
-    );
+                );
             });
         `;
         const blob = new Blob([swCode], { type: 'application/javascript' });
@@ -4999,12 +4998,182 @@ self.addEventListener('fetch', event => {
             .catch(err => console.error('Service Worker registration failed:', err));
     }
     
-    document.getElementById('retryBtn').addEventListener('click', () => startGame(true));
+document.getElementById('retryBtn').addEventListener('click', () => {
+        if (gameState !== 'PLAYING' || !players.length) return;
+        
+        players.forEach(p => {
+            if (p.aiWorker) {
+                p.aiWorker.terminate();
+            }
+        });
 
+        loadGameSettings();
+        
+        let currentRunSettings = { ...gameSettings };
+        let userFunctions = {};
+        let startTime = performance.now();
+        const wasHoldDisabled = players[0].holdDisabled;
+
+        const p1_isAi_retry = document.getElementById('p1-ai-toggle').checked;
+        const p2_isAi_retry = document.getElementById('p2-ai-toggle').checked;
+
+        const tempPlayers = [];
+        if (gameMode === '1P') {
+            const p = new Player('1', 0, keyBindings.p1, 0, p1_isAi_retry);
+            p.holdDisabled = wasHoldDisabled;
+            tempPlayers.push(p);
+        } else {
+            const p1 = new Player('1', 0, keyBindings.p1, 0, p1_isAi_retry);
+            p1.holdDisabled = wasHoldDisabled;
+            const p2 = new Player('2', PLAYER_CANVAS_WIDTH, keyBindings.p2, 1, p2_isAi_retry);
+            p2.holdDisabled = wasHoldDisabled;
+            p1.opponent = p2;
+            p2.opponent = p1;
+            tempPlayers.push(p1, p2);
+        }
+
+        const createPlayerProxy = (player) => {
+            if (!player) return null;
+            return {
+                get stats() { return player.stats; },
+                board: {
+                    hasBlock: (x, y) => {
+                        if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) return true;
+                        return player.board[y][x] !== null;
+                    },
+                    placeBlock: (x, y, type) => {
+                        if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
+                           player.board[y][x] = Object.keys(COLORS).includes(type) ? type : null;
+                        }
+                    },
+                },
+            };
+        };
+
+        const p1Proxy = createPlayerProxy(tempPlayers[0]);
+        const p2Proxy = createPlayerProxy(tempPlayers[1]);
+        
+        const gameApi = {
+            win: (player) => {
+                let targetPlayer = null;
+                if (player instanceof Player) {
+                    targetPlayer = player;
+                } else if (player === p1Proxy) {
+                    targetPlayer = tempPlayers[0];
+                } else if (player === p2Proxy) {
+                    targetPlayer = tempPlayers[1];
+                }
+
+                if (targetPlayer) {
+                    targetPlayer.gameClear = true;
+                    const message = 'clear';
+                    const targetOrigin = '*';
+                    window.parent.postMessage(message, targetOrigin);
+                }
+            },
+            lose: (player) => {
+                let targetPlayer = null;
+                if (player instanceof Player) {
+                    targetPlayer = player;
+                } else if (player === p1Proxy) {
+                    targetPlayer = tempPlayers[0];
+                } else if (player === p2Proxy) {
+                    targetPlayer = tempPlayers[1];
+                }
+
+                if (targetPlayer) {
+                    targetPlayer.gameOver = true;
+                }
+            },
+            displayGhostBlock: (player, x, y, type) => {
+                const targetPlayer = (player === p1Proxy && tempPlayers[0]) ?
+                    tempPlayers[0] :
+                    (player === p2Proxy && tempPlayers[1]) ?
+                    tempPlayers[1] : null;
+                if (targetPlayer) {
+                    if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
+                        const pieceType = Object.keys(COLORS).includes(type) ? type : null;
+                        targetPlayer.customGhosts.push({x, y, pieceType});
+                    }
+                }
+            },
+            clearAllGhostBlocks: (player) => {
+                const targetPlayer = (player === p1Proxy && tempPlayers[0]) ?
+                    tempPlayers[0] :
+                    (player === p2Proxy && tempPlayers[1]) ?
+                    tempPlayers[1] : null;
+                if (targetPlayer) {
+                    targetPlayer.customGhosts = [];
+                }
+            },
+            setCustomUIText: (player, text) => {
+                const targetPlayer = (player === p1Proxy && tempPlayers[0]) ?
+tempPlayers[0] :
+                    (player === p2Proxy && tempPlayers[1]) ?
+tempPlayers[1] : null;
+                if (targetPlayer) {
+
+                    targetPlayer.customUIText = String(text);
+                }
+            },
+            getTime: () => performance.now() - startTime,
+            sendAttack: (receivingPlayer, lines) => {
+                const targetPlayer = (receivingPlayer === p1Proxy && tempPlayers[0]) ?
+                    tempPlayers[0] :
+                    (receivingPlayer === p2Proxy && tempPlayers[1]) ?
+                    tempPlayers[1] : null;
+                if (targetPlayer) {
+                    targetPlayer.garbageQueue.push({
+                        lines: lines,
+                        receivedTime: performance.now()
+                    });
+                }
+            },
+            forceSetting: (key, value) => {
+                if (key in currentRunSettings) {
+                    currentRunSettings[key] = value;
+                } else {
+                    console.warn(`Rule tried to force unknown setting: ${key}`);
+                }
+            },
+            p1: p1Proxy,
+            p2: p2Proxy
+        };
+
+     
+   if (editorData.rule.code) {
+            try {
+                const combinedCode = editorData.rule.code + 
+                    `\nreturn { 
+                      onInit: typeof onInit === 'function' ? onInit : undefined,
+                        onPieceLock: typeof onPieceLock === 'function' ?
+onPieceLock : undefined,
+                        onUpdate: typeof onUpdate === 'function' ?
+onUpdate : undefined
+                    };`;
+const ruleScript = new Function('api', combinedCode);
+                const returnedFuncs = ruleScript(gameApi);
+if (returnedFuncs.onInit) {
+                    returnedFuncs.onInit(gameApi);
+}
+                userFunctions = returnedFuncs;
+} catch (e) {
+                alert('リトライ時にカスタムルールコードの実行でエラーが発生しました:\n' + e.message);
+console.error("Custom rule script error on retry:", e);
+                return;
+            }
+        }
+        
+        Object.assign(gameSettings, currentRunSettings);
+        players = tempPlayers;
+        players.forEach(p => {
+            p.ruleHooks = userFunctions;
+            p.gameApi = gameApi;
+        });
+});
     document.getElementById('gameSettingsBtn').addEventListener('click', () => {
         openUnifiedSettingsModal('general');
     });
-
     setupEditors();
 
     loadStateFromURL();
