@@ -4481,19 +4481,21 @@ function gameLoop(currentTime) {
     pollGamepads();
     const dt = currentTime - lastTime;
     lastTime = currentTime;
-
-    if (gameState === 'PLAYING') {
+if (gameState === 'PLAYING') {
         ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
-        players.forEach(p => p.update(dt || 0));
+players.forEach(p => p.update(dt || 0));
         players.forEach(p => p.draw());
     } else if (gameState.startsWith('SCAN')) {
         ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
-        drawScanner();
+drawScanner();
+    } else if (gameState === 'REPLAY') {
+        drawReplayFrame(currentFrameIndex);
     }
     requestAnimationFrame(gameLoop);
 }
 
 const mainContainer = document.querySelector('.main-container');
+
 
 
 function updateScale() {
