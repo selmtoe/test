@@ -5394,9 +5394,10 @@ ctx.restore();
 
 
 
+    const getShapeForReplay = (p, r) => { if(!p) return []; const o=TETROMINOS[p].shape; if(r===0||p==='O')return o; const c=TETROMINOS[p].center; return o.map(b=>{let [x,y]=[b[0]-c[0],b[1]-c[1]]; for(let i=0;i<r;i++){[x,y]=[-y,x];} return [x+c[0]+(p==='O'?0.5:0),y+c[1]+(p==='O'?0.5:0)];});};
+
     function drawReplayFrame(frameIndex) {
         if (!replayViewerData) return;
-
         ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
         
         const isInitialState = frameIndex === -1;
@@ -5407,21 +5408,41 @@ ctx.restore();
         if (replayViewerData.gameMode === '2P') {
             drawReplayPlayerState(p2Data, PLAYER_CANVAS_WIDTH);
         }
+        
+        if (!isInitialState) {
+            const frame = replayViewerData.frames[frameIndex];
+            const { playerId, placement } = frame;
+            const offsetX = (playerId === '1') ? 0 : PLAYER_CANVAS_WIDTH;
+            const viewY = BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT;
+            const shape = getShapeForReplay(placement.pieceType, placement.rotation);
+
+            ctx.save();
+            ctx.translate(offsetX + PLAYFIELD_X_OFFSET, 0.5 * BLOCK_SIZE);
+            
+            ctx.fillStyle = '#FFFFFF';
+            ctx.globalAlpha = 0.3;
+            shape.forEach(b => {
+                const px = Math.floor(placement.x + b[0]) * BLOCK_SIZE;
+                const py = (Math.floor(placement.y + b[1]) - viewY) * BLOCK_SIZE;
+                ctx.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
+            });
+            ctx.globalAlpha = 1.0;
+            ctx.restore();
+        }
+
 
         const frameCounter = document.getElementById('replay-frame-counter');
-        const frameNum = isInitialState ? 0 : frameIndex + 1;
+        const frameNum = isInitialState ?
+            0 : frameIndex + 1;
         frameCounter.textContent = `${frameNum} / ${replayViewerData.frames.length}`;
     }
 
     function showReplayViewer(data) {
         gameState = 'REPLAY';
         replayViewerData = data;
-        currentFrameIndex = -1;
+        currentFrameIndex = 0;
 
         document.getElementById('game-container').style.display = 'block';
-        document.getElementById('game-controls').style.display = 'none';
-        document.getElementById('editor-container').style.display = 'none';
-        document.getElementById('replay-viewer-container').style.display = 'block';
         if (players.length > 0 && virtualController) virtualController.hide();
 
         ctx.setTransform(1, 0, 0, 1, 0, 0);
