@@ -336,13 +336,12 @@ left: 10px; top: 150px;">
     </div>
 </div>
 
-<div id="game-controls" style="display: none;
-position: fixed; top: 10px; right: 10px; z-index: 160; gap: 10px;">
+<div id="game-controls" style="display: none; position: fixed; top: 10px; right: 10px; z-index: 160; gap: 10px;">
      <button id="retryBtn" class="button">リトライ</button>
+     <button id="saveReplayBtn" class="button">譜面を保存</button>
      <button id="gameSettingsBtn" class="button">設定</button>
      <button id="backToEditorBtn" class="button">戻る</button>
 </div>
-
 
 <div id="virtual-controller-container">
 
@@ -2103,6 +2102,8 @@ const TETROMINOS = {
 const SRS_OFFSETS = { "JLSTZ": { "0_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], "1_0": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], "1_2": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], "2_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], "2_3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], "3_2": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], "3_0": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], "0_3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], }, "I": { "0_1": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], "1_0": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], "1_2": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], "2_1": [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], "2_3": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], "3_2": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], "3_0": [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], "0_3": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], } };
 
 let players = [], gameMode = '1P', gameState = 'EDITING', lastTime = 0, mainCanvas, ctx, aiWorkerBlob;
+let replayData = null, startTime = 0;
+
 
 function updateAiDebugDisplay(payload) {
     const display = document.getElementById('ai-debug-display');
@@ -2652,18 +2653,55 @@ lockPiece() {
 
         if (this.opponent && attack > 0) {
             let remainingAttack = attack;
-             if (isPC) {
+            if (isPC) {
                 this.opponent.addGarbage(remainingAttack);
             } else {
-                if (this.pendingGarbage > 0) { const offset = Math.min(this.pendingGarbage, remainingAttack); this.pendingGarbage -= offset; remainingAttack -= offset; }
-                if (remainingAttack > 0) { for (let i=0; i < this.garbageQueue.length && remainingAttack > 0; i++) { const offset = Math.min(this.garbageQueue[i].lines, remainingAttack); this.garbageQueue[i].lines -= offset; remainingAttack -= offset; } this.garbageQueue = this.garbageQueue.filter(g => g.lines > 0); }
-                if (remainingAttack > 0) { this.opponent.addGarbage(remainingAttack); }
+                if (this.pendingGarbage > 0) { const offset = Math.min(this.pendingGarbage, remainingAttack);
+                this.pendingGarbage -= offset; remainingAttack -= offset; }
+                if (remainingAttack > 0) { for (let i=0; i < this.garbageQueue.length && remainingAttack > 0; i++) { const offset = Math.min(this.garbageQueue[i].lines, remainingAttack);
+                this.garbageQueue[i].lines -= offset; remainingAttack -= offset; } this.garbageQueue = this.garbageQueue.filter(g => g.lines > 0);
+                }
+                if (remainingAttack > 0) { this.opponent.addGarbage(remainingAttack);
+                }
             }
+        }
+
+        if (replayData) {
+            const frame = {
+                playerId: this.id,
+                placement: {
+                    pieceType: this.player.pieceType,
+                    x: this.player.x,
+                    y: this.player.y,
+                    rotation: this.player.rotation,
+                },
+                timestamp: performance.now() - startTime,
+                p1: {
+                    board: boardToString(players[0].board),
+                    nextQueue: [...players[0].nextQueue],
+                    hold: players[0].holdPiece,
+                    ren: players[0].ren,
+                    b2b: players[0].isB2B,
+                    pendingGarbage: players[0].pendingGarbage
+                }
+            };
+            if (gameMode === '2P' && players[1]) {
+                frame.p2 = {
+                    board: boardToString(players[1].board),
+                    nextQueue: [...players[1].nextQueue],
+                    hold: players[1].holdPiece,
+                    ren: players[1].ren,
+                    b2b: players[1].isB2B,
+                    pendingGarbage: players[1].pendingGarbage
+                };
+            }
+            replayData.frames.push(frame);
         }
         
         if (this.ruleHooks.onPieceLock && typeof this.ruleHooks.onPieceLock === 'function') {
              try {
                 this.ruleHooks.onPieceLock(this.gameApi, this, moveInfo);
+
             } catch (e) {
                 console.error("Rule error onPieceLock:", e);
                 this.gameOver = true;
@@ -4580,9 +4618,29 @@ document.addEventListener('DOMContentLoaded', () => {
 document.getElementById('startGameBtn').addEventListener('click', () => {
         let currentRunSettings = { ...gameSettings };
         let userFunctions = {};
-        let startTime = performance.now();
+        startTime = performance.now();
         
+        replayData = {
+            version: 1,
+            gameMode: gameMode,
+            initialState: {
+                p1: {
+                    board: boardToString(editorData.p1.board),
+                    nextQueue: [...editorData.p1.nextQueue],
+                    hold: editorData.p1.hold
+                },
+                p2: gameMode === '2P' ? {
+                    board: boardToString(editorData.p2.board),
+                    nextQueue: [...editorData.p2.nextQueue],
+                    hold: editorData.p2.hold
+                } : null,
+                rule: { ...editorData.rule }
+            },
+            frames: []
+        };
+
         players = [];
+
 const p1_isAi = document.getElementById('p1-ai-toggle').checked;
         const p2_isAi = document.getElementById('p2-ai-toggle').checked;
         
@@ -5008,10 +5066,30 @@ document.getElementById('retryBtn').addEventListener('click', () => {
         });
 
         loadGameSettings();
-        
+
+        replayData = {
+            version: 1,
+            gameMode: gameMode,
+            initialState: {
+                p1: {
+                    board: boardToString(editorData.p1.board),
+                    nextQueue: [...editorData.p1.nextQueue],
+                    hold: editorData.p1.hold
+                },
+                p2: gameMode === '2P' ? {
+                    board: boardToString(editorData.p2.board),
+                    nextQueue: [...editorData.p2.nextQueue],
+                    hold: editorData.p2.hold
+                } : null,
+                rule: { ...editorData.rule }
+            },
+            frames: []
+        };
+   
+     
         let currentRunSettings = { ...gameSettings };
         let userFunctions = {};
-        let startTime = performance.now();
+        startTime = performance.now();
         const wasHoldDisabled = players[0].holdDisabled;
 
         const p1_isAi_retry = document.getElementById('p1-ai-toggle').checked;
@@ -5171,6 +5249,31 @@ console.error("Custom rule script error on retry:", e);
             p.gameApi = gameApi;
         });
 });
+    document.getElementById('saveReplayBtn').addEventListener('click', () => {
+        if (!replayData || replayData.frames.length === 0) {
+            alert('保存するリプレイデータがありません。');
+            return;
+        }
+        try {
+            const replayJson = JSON.stringify(replayData, null, 2);
+            const blob = new Blob([replayJson], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const now = new Date();
+            const timestamp = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
+            a.download = `tetris_replay_${timestamp}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            alert('リプレイデータをファイルに保存しました。');
+        } catch (e) {
+            console.error('Failed to save replay data:', e);
+            alert('リプレイデータの保存に失敗しました。');
+        }
+    });
+
     document.getElementById('gameSettingsBtn').addEventListener('click', () => {
         openUnifiedSettingsModal('general');
     });
