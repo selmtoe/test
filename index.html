@@ -5521,7 +5521,10 @@ document.getElementById('replay-next').addEventListener('click', () => {
         }
                 players = [];
         loadGameSettings();
-        virtualController.hide();
+virtualController.hide();
+        
+        mainCanvas.style.width = '';
+        mainCanvas.style.height = '';
 
         document.getElementById('replay-viewer-container').style.display = 'none';
         document.getElementById('game-controls').style.display = 'none';
@@ -5529,7 +5532,7 @@ document.getElementById('replay-next').addEventListener('click', () => {
         document.getElementById('editor-container').style.display = 'flex';
         document.getElementById('rule-description-display').style.display = 'none';
         gameState = 'EDITING';
-        replayViewerData = null;
+replayViewerData = null;
         currentFrameIndex = -1;
 setTimeout(updateScale, 0);
         alert('現在の盤面をエディタに読み込みました。');
@@ -5543,16 +5546,20 @@ setTimeout(updateScale, 0);
                 }
             });
         }
-                players = [];
+        players = [];
         loadGameSettings();
         virtualController.hide();
+
+        mainCanvas.style.width = '';
+        mainCanvas.style.height = '';
         
         document.getElementById('replay-viewer-container').style.display = 'none';
         document.getElementById('game-controls').style.display = 'none';
         document.getElementById('game-container').style.display = 'none';
         document.getElementById('editor-container').style.display = 'flex';
         document.getElementById('rule-description-display').style.display = 'none';
-        gameState = 'EDITING';
+     
+   gameState = 'EDITING';
         replayViewerData = null;
         currentFrameIndex = -1;
    
