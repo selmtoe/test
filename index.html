@@ -2414,17 +2414,23 @@ return;
             return;
 }
 
-        if (this.ruleHooks.onUpdate && typeof this.ruleHooks.onUpdate === 'function') {
-            try {
-                this.ruleHooks.onUpdate(this.gameApi, this);
-} catch (e) {
-                console.error("Rule error onUpdate:", e);
-this.gameOver = true;
-                return;
-            }
+        if (ruleSandbox && editorData.rule.code) {
+            const playerProxy = createPlayerProxy(this);
+            const opponentProxy = createPlayerProxy(this.opponent);
+            const apiProxy = createGameApiProxy();
+            
+            ruleSandbox.contentWindow.postMessage({
+                type: 'callHook',
+                payload: {
+                    hook: 'onUpdate',
+                    args: [apiProxy, playerProxy, opponentProxy]
+                }
+            }, '*');
         }
+
         if (this.gameOver || this.gameClear) return;
-        if (this.isActionPressed('softDrop')) {
+if (this.isActionPressed('softDrop')) {
+             if (gameSettings.sdf > 0) {
              if (gameSettings.sdf > 0) {
                 this.sdfTimer += dt;
                 if (this.sdfTimer >= gameSettings.sdf) {
@@ -2657,21 +2663,26 @@ lockPiece() {
             } else {
                 if (this.pendingGarbage > 0) { const offset = Math.min(this.pendingGarbage, remainingAttack); this.pendingGarbage -= offset; remainingAttack -= offset; }
                 if (remainingAttack > 0) { for (let i=0; i < this.garbageQueue.length && remainingAttack > 0; i++) { const offset = Math.min(this.garbageQueue[i].lines, remainingAttack); this.garbageQueue[i].lines -= offset; remainingAttack -= offset; } this.garbageQueue = this.garbageQueue.filter(g => g.lines > 0); }
-                if (remainingAttack > 0) { this.opponent.addGarbage(remainingAttack); }
+                if (remainingAttack > 0) { this.opponent.addGarbage(remainingAttack);
+}
             }
+        }
+
+        if (ruleSandbox && editorData.rule.code) {
+            const playerProxy = createPlayerProxy(this);
+            const opponentProxy = createPlayerProxy(this.opponent);
+            const apiProxy = createGameApiProxy();
+
+            ruleSandbox.contentWindow.postMessage({
+                type: 'callHook',
+                payload: {
+                    hook: 'onPieceLock',
+                    args: [apiProxy, playerProxy, opponentProxy, moveInfo]
+                }
+            }, '*');
         }
         
-        if (this.ruleHooks.onPieceLock && typeof this.ruleHooks.onPieceLock === 'function') {
-             try {
-                this.ruleHooks.onPieceLock(this.gameApi, this, moveInfo);
-            } catch (e) {
-                console.error("Rule error onPieceLock:", e);
-                this.gameOver = true;
-            }
-        }
         if (this.gameOver || this.gameClear) return;
-
-
 if (this.specialMoveText.length > 0) {
             this.specialMoveTextTimer = 1500;
         }
@@ -4583,7 +4594,7 @@ document.getElementById('startGameBtn').addEventListener('click', () => {
         let startTime = performance.now();
         
         players = [];
-const p1_isAi = document.getElementById('p1-ai-toggle').checked;
+        const p1_isAi = document.getElementById('p1-ai-toggle').checked;
         const p2_isAi = document.getElementById('p2-ai-toggle').checked;
         
         if (gameMode === '1P') {
@@ -4624,16 +4635,8 @@ type : null;
         const p2Proxy = createPlayerProxy(players[1]);
 
         const gameApi = {
-            win: (player) => {
-                let targetPlayer = null;
-                if (player instanceof Player) {
-                    targetPlayer = player;
-                } else if (player === p1Proxy) {
-                    targetPlayer = players[0];
-                } else if (player === p2Proxy) {
-                    targetPlayer = players[1];
-                }
-
+            win: (playerIdentifier) => {
+                const targetPlayer = (playerIdentifier === 'p1') ? players[0] : (playerIdentifier === 'p2') ? players[1] : null;
                 if (targetPlayer) {
                     targetPlayer.gameClear = true;
                     const message = 'clear';
@@ -4641,25 +4644,14 @@ type : null;
                     window.parent.postMessage(message, targetOrigin);
                 }
             },
-            lose: (player) => {
-                let targetPlayer = null;
-                if (player instanceof Player) {
-                    targetPlayer = player;
-                } else if (player === p1Proxy) {
-                    targetPlayer = players[0];
-                } else if (player === p2Proxy) {
-                    targetPlayer = players[1];
-                }
-
+            lose: (playerIdentifier) => {
+                const targetPlayer = (playerIdentifier === 'p1') ? players[0] : (playerIdentifier === 'p2') ? players[1] : null;
                 if (targetPlayer) {
                     targetPlayer.gameOver = true;
                 }
             },
-            displayGhostBlock: (player, x, y, type) => {
-                const targetPlayer = (player === p1Proxy && players[0]) ?
-                    players[0] :
-                    (player === p2Proxy && players[1]) ?
-                    players[1] : null;
+            displayGhostBlock: (playerIdentifier, x, y, type) => {
+                const targetPlayer = (playerIdentifier === 'p1') ? players[0] : (playerIdentifier === 'p2') ? players[1] : null;
                 if (targetPlayer) {
                     if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
                         const pieceType = Object.keys(COLORS).includes(type) ? type : null;
@@ -4667,31 +4659,21 @@ type : null;
                     }
                 }
             },
-            clearAllGhostBlocks: (player) => {
-                const targetPlayer = (player === p1Proxy && players[0]) ?
-                    players[0] :
-                    (player === p2Proxy && players[1]) ?
-                    players[1] : null;
+            clearAllGhostBlocks: (playerIdentifier) => {
+                const targetPlayer = (playerIdentifier === 'p1') ? players[0] : (playerIdentifier === 'p2') ? players[1] : null;
                 if (targetPlayer) {
                     targetPlayer.customGhosts = [];
                 }
             },
-            setCustomUIText: (player, text) => {
-                const targetPlayer = (player === p1Proxy && players[0]) ?
-players[0] :
-                    (player === p2Proxy && players[1]) ?
-players[1] : null;
+            setCustomUIText: (playerIdentifier, text) => {
+                const targetPlayer = (playerIdentifier === 'p1') ? players[0] : (playerIdentifier === 'p2') ? players[1] : null;
                 if (targetPlayer) {
-
                     targetPlayer.customUIText = String(text);
                 }
             },
             getTime: () => performance.now() - startTime,
-            sendAttack: (receivingPlayer, lines) => {
-                const targetPlayer = (receivingPlayer === p1Proxy && players[0]) ?
-                    players[0] :
-                    (receivingPlayer === p2Proxy && players[1]) ?
-                    players[1] : null;
+            sendAttack: (receivingPlayerIdentifier, lines) => {
+                const targetPlayer = (receivingPlayerIdentifier === 'p1') ? players[0] : (receivingPlayerIdentifier === 'p2') ? players[1] : null;
                 if (targetPlayer) {
                     targetPlayer.garbageQueue.push({
                         lines: lines,
@@ -4709,37 +4691,25 @@ players[1] : null;
             p1: p1Proxy,
             p2: p2Proxy
         };
+        
+        activeGameApi = gameApi;
 
-        
-        if (editorData.rule.code) {
-            try {
-                const combinedCode = editorData.rule.code + 
-                    `\nreturn { 
-                        onInit: typeof onInit === 'function' ? onInit : undefined,
-     onPieceLock: typeof onPieceLock === 'function' ? onPieceLock : undefined,
-                        onUpdate: typeof onUpdate === 'function' ?
-onUpdate : undefined
-                    };`;
-const ruleScript = new Function('api', combinedCode);
-                const returnedFuncs = ruleScript(gameApi);
-if (returnedFuncs.onInit) {
-                    returnedFuncs.onInit(gameApi);
-}
-                userFunctions = returnedFuncs;
-} catch (e) {
-                alert('カスタムルールコードの実行中にエラーが発生しました:\n' + e.message);
-console.error("Custom rule script error:", e);
-                return;
-            }
+        if (ruleSandbox && editorData.rule.code) {
+            const p1State = createPlayerProxy(players[0]);
+            const p2State = createPlayerProxy(players[1]);
+            const apiProxy = createGameApiProxy();
+
+            ruleSandbox.contentWindow.postMessage({
+                type: 'init',
+                payload: {
+                    code: editorData.rule.code,
+                    args: [apiProxy, p1State, p2State]
+                }
+            }, '*');
         }
-        
-        players.forEach(p => {
-            p.ruleHooks = userFunctions;
-            p.gameApi = gameApi;
-        });
 
         const originalSettingsBeforeRun = { ...gameSettings };
-Object.assign(gameSettings, currentRunSettings);
+        Object.assign(gameSettings, currentRunSettings);
 
         gameState = 'PLAYING'; 
         document.getElementById('editor-container').style.display = 'none'; 
@@ -5008,7 +4978,8 @@ document.getElementById('retryBtn').addEventListener('click', () => {
         });
 
         loadGameSettings();
-        
+   
+     
         let currentRunSettings = { ...gameSettings };
         let userFunctions = {};
         let startTime = performance.now();
@@ -5054,16 +5025,8 @@ document.getElementById('retryBtn').addEventListener('click', () => {
         const p2Proxy = createPlayerProxy(tempPlayers[1]);
         
         const gameApi = {
-            win: (player) => {
-                let targetPlayer = null;
-                if (player instanceof Player) {
-                    targetPlayer = player;
-                } else if (player === p1Proxy) {
-                    targetPlayer = tempPlayers[0];
-                } else if (player === p2Proxy) {
-                    targetPlayer = tempPlayers[1];
-                }
-
+            win: (playerIdentifier) => {
+                const targetPlayer = (playerIdentifier === 'p1') ? tempPlayers[0] : (playerIdentifier === 'p2') ? tempPlayers[1] : null;
                 if (targetPlayer) {
                     targetPlayer.gameClear = true;
                     const message = 'clear';
@@ -5071,25 +5034,14 @@ document.getElementById('retryBtn').addEventListener('click', () => {
                     window.parent.postMessage(message, targetOrigin);
                 }
             },
-            lose: (player) => {
-                let targetPlayer = null;
-                if (player instanceof Player) {
-                    targetPlayer = player;
-                } else if (player === p1Proxy) {
-                    targetPlayer = tempPlayers[0];
-                } else if (player === p2Proxy) {
-                    targetPlayer = tempPlayers[1];
-                }
-
+            lose: (playerIdentifier) => {
+                const targetPlayer = (playerIdentifier === 'p1') ? tempPlayers[0] : (playerIdentifier === 'p2') ? tempPlayers[1] : null;
                 if (targetPlayer) {
                     targetPlayer.gameOver = true;
                 }
             },
-            displayGhostBlock: (player, x, y, type) => {
-                const targetPlayer = (player === p1Proxy && tempPlayers[0]) ?
-                    tempPlayers[0] :
-                    (player === p2Proxy && tempPlayers[1]) ?
-                    tempPlayers[1] : null;
+            displayGhostBlock: (playerIdentifier, x, y, type) => {
+                const targetPlayer = (playerIdentifier === 'p1') ? tempPlayers[0] : (playerIdentifier === 'p2') ? tempPlayers[1] : null;
                 if (targetPlayer) {
                     if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
                         const pieceType = Object.keys(COLORS).includes(type) ? type : null;
@@ -5097,31 +5049,21 @@ document.getElementById('retryBtn').addEventListener('click', () => {
                     }
                 }
             },
-            clearAllGhostBlocks: (player) => {
-                const targetPlayer = (player === p1Proxy && tempPlayers[0]) ?
-                    tempPlayers[0] :
-                    (player === p2Proxy && tempPlayers[1]) ?
-                    tempPlayers[1] : null;
+            clearAllGhostBlocks: (playerIdentifier) => {
+                const targetPlayer = (playerIdentifier === 'p1') ? tempPlayers[0] : (playerIdentifier === 'p2') ? tempPlayers[1] : null;
                 if (targetPlayer) {
                     targetPlayer.customGhosts = [];
                 }
             },
-            setCustomUIText: (player, text) => {
-                const targetPlayer = (player === p1Proxy && tempPlayers[0]) ?
-tempPlayers[0] :
-                    (player === p2Proxy && tempPlayers[1]) ?
-tempPlayers[1] : null;
+            setCustomUIText: (playerIdentifier, text) => {
+                const targetPlayer = (playerIdentifier === 'p1') ? tempPlayers[0] : (playerIdentifier === 'p2') ? tempPlayers[1] : null;
                 if (targetPlayer) {
-
                     targetPlayer.customUIText = String(text);
                 }
             },
             getTime: () => performance.now() - startTime,
-            sendAttack: (receivingPlayer, lines) => {
-                const targetPlayer = (receivingPlayer === p1Proxy && tempPlayers[0]) ?
-                    tempPlayers[0] :
-                    (receivingPlayer === p2Proxy && tempPlayers[1]) ?
-                    tempPlayers[1] : null;
+            sendAttack: (receivingPlayerIdentifier, lines) => {
+                const targetPlayer = (playerIdentifier === 'p1') ? tempPlayers[0] : (receivingPlayerIdentifier === 'p2') ? tempPlayers[1] : null;
                 if (targetPlayer) {
                     targetPlayer.garbageQueue.push({
                         lines: lines,
@@ -5140,36 +5082,25 @@ tempPlayers[1] : null;
             p2: p2Proxy
         };
 
-     
-   if (editorData.rule.code) {
-            try {
-                const combinedCode = editorData.rule.code + 
-                    `\nreturn { 
-                      onInit: typeof onInit === 'function' ? onInit : undefined,
-                        onPieceLock: typeof onPieceLock === 'function' ?
-onPieceLock : undefined,
-                        onUpdate: typeof onUpdate === 'function' ?
-onUpdate : undefined
-                    };`;
-const ruleScript = new Function('api', combinedCode);
-                const returnedFuncs = ruleScript(gameApi);
-if (returnedFuncs.onInit) {
-                    returnedFuncs.onInit(gameApi);
-}
-                userFunctions = returnedFuncs;
-} catch (e) {
-                alert('リトライ時にカスタムルールコードの実行でエラーが発生しました:\n' + e.message);
-console.error("Custom rule script error on retry:", e);
-                return;
-            }
+        activeGameApi = gameApi;
+
+        if (ruleSandbox && editorData.rule.code) {
+             const p1State = createPlayerProxy(tempPlayers[0]);
+             const p2State = createPlayerProxy(tempPlayers[1]);
+             const apiProxy = createGameApiProxy();
+
+             ruleSandbox.contentWindow.postMessage({
+                 type: 'init',
+                 payload: {
+                     code: editorData.rule.code,
+                     args: [apiProxy, p1State, p2State]
+                 }
+             }, '*');
         }
         
         Object.assign(gameSettings, currentRunSettings);
-        players = tempPlayers;
-        players.forEach(p => {
-            p.ruleHooks = userFunctions;
-            p.gameApi = gameApi;
-        });
+players = tempPlayers;
+
 });
     document.getElementById('gameSettingsBtn').addEventListener('click', () => {
         openUnifiedSettingsModal('general');
@@ -5210,8 +5141,134 @@ console.error("Custom rule script error on retry:", e);
             rotation: rot
         };
 
+// ...
         aiPlayer.executeAiMove(move);
     });
+
+    let ruleSandbox;
+    let activeGameApi = null;
+
+    const createPlayerProxy = (player) => {
+        if (!player) return null;
+        return {
+            id: player.id,
+            stats: { ...player.stats },
+            board: player.board.map(row => [...row]),
+            nextQueue: [...player.nextQueue],
+            holdPiece: player.holdPiece,
+            ren: player.ren,
+            isB2B: player.isB2B,
+            pendingGarbage: player.pendingGarbage,
+        };
+    };
+    
+    const createGameApiProxy = () => {
+        return {
+            p1: createPlayerProxy(players.find(p => p.id === '1')),
+            p2: createPlayerProxy(players.find(p => p.id === '2')),
+        };
+    };
+
+    window.addEventListener('message', (event) => {
+        if (!ruleSandbox || event.source !== ruleSandbox.contentWindow || !activeGameApi) {
+            return;
+        }
+
+        const { type, payload } = event.data;
+
+        if (type === 'apiCall') {
+            const { func, args } = payload;
+            if (typeof activeGameApi[func] === 'function') {
+                try {
+                    activeGameApi[func](...args);
+                } catch (e) {
+                    console.error(`Error executing API call '${func}':`, e);
+                }
+            }
+        } else if (type === 'scriptError') {
+            alert('カスタムルールコードの実行中にエラーが発生しました:\n' + payload.message);
+            console.error("Custom rule script error in sandbox:", payload.message);
+        }
+    });
+
+    const sandboxHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head><title>Sandbox</title></head>
+    <body>
+        <script>
+            let userFunctions = {};
+            const api = {};
+            const apiFunctions = ['win', 'lose', 'displayGhostBlock', 'clearAllGhostBlocks', 'setCustomUIText', 'getTime', 'sendAttack', 'forceSetting'];
+
+            apiFunctions.forEach(funcName => {
+                api[funcName] = (...args) => {
+                    parent.postMessage({ type: 'apiCall', payload: { func: funcName, args: args } }, '*');
+                };
+            });
+            
+            const createReadOnlyProxy = (obj, identifier) => {
+                if (!obj) return null;
+                return new Proxy(obj, {
+                    get(target, prop) {
+                        if (prop in target) return target[prop];
+                        return undefined;
+                    },
+                    set() {
+                        // Setterを無視して読み取り専用にする
+                        return true;
+                    }
+                });
+            };
+
+            window.addEventListener('message', (event) => {
+                const { type, payload } = event.data;
+                if (type === 'init') {
+                    try {
+                        const [apiProxy, p1Proxy, p2Proxy] = payload.args;
+                        api.p1 = createReadOnlyProxy(p1Proxy, 'p1');
+                        api.p2 = createReadOnlyProxy(p2Proxy, 'p2');
+                        
+                        const combinedCode = payload.code + '\\nreturn { onInit: typeof onInit === "function" ? onInit : undefined, onPieceLock: typeof onPieceLock === "function" ? onPieceLock : undefined, onUpdate: typeof onUpdate === "function" ? onUpdate : undefined };';
+                        const ruleScript = new Function('api', combinedCode);
+                        userFunctions = ruleScript(api) || {};
+                        if (userFunctions.onInit) {
+                            userFunctions.onInit(api, api.p1, api.p2);
+                        }
+                    } catch (e) {
+                        parent.postMessage({ type: 'scriptError', payload: { message: e.message } }, '*');
+                    }
+                } else if (type === 'callHook') {
+                    const { hook, args } = payload;
+                    if (typeof userFunctions[hook] === 'function') {
+                        try {
+                            const [apiProxy, pProxy, oProxy, moveInfo] = args;
+                            api.p1 = createReadOnlyProxy(apiProxy.p1, 'p1');
+                            api.p2 = createReadOnlyProxy(apiProxy.p2, 'p2');
+                            const playerProxy = pProxy.id === '1' ? api.p1 : api.p2;
+
+                            if (hook === 'onPieceLock') {
+                                userFunctions.onPieceLock(api, playerProxy, moveInfo);
+                            } else if (hook === 'onUpdate') {
+                                userFunctions.onUpdate(api, playerProxy);
+                            }
+                        } catch (e) {
+                           parent.postMessage({ type: 'scriptError', payload: { message: e.message } }, '*');
+                        }
+                    }
+                }
+            });
+        <\/script>
+    </body>
+    </html>
+    `;
+
+    ruleSandbox = document.createElement('iframe');
+    ruleSandbox.id = 'rule-sandbox';
+    ruleSandbox.sandbox = 'allow-scripts';
+    ruleSandbox.style.display = 'none';
+    ruleSandbox.srcdoc = sandboxHtml;
+    document.body.appendChild(ruleSandbox);
 });
 </script>
 </body>
