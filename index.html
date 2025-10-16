@@ -343,9 +343,23 @@ left: 10px; top: 150px;">
      <button id="backToEditorBtn" class="button">戻る</button>
 </div>
 
+<div id="replay-viewer-container" style="display: none;">
+    <div id="replay-controls" style="position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 170; display: flex; gap: 10px; background: rgba(26, 26, 46, 0.9); padding: 10px 20px; border-radius: 8px; border: 2px solid #4b4b7c; align-items: center;">
+        <button id="replay-to-start" class="button">|←</button>
+        <button id="replay-prev" class="button">←</button>
+        <span id="replay-frame-counter" style="color: white; font-family: 'Orbitron', sans-serif; min-width: 80px; text-align: center;">- / -</span>
+        <button id="replay-next" class="button">→</button>
+        <button id="replay-load-to-editor" class="button">シミュレータ読込</button>
+        <button id="replay-download" class="button">譜面データを保存</button>
+        <button id="replay-close" class="button">ビューワーを閉じる</button>
+    </div>
+</div>
+
+
 <div id="virtual-controller-container">
 
     <div id="vc-edit-controls" style="display: none;">
+
         <button id="vc-save-and-close-btn" class="button">保存して閉じる</button>
     </div>
     <canvas id="virtualControllerCanvas"></canvas>
@@ -2103,7 +2117,7 @@ const SRS_OFFSETS = { "JLSTZ": { "0_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1,
 
 let players = [], gameMode = '1P', gameState = 'EDITING', lastTime = 0, mainCanvas, ctx, aiWorkerBlob;
 let replayData = null, startTime = 0;
-
+let replayViewerData = null, currentFrameIndex = -1;
 
 function updateAiDebugDisplay(payload) {
     const display = document.getElementById('ai-debug-display');
@@ -5249,32 +5263,16 @@ console.error("Custom rule script error on retry:", e);
             p.gameApi = gameApi;
         });
 });
-    document.getElementById('saveReplayBtn').addEventListener('click', () => {
+document.getElementById('saveReplayBtn').addEventListener('click', () => {
         if (!replayData || replayData.frames.length === 0) {
-            alert('保存するリプレイデータがありません。');
+            alert('表示するリプレイデータがありません。');
             return;
         }
-        try {
-            const replayJson = JSON.stringify(replayData, null, 2);
-            const blob = new Blob([replayJson], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            const now = new Date();
-            const timestamp = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
-            a.download = `tetris_replay_${timestamp}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            alert('リプレイデータをファイルに保存しました。');
-        } catch (e) {
-            console.error('Failed to save replay data:', e);
-            alert('リプレイデータの保存に失敗しました。');
-        }
+        showReplayViewer(replayData);
     });
 
     document.getElementById('gameSettingsBtn').addEventListener('click', () => {
+
         openUnifiedSettingsModal('general');
     });
     setupEditors();
@@ -5314,6 +5312,198 @@ console.error("Custom rule script error on retry:", e);
         };
 
         aiPlayer.executeAiMove(move);
+    });
+
+    function drawReplayPlayerState(playerData, offsetX) {
+        if (!playerData) return;
+
+        const p = {
+            board: stringToBoard(playerData.board),
+            holdPiece: playerData.hold,
+            nextQueue: playerData.nextQueue,
+            viewY: BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT
+        };
+        
+        ctx.save();
+        ctx.translate(offsetX, 0);
+
+        ctx.textAlign = 'center'; 
+        ctx.fillStyle = '#FFF'; ctx.font = `bold ${BLOCK_SIZE * 0.8}px "Orbitron"`;
+        ctx.fillText('HOLD', HOLD_AREA_WIDTH / 2, 40);
+        if (p.holdPiece) {
+            const s = TETROMINOS[p.holdPiece].shape;
+            s.forEach(b => {
+                const px = (HOLD_AREA_WIDTH / 2) - (TETROMINOS[p.holdPiece].center[0] * BLOCK_SIZE) + (b[0] * BLOCK_SIZE);
+                const py = 70 - (TETROMINOS[p.holdPiece].center[1] * BLOCK_SIZE) + (b[1] * BLOCK_SIZE);
+                ctx.fillStyle = activeSkin[p.holdPiece];
+                ctx.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
+            });
+        }
+        
+        ctx.fillText('NEXT', PLAYFIELD_X_OFFSET + PLAYFIELD_WIDTH + PADDING + NEXT_AREA_WIDTH / 2, 40);
+        for (let i = 0; i < gameSettings.maxNext; i++) {
+            const pT = p.nextQueue[i];
+            if (!pT) continue;
+            const s = TETROMINOS[pT].shape;
+            s.forEach(b => {
+                const px = PLAYFIELD_X_OFFSET + PLAYFIELD_WIDTH + PADDING + NEXT_AREA_WIDTH / 2 - (TETROMINOS[pT].center[0] * BLOCK_SIZE) + (b[0] * BLOCK_SIZE);
+                const py = 70 + (i * BLOCK_SIZE * 2.5) - (TETROMINOS[pT].center[1] * BLOCK_SIZE) + (b[1] * BLOCK_SIZE);
+                ctx.fillStyle = activeSkin[pT];
+                ctx.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
+            });
+        }
+
+        ctx.save(); 
+        ctx.translate(PLAYFIELD_X_OFFSET, 0.5 * BLOCK_SIZE);
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, PLAYFIELD_WIDTH, CANVAS_HEIGHT);
+        for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) {
+            for (let x = 0; x < BOARD_WIDTH; x++) {
+                const boardY = y + p.viewY;
+                if (p.board[boardY]?.[x]) {
+                    ctx.fillStyle = activeSkin[p.board[boardY][x]] || '#FFF';
+                    ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+                }
+            }
+        }
+        ctx.restore();
+        ctx.restore();
+    }
+
+    function drawReplayFrame(frameIndex) {
+        if (!replayViewerData) return;
+
+        ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+        
+        const isInitialState = frameIndex === -1;
+        const p1Data = isInitialState ? replayViewerData.initialState.p1 : replayViewerData.frames[frameIndex].p1;
+        const p2Data = isInitialState ? replayViewerData.initialState.p2 : (replayViewerData.frames[frameIndex].p2 || null);
+
+        drawReplayPlayerState(p1Data, 0);
+        if (replayViewerData.gameMode === '2P') {
+            drawReplayPlayerState(p2Data, PLAYER_CANVAS_WIDTH);
+        }
+
+        const frameCounter = document.getElementById('replay-frame-counter');
+        const frameNum = isInitialState ? 0 : frameIndex + 1;
+        frameCounter.textContent = `${frameNum} / ${replayViewerData.frames.length}`;
+    }
+
+    function showReplayViewer(data) {
+        gameState = 'REPLAY';
+        replayViewerData = data;
+        currentFrameIndex = -1;
+
+        document.getElementById('game-container').style.display = 'block';
+        document.getElementById('game-controls').style.display = 'none';
+        document.getElementById('editor-container').style.display = 'none';
+        document.getElementById('replay-viewer-container').style.display = 'block';
+        if (players.length > 0 && virtualController) virtualController.hide();
+
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        if (replayViewerData.gameMode === '1P') {
+            mainCanvas.width = PLAYER_CANVAS_WIDTH * RESOLUTION_SCALE;
+            mainCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
+            mainCanvas.style.width = PLAYER_CANVAS_WIDTH + 'px';
+            mainCanvas.style.height = CANVAS_HEIGHT + 'px';
+        } else {
+            const totalWidth = PLAYER_CANVAS_WIDTH * 2;
+            mainCanvas.width = totalWidth * RESOLUTION_SCALE;
+            mainCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
+            mainCanvas.style.width = totalWidth + 'px';
+            mainCanvas.style.height = CANVAS_HEIGHT + 'px';
+        }
+        ctx.scale(RESOLUTION_SCALE, RESOLUTION_SCALE);
+
+        drawReplayFrame(currentFrameIndex);
+        setTimeout(updateScale, 0);
+    }
+    
+    document.getElementById('replay-to-start').addEventListener('click', () => {
+        currentFrameIndex = -1;
+        drawReplayFrame(currentFrameIndex);
+    });
+    
+    document.getElementById('replay-prev').addEventListener('click', () => {
+        if (currentFrameIndex > -1) {
+            currentFrameIndex--;
+            drawReplayFrame(currentFrameIndex);
+        }
+    });
+
+    document.getElementById('replay-next').addEventListener('click', () => {
+        if (replayViewerData && currentFrameIndex < replayViewerData.frames.length - 1) {
+            currentFrameIndex++;
+            drawReplayFrame(currentFrameIndex);
+        }
+    });
+    
+    document.getElementById('replay-download').addEventListener('click', () => {
+        if (!replayViewerData) return;
+        try {
+            const replayJson = JSON.stringify(replayViewerData, null, 2);
+            const blob = new Blob([replayJson], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const now = new Date();
+            const timestamp = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
+            a.download = `tetris_replay_${timestamp}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            console.error('Failed to download replay data:', e);
+            alert('リプレイデータのダウンロードに失敗しました。');
+        }
+    });
+
+    document.getElementById('replay-load-to-editor').addEventListener('click', () => {
+        if (!replayViewerData) return;
+        const isInitialState = currentFrameIndex === -1;
+        const p1Data = isInitialState ? replayViewerData.initialState.p1 : replayViewerData.frames[currentFrameIndex].p1;
+
+        editorData.p1.board = stringToBoard(p1Data.board);
+        editorData.p1.nextQueue = [...p1Data.nextQueue];
+        editorData.p1.hold = p1Data.hold;
+
+        if (replayViewerData.gameMode === '2P') {
+            const p2Data = isInitialState ? replayViewerData.initialState.p2 : (replayViewerData.frames[currentFrameIndex].p2 || null);
+            if (p2Data) {
+                editorData.p2.board = stringToBoard(p2Data.board);
+                editorData.p2.nextQueue = [...p2Data.nextQueue];
+                editorData.p2.hold = p2Data.hold;
+            }
+        }
+        
+        gameMode = replayViewerData.gameMode;
+        document.getElementById('mode-1p').classList.toggle('active', gameMode === '1P');
+        document.getElementById('mode-2p').classList.toggle('active', gameMode === '2P');
+        document.getElementById('p2-editor-col').style.display = (gameMode === '2P') ? 'flex' : 'none';
+
+        drawEditorField('p1');
+        updateNextQueueDisplay('p1');
+        if(gameMode === '2P') {
+            drawEditorField('p2');
+            updateNextQueueDisplay('p2');
+        }
+
+        document.getElementById('replay-viewer-container').style.display = 'none';
+        document.getElementById('game-container').style.display = 'none';
+        document.getElementById('editor-container').style.display = 'flex';
+        gameState = 'EDITING';
+        setTimeout(updateScale, 0);
+        alert('現在の盤面をエディタに読み込みました。');
+    });
+
+    document.getElementById('replay-close').addEventListener('click', () => {
+        document.getElementById('replay-viewer-container').style.display = 'none';
+        document.getElementById('game-container').style.display = 'none';
+        document.getElementById('editor-container').style.display = 'flex';
+        gameState = 'EDITING';
+        replayViewerData = null;
+        currentFrameIndex = -1;
+        setTimeout(updateScale, 0);
     });
 });
 </script>
