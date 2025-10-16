@@ -5527,10 +5527,12 @@ document.getElementById('replay-next').addEventListener('click', () => {
         document.getElementById('game-container').style.display = 'none';
         document.getElementById('editor-container').style.display = 'flex';
         gameState = 'EDITING';
+        replayViewerData = null;
+        currentFrameIndex = -1;
 setTimeout(updateScale, 0);
         alert('現在の盤面をエディタに読み込みました。');
     });
-
+    
     document.getElementById('replay-close').addEventListener('click', () => {
         if (players.length > 0) {
             players.forEach(p => {
