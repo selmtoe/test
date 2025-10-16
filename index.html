@@ -2933,10 +2933,10 @@ requestAiMove() {
         rotation = rotation % 4;
         switch (type) {
             case 'I':
-                if (rotation == 0) return [[1,0], [0,0], [2,0], [3,0]];
-                if (rotation == 1) return [[2,0], [2,-1], [2,1], [2,2]];
-                if (rotation == 2) return [[1,1], [0,1], [2,1], [3,1]];
-                if (rotation == 3) return [[1,0], [1,-1], [1,1], [1,2]];
+                if (rotation == 0) return [[0,0], [-1,0], [1,0], [2,0]];
+                if (rotation == 1) return [[1,0], [1,-1], [1,1], [1,2]];
+                if (rotation == 2) return [[0,1], [-1,1], [1,1], [2,1]];
+                if (rotation == 3) return [[0,0], [0,-1], [0,1], [0,2]];
                 break;
             case 'O':
                 return [[0,0], [1,0], [0,-1], [1,-1]];
@@ -3249,7 +3249,10 @@ async executeAiMove(move) {
         const startState = { x: this.player.x, y: this.player.y, r: this.player.rotation };
         const targetState = { x: move.x, y: move.y, r: move.rotation };
         const minoType = this.player.pieceType;
-    
+        if (minoType === 'I') {
+            targetState.x += 1;
+            startState.x += 1;
+        }
         const pathfinderBoard = this.board.map(row => row.map(cell => (cell === null ? 0 : 1)));
         const path = this.findShortestPath_forAI(startState, targetState, minoType, pathfinderBoard);
 
@@ -3375,6 +3378,10 @@ if (!shapeInfo) return;
         }
         
         if (startState) {
+            if (pieceForPathfinding === 'I') {
+                startState.x += 1;
+                targetState.x += 1;
+            }
             
             const pathfinderBoard = this.board.map(row => row.map(cell => (cell === null ? 0 : 1)));
             path = this.findShortestPath_forAI(startState, targetState, pieceForPathfinding, pathfinderBoard);
