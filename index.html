@@ -5516,18 +5516,21 @@ document.getElementById('replay-next').addEventListener('click', () => {
                     p.aiWorker.terminate();
                 }
             });
-        }
+}
         players = [];
         loadGameSettings();
         virtualController.hide();
 
         document.getElementById('replay-viewer-container').style.display = 'none';
         document.getElementById('game-container').style.display = 'none';
-        document.getElementById('editor-container').style.display = 'flex';
+document.getElementById('editor-container').style.display = 'flex';
         gameState = 'EDITING';
-setTimeout(updateScale, 0);
+        replayViewerData = null;
+        currentFrameIndex = -1;
+        setTimeout(updateScale, 0);
         alert('現在の盤面をエディタに読み込みました。');
     });
+
 
     document.getElementById('replay-close').addEventListener('click', () => {
         if (players.length > 0) {
