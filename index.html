@@ -5480,17 +5480,18 @@ document.getElementById('replay-next').addEventListener('click', () => {
         }
     });
 
-    document.getElementById('replay-load-to-editor').addEventListener('click', () => {
-        if (!replayViewerData) return;
-        const isInitialState = currentFrameIndex === -1;
-        const p1Data = isInitialState ? replayViewerData.initialState.p1 : replayViewerData.frames[currentFrameIndex].p1;
+document.getElementById('replay-load-to-editor').addEventListener('click', () => {
+        if (!replayViewerData || currentFrameIndex < 0 || !replayViewerData.frames[currentFrameIndex]) return;
 
+        const currentFrame = replayViewerData.frames[currentFrameIndex];
+        const p1Data = currentFrame.p1;
+        
         editorData.p1.board = stringToBoard(p1Data.board);
         editorData.p1.nextQueue = [...p1Data.nextQueue];
         editorData.p1.hold = p1Data.hold;
 
         if (replayViewerData.gameMode === '2P') {
-            const p2Data = isInitialState ? replayViewerData.initialState.p2 : (replayViewerData.frames[currentFrameIndex].p2 || null);
+            const p2Data = currentFrame.p2 || null;
             if (p2Data) {
                 editorData.p2.board = stringToBoard(p2Data.board);
                 editorData.p2.nextQueue = [...p2Data.nextQueue];
