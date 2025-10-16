@@ -5531,12 +5531,19 @@ virtualController.hide();
         document.getElementById('game-container').style.display = 'none';
         document.getElementById('editor-container').style.display = 'flex';
         document.getElementById('rule-description-display').style.display = 'none';
+        
+        const aiDebugDisplay = document.getElementById('ai-debug-display');
+        const aiDebugControls = document.getElementById('ai-debug-controls');
+        if(aiDebugDisplay) aiDebugDisplay.style.display = 'none';
+        if(aiDebugControls) aiDebugControls.style.display = 'none';
+        
         gameState = 'EDITING';
-replayViewerData = null;
+        replayViewerData = null;
         currentFrameIndex = -1;
-setTimeout(updateScale, 0);
+        setTimeout(updateScale, 0);
         alert('現在の盤面をエディタに読み込みました。');
     });
+
     
     document.getElementById('replay-close').addEventListener('click', () => {
         if (players.length > 0) {
@@ -5559,11 +5566,16 @@ setTimeout(updateScale, 0);
         document.getElementById('editor-container').style.display = 'flex';
         document.getElementById('rule-description-display').style.display = 'none';
      
-   gameState = 'EDITING';
+        const aiDebugDisplay = document.getElementById('ai-debug-display');
+        const aiDebugControls = document.getElementById('ai-debug-controls');
+        if(aiDebugDisplay) aiDebugDisplay.style.display = 'none';
+        if(aiDebugControls) aiDebugControls.style.display = 'none';
+        
+        gameState = 'EDITING';
         replayViewerData = null;
         currentFrameIndex = -1;
    
-     setTimeout(updateScale, 0);
+        setTimeout(updateScale, 0);
     });
 });
 </script>
