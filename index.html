@@ -5271,22 +5271,13 @@ document.getElementById('saveReplayBtn').addEventListener('click', () => {
             alert('表示するリプレイデータがありません。');
             return;
         }
-        if (players.length > 0) {
-            players.forEach(p => {
-                if (p.aiWorker) {
-                    p.aiWorker.terminate();
-                }
-            });
-        }
-        players = [];
-        loadGameSettings();
         showReplayViewer(replayData);
     });
-document.getElementById('gameSettingsBtn').addEventListener('click', () => {
+
+    document.getElementById('gameSettingsBtn').addEventListener('click', () => {
 
         openUnifiedSettingsModal('general');
     });
-
     setupEditors();
 
     loadStateFromURL();
