@@ -4635,62 +4635,37 @@ document.addEventListener('DOMContentLoaded', () => {
 document.getElementById('startGameBtn').addEventListener('click', () => {
         let currentRunSettings = { ...gameSettings };
         let userFunctions = {};
-
-        players = [];
-
-        const p1_isAi = document.getElementById('p1-ai-toggle').checked;
-        const p2_isAi = document.getElementById('p2-ai-toggle').checked;
-if (gameMode === '1P') {
-            const player = new Player('1', 0, keyBindings.p1, 0, p1_isAi);
-player.holdDisabled = autoStartParams.nh;
-            players.push(player);
-} else {
-            const p1 = new Player('1', 0, keyBindings.p1, 0, p1_isAi);
-p1.holdDisabled = autoStartParams.nh;
-            const p2 = new Player('2', PLAYER_CANVAS_WIDTH, keyBindings.p2, 1, p2_isAi);
-            p2.holdDisabled = autoStartParams.nh;
-            p1.opponent = p2;
-p2.opponent = p1;
-            players.push(p1, p2);
-        }
-
         startTime = performance.now();
         
-        const p1InitialNext = players[0].player.pieceType
-            ? [players[0].player.pieceType, ...players[0].nextQueue.slice(0, players[0].nextQueue.length - 1)]
-            : [...editorData.p1.nextQueue];
-
-        const p2InitialNext = (gameMode === '2P' && players[1])
-            ? (players[1].player.pieceType
-                ? [players[1].player.pieceType, ...players[1].nextQueue.slice(0, players[1].nextQueue.length - 1)]
-                : [...editorData.p2.nextQueue])
-            : null;
-
         replayData = {
             version: 1,
             gameMode: gameMode,
             initialState: {
                 p1: {
-                    board: boardToString(players[0].board),
-                    nextQueue: p1InitialNext,
-                    hold: players[0].holdPiece
+                    board: boardToString(editorData.p1.board),
+                    nextQueue: [...editorData.p1.nextQueue],
+                    hold: editorData.p1.hold
                 },
-                p2: gameMode === '2P' && players[1] ? {
-                    board: boardToString(players[1].board),
-                    nextQueue: p2InitialNext,
-                    hold: players[1].holdPiece
+                p2: gameMode === '2P' ? {
+                    board: boardToString(editorData.p2.board),
+                    nextQueue: [...editorData.p2.nextQueue],
+                    hold: editorData.p2.hold
                 } : null,
                 rule: { ...editorData.rule }
             },
             frames: []
         };
+
+        players = [];
+
+const p1_isAi = document.getElementById('p1-ai-toggle').checked;
+        const p2_isAi = document.getElementById('p2-ai-toggle').checked;
         
-        const createPlayerProxy = (player) => {
-            if (!player) return null;
-return {
-                get stats() { return player.stats;
-},
-                board: {
+        if (gameMode === '1P') {
+            const player = new Player('1', 0, keyBindings.p1, 0, p1_isAi);
+player.holdDisabled = autoStartParams.nh;
+            players.push(player);
+} else {
             const p1 = new Player('1', 0, keyBindings.p1, 0, p1_isAi);
             p1.holdDisabled = autoStartParams.nh;
             const p2 = new Player('2', PLAYER_CANVAS_WIDTH, keyBindings.p2, 1, p2_isAi);
@@ -5098,13 +5073,9 @@ e.preventDefault();
             .catch(err => console.error('Service Worker registration failed:', err));
     }
     
-}
-    
 document.getElementById('retryBtn').addEventListener('click', () => {
         if (gameState !== 'PLAYING' || !players.length) return;
         
-        const wasHoldDisabled = players[0].holdDisabled;
-
         players.forEach(p => {
             if (p.aiWorker) {
                 p.aiWorker.terminate();
@@ -5113,63 +5084,40 @@ document.getElementById('retryBtn').addEventListener('click', () => {
 
         loadGameSettings();
 
-        let currentRunSettings = { ...gameSettings };
-        let userFunctions = {};
-        
-        const p1_isAi_retry = document.getElementById('p1-ai-toggle').checked;
-        const p2_isAi_retry = document.getElementById('p2-ai-toggle').checked;
-const tempPlayers = [];
-        if (gameMode === '1P') {
-            const p = new Player('1', 0, keyBindings.p1, 0, p1_isAi_retry);
-p.holdDisabled = wasHoldDisabled;
-            tempPlayers.push(p);
-        } else {
-            const p1 = new Player('1', 0, keyBindings.p1, 0, p1_isAi_retry);
-p1.holdDisabled = wasHoldDisabled;
-            const p2 = new Player('2', PLAYER_CANVAS_WIDTH, keyBindings.p2, 1, p2_isAi_retry);
-            p2.holdDisabled = wasHoldDisabled;
-            p1.opponent = p2;
-p2.opponent = p1;
-            tempPlayers.push(p1, p2);
-        }
-
-        startTime = performance.now();
-
-        const p1InitialNext = tempPlayers[0].player.pieceType
-            ? [tempPlayers[0].player.pieceType, ...tempPlayers[0].nextQueue.slice(0, tempPlayers[0].nextQueue.length - 1)]
-            : [...editorData.p1.nextQueue];
-
-        const p2InitialNext = (gameMode === '2P' && tempPlayers[1])
-            ? (tempPlayers[1].player.pieceType
-                ? [tempPlayers[1].player.pieceType, ...tempPlayers[1].nextQueue.slice(0, tempPlayers[1].nextQueue.length - 1)]
-                : [...editorData.p2.nextQueue])
-            : null;
-        
         replayData = {
             version: 1,
             gameMode: gameMode,
             initialState: {
                 p1: {
-                    board: boardToString(tempPlayers[0].board),
-                    nextQueue: p1InitialNext,
-                    hold: tempPlayers[0].holdPiece
+                    board: boardToString(editorData.p1.board),
+                    nextQueue: [...editorData.p1.nextQueue],
+                    hold: editorData.p1.hold
                 },
-                p2: gameMode === '2P' && tempPlayers[1] ? {
-                    board: boardToString(tempPlayers[1].board),
-                    nextQueue: p2InitialNext,
-                    hold: tempPlayers[1].holdPiece
+                p2: gameMode === '2P' ? {
+                    board: boardToString(editorData.p2.board),
+                    nextQueue: [...editorData.p2.nextQueue],
+                    hold: editorData.p2.hold
                 } : null,
                 rule: { ...editorData.rule }
             },
             frames: []
         };
-        
-        const createPlayerProxy = (player) => {
-            if (!player) return null;
-return {
-                get stats() { return player.stats;
-},
-                board: {
+   
+     
+        let currentRunSettings = { ...gameSettings };
+        let userFunctions = {};
+        startTime = performance.now();
+        const wasHoldDisabled = players[0].holdDisabled;
+
+        const p1_isAi_retry = document.getElementById('p1-ai-toggle').checked;
+        const p2_isAi_retry = document.getElementById('p2-ai-toggle').checked;
+
+        const tempPlayers = [];
+        if (gameMode === '1P') {
+            const p = new Player('1', 0, keyBindings.p1, 0, p1_isAi_retry);
+            p.holdDisabled = wasHoldDisabled;
+            tempPlayers.push(p);
+        } else {
             const p1 = new Player('1', 0, keyBindings.p1, 0, p1_isAi_retry);
             p1.holdDisabled = wasHoldDisabled;
             const p2 = new Player('2', PLAYER_CANVAS_WIDTH, keyBindings.p2, 1, p2_isAi_retry);
