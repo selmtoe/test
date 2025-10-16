@@ -4898,14 +4898,8 @@ document.getElementById('backToEditorBtn').addEventListener('click', () => {
         document.getElementById('rule-description-display').style.display = 'none';
         
         virtualController.hide();
-        
-        const aiDebugDisplay = document.getElementById('ai-debug-display');
-        const aiDebugControls = document.getElementById('ai-debug-controls');
-        if(aiDebugDisplay) aiDebugDisplay.style.display = 'none';
-        if(aiDebugControls) aiDebugControls.style.display = 'none';
-
         setTimeout(updateScale, 0);
-    });
+});
     
     ['p1', 'p2'].forEach(pId => { 
         document.getElementById(`imageLoader-${pId}`).addEventListener('change', e => { 
@@ -5512,7 +5506,7 @@ document.getElementById('replay-next').addEventListener('click', () => {
             updateNextQueueDisplay('p2');
 }
 
-        if (players.length > 0) {
+                if (players.length > 0) {
             players.forEach(p => {
                 if (p.aiWorker) {
                     p.aiWorker.terminate();
@@ -5522,6 +5516,12 @@ document.getElementById('replay-next').addEventListener('click', () => {
                 players = [];
         loadGameSettings();
 virtualController.hide();
+        if (mainCanvas && ctx) {
+            try {
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+            } catch (e) {}
+        }
 
         document.getElementById('replay-viewer-container').style.display = 'none';
         document.getElementById('game-controls').style.display = 'none';
@@ -5553,6 +5553,12 @@ virtualController.hide();
         players = [];
         loadGameSettings();
         virtualController.hide();
+        if (mainCanvas && ctx) {
+            try {
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+            } catch (e) {}
+        }
         
         document.getElementById('replay-viewer-container').style.display = 'none';
         document.getElementById('game-controls').style.display = 'none';
