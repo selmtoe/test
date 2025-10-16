@@ -2431,7 +2431,6 @@ return;
         if (this.gameOver || this.gameClear) return;
 if (this.isActionPressed('softDrop')) {
              if (gameSettings.sdf > 0) {
-             if (gameSettings.sdf > 0) {
                 this.sdfTimer += dt;
                 if (this.sdfTimer >= gameSettings.sdf) {
                     this.move(0, 1);
@@ -5094,18 +5093,22 @@ document.getElementById('retryBtn').addEventListener('click', () => {
                  payload: {
                      code: editorData.rule.code,
                      args: [apiProxy, p1State, p2State]
-                 }
+          
+       }
              }, '*');
-        }
+}
         
         Object.assign(gameSettings, currentRunSettings);
 players = tempPlayers;
-
+        players.forEach(p => {
+            p.ruleHooks = userFunctions;
+            p.gameApi = gameApi;
+        });
 });
     document.getElementById('gameSettingsBtn').addEventListener('click', () => {
         openUnifiedSettingsModal('general');
     });
-    setupEditors();
+setupEditors();
 
     loadStateFromURL();
 
