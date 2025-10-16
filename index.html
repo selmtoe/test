@@ -4475,18 +4475,19 @@ function pollGamepads() {
     });
 }
 
-
 function gameLoop(currentTime) {
     if (!ctx) return;
     pollGamepads();
     const dt = currentTime - lastTime;
     lastTime = currentTime;
-    ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
     if (gameState === 'PLAYING') {
         players.forEach(p => p.update(dt || 0));
-        players.forEach(p => p.draw());
+players.forEach(p => p.draw());
     } else if (gameState.startsWith('SCAN')) {
         drawScanner();
+} else if (gameState === 'REPLAY') {
+        drawReplayFrame(currentFrameIndex);
     }
     requestAnimationFrame(gameLoop);
 }
@@ -5353,21 +5354,32 @@ document.getElementById('saveReplayBtn').addEventListener('click', () => {
             });
         }
 
-        ctx.save(); 
+                ctx.save(); 
         ctx.translate(PLAYFIELD_X_OFFSET, 0.5 * BLOCK_SIZE);
         ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, PLAYFIELD_WIDTH, CANVAS_HEIGHT);
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 0.5;
         for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) {
             for (let x = 0; x < BOARD_WIDTH; x++) {
+                ctx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+            }
+        }
+        ctx.strokeStyle = '#4b4b7c';
+        ctx.lineWidth = 2; ctx.strokeRect(1, 1, PLAYFIELD_WIDTH - 2, CANVAS_HEIGHT - 2);
+for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) {
+            for (let x = 0; x < BOARD_WIDTH; x++) {
                 const boardY = y + p.viewY;
-                if (p.board[boardY]?.[x]) {
-                    ctx.fillStyle = activeSkin[p.board[boardY][x]] || '#FFF';
+if (p.board[boardY]?.[x]) {
+                    ctx.fillStyle = activeSkin[p.board[boardY][x]] ||
+'#FFF';
                     ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
                 }
             }
         }
         ctx.restore();
-        ctx.restore();
+ctx.restore();
     }
+
 
     function drawReplayFrame(frameIndex) {
         if (!replayViewerData) return;
