@@ -4634,8 +4634,9 @@ type : null;
         const p2Proxy = createPlayerProxy(players[1]);
 
         const gameApi = {
-            win: (playerIdentifier) => {
-                const targetPlayer = (playerIdentifier === 'p1') ? players[0] : (playerIdentifier === 'p2') ? players[1] : null;
+            win: (player) => {
+                if (!player || !player.id) return;
+                const targetPlayer = (player.id === '1') ? players[0] : (player.id === '2') ? players[1] : null;
                 if (targetPlayer) {
                     targetPlayer.gameClear = true;
                     const message = 'clear';
@@ -4643,14 +4644,16 @@ type : null;
                     window.parent.postMessage(message, targetOrigin);
                 }
             },
-            lose: (playerIdentifier) => {
-                const targetPlayer = (playerIdentifier === 'p1') ? players[0] : (playerIdentifier === 'p2') ? players[1] : null;
+            lose: (player) => {
+                if (!player || !player.id) return;
+                const targetPlayer = (player.id === '1') ? players[0] : (player.id === '2') ? players[1] : null;
                 if (targetPlayer) {
                     targetPlayer.gameOver = true;
                 }
             },
-            displayGhostBlock: (playerIdentifier, x, y, type) => {
-                const targetPlayer = (playerIdentifier === 'p1') ? players[0] : (playerIdentifier === 'p2') ? players[1] : null;
+            displayGhostBlock: (player, x, y, type) => {
+                if (!player || !player.id) return;
+                const targetPlayer = (player.id === '1') ? players[0] : (player.id === '2') ? players[1] : null;
                 if (targetPlayer) {
                     if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
                         const pieceType = Object.keys(COLORS).includes(type) ? type : null;
@@ -4658,21 +4661,24 @@ type : null;
                     }
                 }
             },
-            clearAllGhostBlocks: (playerIdentifier) => {
-                const targetPlayer = (playerIdentifier === 'p1') ? players[0] : (playerIdentifier === 'p2') ? players[1] : null;
+            clearAllGhostBlocks: (player) => {
+                if (!player || !player.id) return;
+                const targetPlayer = (player.id === '1') ? players[0] : (player.id === '2') ? players[1] : null;
                 if (targetPlayer) {
                     targetPlayer.customGhosts = [];
                 }
             },
-            setCustomUIText: (playerIdentifier, text) => {
-                const targetPlayer = (playerIdentifier === 'p1') ? players[0] : (playerIdentifier === 'p2') ? players[1] : null;
+            setCustomUIText: (player, text) => {
+                if (!player || !player.id) return;
+                const targetPlayer = (player.id === '1') ? players[0] : (player.id === '2') ? players[1] : null;
                 if (targetPlayer) {
                     targetPlayer.customUIText = String(text);
                 }
             },
             getTime: () => performance.now() - startTime,
-            sendAttack: (receivingPlayerIdentifier, lines) => {
-                const targetPlayer = (receivingPlayerIdentifier === 'p1') ? players[0] : (receivingPlayerIdentifier === 'p2') ? players[1] : null;
+            sendAttack: (receivingPlayer, lines) => {
+                if (!receivingPlayer || !receivingPlayer.id) return;
+                const targetPlayer = (receivingPlayer.id === '1') ? players[0] : (receivingPlayer.id === '2') ? players[1] : null;
                 if (targetPlayer) {
                     targetPlayer.garbageQueue.push({
                         lines: lines,
@@ -4710,8 +4716,12 @@ type : null;
         const originalSettingsBeforeRun = { ...gameSettings };
         Object.assign(gameSettings, currentRunSettings);
 
-        gameState = 'PLAYING'; 
-        document.getElementById('editor-container').style.display = 'none'; 
+        players.forEach(p => {
+            p.gameApi = gameApi;
+        });
+
+        gameState = 'PLAYING';
+document.getElementById('editor-container').style.display = 'none'; 
         document.getElementById('game-container').style.display = 'block';
         document.getElementById('scan-controls').style.display = 'none';
         document.getElementById('game-controls').style.display = 'flex';
@@ -5024,8 +5034,9 @@ document.getElementById('retryBtn').addEventListener('click', () => {
         const p2Proxy = createPlayerProxy(tempPlayers[1]);
         
         const gameApi = {
-            win: (playerIdentifier) => {
-                const targetPlayer = (playerIdentifier === 'p1') ? tempPlayers[0] : (playerIdentifier === 'p2') ? tempPlayers[1] : null;
+            win: (player) => {
+                if (!player || !player.id) return;
+                const targetPlayer = (player.id === '1') ? tempPlayers[0] : (player.id === '2') ? tempPlayers[1] : null;
                 if (targetPlayer) {
                     targetPlayer.gameClear = true;
                     const message = 'clear';
@@ -5033,14 +5044,16 @@ document.getElementById('retryBtn').addEventListener('click', () => {
                     window.parent.postMessage(message, targetOrigin);
                 }
             },
-            lose: (playerIdentifier) => {
-                const targetPlayer = (playerIdentifier === 'p1') ? tempPlayers[0] : (playerIdentifier === 'p2') ? tempPlayers[1] : null;
+            lose: (player) => {
+                if (!player || !player.id) return;
+                const targetPlayer = (player.id === '1') ? tempPlayers[0] : (player.id === '2') ? tempPlayers[1] : null;
                 if (targetPlayer) {
                     targetPlayer.gameOver = true;
                 }
             },
-            displayGhostBlock: (playerIdentifier, x, y, type) => {
-                const targetPlayer = (playerIdentifier === 'p1') ? tempPlayers[0] : (playerIdentifier === 'p2') ? tempPlayers[1] : null;
+            displayGhostBlock: (player, x, y, type) => {
+                if (!player || !player.id) return;
+                const targetPlayer = (player.id === '1') ? tempPlayers[0] : (player.id === '2') ? tempPlayers[1] : null;
                 if (targetPlayer) {
                     if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
                         const pieceType = Object.keys(COLORS).includes(type) ? type : null;
@@ -5048,21 +5061,24 @@ document.getElementById('retryBtn').addEventListener('click', () => {
                     }
                 }
             },
-            clearAllGhostBlocks: (playerIdentifier) => {
-                const targetPlayer = (playerIdentifier === 'p1') ? tempPlayers[0] : (playerIdentifier === 'p2') ? tempPlayers[1] : null;
+            clearAllGhostBlocks: (player) => {
+                if (!player || !player.id) return;
+                const targetPlayer = (player.id === '1') ? tempPlayers[0] : (player.id === '2') ? tempPlayers[1] : null;
                 if (targetPlayer) {
                     targetPlayer.customGhosts = [];
                 }
             },
-            setCustomUIText: (playerIdentifier, text) => {
-                const targetPlayer = (playerIdentifier === 'p1') ? tempPlayers[0] : (playerIdentifier === 'p2') ? tempPlayers[1] : null;
+            setCustomUIText: (player, text) => {
+                if (!player || !player.id) return;
+                const targetPlayer = (player.id === '1') ? tempPlayers[0] : (player.id === '2') ? tempPlayers[1] : null;
                 if (targetPlayer) {
                     targetPlayer.customUIText = String(text);
                 }
             },
             getTime: () => performance.now() - startTime,
-            sendAttack: (receivingPlayerIdentifier, lines) => {
-                const targetPlayer = (playerIdentifier === 'p1') ? tempPlayers[0] : (receivingPlayerIdentifier === 'p2') ? tempPlayers[1] : null;
+            sendAttack: (receivingPlayer, lines) => {
+                if (!receivingPlayer || !receivingPlayer.id) return;
+                const targetPlayer = (receivingPlayer.id === '1') ? tempPlayers[0] : (receivingPlayer.id === '2') ? tempPlayers[1] : null;
                 if (targetPlayer) {
                     targetPlayer.garbageQueue.push({
                         lines: lines,
@@ -5071,7 +5087,7 @@ document.getElementById('retryBtn').addEventListener('click', () => {
                 }
             },
             forceSetting: (key, value) => {
-                if (key in currentRunSettings) {
+if (key in currentRunSettings) {
                     currentRunSettings[key] = value;
                 } else {
                     console.warn(`Rule tried to force unknown setting: ${key}`);
@@ -5097,14 +5113,12 @@ document.getElementById('retryBtn').addEventListener('click', () => {
        }
              }, '*');
 }
-        
         Object.assign(gameSettings, currentRunSettings);
 players = tempPlayers;
         players.forEach(p => {
-            p.ruleHooks = userFunctions;
             p.gameApi = gameApi;
         });
-});
+    });
     document.getElementById('gameSettingsBtn').addEventListener('click', () => {
         openUnifiedSettingsModal('general');
     });
@@ -5228,19 +5242,23 @@ setupEditors();
                 const { type, payload } = event.data;
                 if (type === 'init') {
                     try {
-                        const [apiProxy, p1Proxy, p2Proxy] = payload.args;
+                        const [apiProxy, 
+p1Proxy, p2Proxy] = payload.args;
                         api.p1 = createReadOnlyProxy(p1Proxy, 'p1');
                         api.p2 = createReadOnlyProxy(p2Proxy, 'p2');
                         
-                        const combinedCode = payload.code + '\\nreturn { onInit: typeof onInit === "function" ? onInit : undefined, onPieceLock: typeof onPieceLock === "function" ? onPieceLock : undefined, onUpdate: typeof onUpdate === "function" ? onUpdate : undefined };';
+                   
+     const combinedCode = payload.code + '\\nreturn { onInit: typeof onInit === "function" ? onInit : undefined, onPieceLock: typeof onPieceLock === "function" ? onPieceLock : undefined, onUpdate: typeof onUpdate === "function" ? onUpdate : undefined };';
                         const ruleScript = new Function('api', combinedCode);
                         userFunctions = ruleScript(api) || {};
-                        if (userFunctions.onInit) {
-                            userFunctions.onInit(api, api.p1, api.p2);
+    
+                    if (userFunctions.onInit) {
+                            userFunctions.onInit(api);
                         }
                     } catch (e) {
-                        parent.postMessage({ type: 'scriptError', payload: { message: e.message } }, '*');
-                    }
+ 
+                       parent.postMessage({ type: 'scriptError', payload: { message: e.message } }, '*');
+}
                 } else if (type === 'callHook') {
                     const { hook, args } = payload;
                     if (typeof userFunctions[hook] === 'function') {
