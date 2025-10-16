@@ -5437,9 +5437,11 @@ mainCanvas.style.height = CANVAS_HEIGHT + 'px';
         }
         ctx.scale(RESOLUTION_SCALE, RESOLUTION_SCALE);
 
-        drawReplayFrame(currentFrameIndex);
-setTimeout(updateScale, 0);
-    }
+        setTimeout(() => {
+            drawReplayFrame(currentFrameIndex);
+            updateScale();
+        }, 0);
+}
     
     document.getElementById('replay-to-start').addEventListener('click', () => {
         currentFrameIndex = 0;
