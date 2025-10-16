@@ -5519,13 +5519,15 @@ document.getElementById('replay-next').addEventListener('click', () => {
                 }
             });
         }
-        players = [];
+                players = [];
         loadGameSettings();
         virtualController.hide();
 
         document.getElementById('replay-viewer-container').style.display = 'none';
+        document.getElementById('game-controls').style.display = 'none';
         document.getElementById('game-container').style.display = 'none';
         document.getElementById('editor-container').style.display = 'flex';
+        document.getElementById('rule-description-display').style.display = 'none';
         gameState = 'EDITING';
         replayViewerData = null;
         currentFrameIndex = -1;
@@ -5541,17 +5543,20 @@ setTimeout(updateScale, 0);
                 }
             });
         }
-        players = [];
+                players = [];
         loadGameSettings();
         virtualController.hide();
         
         document.getElementById('replay-viewer-container').style.display = 'none';
+        document.getElementById('game-controls').style.display = 'none';
         document.getElementById('game-container').style.display = 'none';
         document.getElementById('editor-container').style.display = 'flex';
+        document.getElementById('rule-description-display').style.display = 'none';
         gameState = 'EDITING';
         replayViewerData = null;
         currentFrameIndex = -1;
-        setTimeout(updateScale, 0);
+   
+     setTimeout(updateScale, 0);
     });
 });
 </script>
