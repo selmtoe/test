@@ -5395,70 +5395,67 @@ ctx.restore();
 
 
     function drawReplayFrame(frameIndex) {
-        if (!replayViewerData) return;
-
-        ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+        if (!replayViewerData || !replayViewerData.frames[frameIndex]) return;
+ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
         
-        const isInitialState = frameIndex === -1;
-        const p1Data = isInitialState ? replayViewerData.initialState.p1 : replayViewerData.frames[frameIndex].p1;
-        const p2Data = isInitialState ? replayViewerData.initialState.p2 : (replayViewerData.frames[frameIndex].p2 || null);
+        const p1Data = replayViewerData.frames[frameIndex].p1;
+const p2Data = replayViewerData.frames[frameIndex].p2 || null;
 
         drawReplayPlayerState(p1Data, 0);
-        if (replayViewerData.gameMode === '2P') {
+if (replayViewerData.gameMode === '2P') {
             drawReplayPlayerState(p2Data, PLAYER_CANVAS_WIDTH);
-        }
+}
 
         const frameCounter = document.getElementById('replay-frame-counter');
-        const frameNum = isInitialState ? 0 : frameIndex + 1;
-        frameCounter.textContent = `${frameNum} / ${replayViewerData.frames.length}`;
-    }
+        const frameNum = frameIndex + 1;
+frameCounter.textContent = `${frameNum} / ${replayViewerData.frames.length}`;
+}
 
     function showReplayViewer(data) {
         gameState = 'REPLAY';
         replayViewerData = data;
-        currentFrameIndex = -1;
+currentFrameIndex = 0;
 
         document.getElementById('game-container').style.display = 'block';
         document.getElementById('game-controls').style.display = 'none';
-        document.getElementById('editor-container').style.display = 'none';
+document.getElementById('editor-container').style.display = 'none';
         document.getElementById('replay-viewer-container').style.display = 'block';
         if (players.length > 0 && virtualController) virtualController.hide();
 
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+ctx.setTransform(1, 0, 0, 1, 0, 0);
         if (replayViewerData.gameMode === '1P') {
             mainCanvas.width = PLAYER_CANVAS_WIDTH * RESOLUTION_SCALE;
-            mainCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
+mainCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
             mainCanvas.style.width = PLAYER_CANVAS_WIDTH + 'px';
             mainCanvas.style.height = CANVAS_HEIGHT + 'px';
-        } else {
+} else {
             const totalWidth = PLAYER_CANVAS_WIDTH * 2;
-            mainCanvas.width = totalWidth * RESOLUTION_SCALE;
+mainCanvas.width = totalWidth * RESOLUTION_SCALE;
             mainCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
             mainCanvas.style.width = totalWidth + 'px';
-            mainCanvas.style.height = CANVAS_HEIGHT + 'px';
+mainCanvas.style.height = CANVAS_HEIGHT + 'px';
         }
         ctx.scale(RESOLUTION_SCALE, RESOLUTION_SCALE);
 
         drawReplayFrame(currentFrameIndex);
-        setTimeout(updateScale, 0);
+setTimeout(updateScale, 0);
     }
     
     document.getElementById('replay-to-start').addEventListener('click', () => {
-        currentFrameIndex = -1;
+        currentFrameIndex = 0;
         drawReplayFrame(currentFrameIndex);
     });
-    
-    document.getElementById('replay-prev').addEventListener('click', () => {
-        if (currentFrameIndex > -1) {
+document.getElementById('replay-prev').addEventListener('click', () => {
+        if (currentFrameIndex > 0) {
             currentFrameIndex--;
             drawReplayFrame(currentFrameIndex);
         }
     });
-
-    document.getElementById('replay-next').addEventListener('click', () => {
+document.getElementById('replay-next').addEventListener('click', () => {
         if (replayViewerData && currentFrameIndex < replayViewerData.frames.length - 1) {
             currentFrameIndex++;
             drawReplayFrame(currentFrameIndex);
+
         }
     });
     
@@ -5511,17 +5508,39 @@ ctx.restore();
         if(gameMode === '2P') {
             drawEditorField('p2');
             updateNextQueueDisplay('p2');
+}
+
+        if (players.length > 0) {
+            players.forEach(p => {
+                if (p.aiWorker) {
+                    p.aiWorker.terminate();
+                }
+            });
         }
+        players = [];
+        loadGameSettings();
+        virtualController.hide();
 
         document.getElementById('replay-viewer-container').style.display = 'none';
         document.getElementById('game-container').style.display = 'none';
         document.getElementById('editor-container').style.display = 'flex';
         gameState = 'EDITING';
-        setTimeout(updateScale, 0);
+setTimeout(updateScale, 0);
         alert('現在の盤面をエディタに読み込みました。');
     });
 
     document.getElementById('replay-close').addEventListener('click', () => {
+        if (players.length > 0) {
+            players.forEach(p => {
+                if (p.aiWorker) {
+                    p.aiWorker.terminate();
+                }
+            });
+        }
+        players = [];
+        loadGameSettings();
+        virtualController.hide();
+        
         document.getElementById('replay-viewer-container').style.display = 'none';
         document.getElementById('game-container').style.display = 'none';
         document.getElementById('editor-container').style.display = 'flex';
