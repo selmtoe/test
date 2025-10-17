@@ -2421,17 +2421,21 @@ return;
             return;
 }
 
-        if (this.ruleHooks.onUpdate && typeof this.ruleHooks.onUpdate === 'function') {
-            try {
-                this.ruleHooks.onUpdate(this.gameApi, this);
-} catch (e) {
-                console.error("Rule error onUpdate:", e);
-this.gameOver = true;
-                return;
-            }
+        if (this.activeRuleHooks.onUpdate) {
+            const playerStateProxy = {
+                id: this.id,
+                stats: this.stats,
+            };
+            this.ruleWorker.postMessage({
+                command: 'update',
+                data: {
+                    playerStateProxy: playerStateProxy
+                }
+            });
         }
+
         if (this.gameOver || this.gameClear) return;
-        if (this.isActionPressed('softDrop')) {
+if (this.isActionPressed('softDrop')) {
              if (gameSettings.sdf > 0) {
                 this.sdfTimer += dt;
                 if (this.sdfTimer >= gameSettings.sdf) {
