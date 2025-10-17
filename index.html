@@ -2230,8 +2230,8 @@ class Player {
         this.minoGenerator = createMinoGenerator(pData.nextQueue);
         this.opponent = null;
         this.holdDisabled = false;
-        this.ruleHooks = {};
-        this.gameApi = null;
+        this.ruleWorker = null;
+        this.activeRuleHooks = {};
         this.reset();
     }
 
@@ -4583,200 +4583,103 @@ document.addEventListener('DOMContentLoaded', () => {
             hideBack: document.getElementById('hide-back-btn-checkbox').checked
         });
     });
-
 document.getElementById('startGameBtn').addEventListener('click', () => {
         let currentRunSettings = { ...gameSettings };
-        let userFunctions = {};
         let startTime = performance.now();
         
         players = [];
-const p1_isAi = document.getElementById('p1-ai-toggle').checked;
+        const p1_isAi = document.getElementById('p1-ai-toggle').checked;
         const p2_isAi = document.getElementById('p2-ai-toggle').checked;
         
         if (gameMode === '1P') {
-            const player = new Player('1', 0, keyBindings.p1, 0, p1_isAi);
-player.holdDisabled = autoStartParams.nh;
+          
+           const player = new Player('1', 0, keyBindings.p1, 0, p1_isAi);
+            player.holdDisabled = autoStartParams.nh;
             players.push(player);
-} else {
+        } else {
             const p1 = new Player('1', 0, keyBindings.p1, 0, p1_isAi);
             p1.holdDisabled = autoStartParams.nh;
             const p2 = new Player('2', PLAYER_CANVAS_WIDTH, keyBindings.p2, 1, p2_isAi);
             p2.holdDisabled = autoStartParams.nh;
-            p1.opponent = p2;
-p2.opponent = p1;
+      
+      p1.opponent = p2;
+            p2.opponent = p1;
             players.push(p1, p2);
         }
 
-        const createPlayerProxy = (player) => {
-            if (!player) return null;
-return {
-                get stats() { return player.stats;
-},
-                board: {
-                    hasBlock: (x, y) => {
-                        if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) return true;
-return player.board[y][x] !== null;
-                    },
-                    placeBlock: (x, y, type) => {
-                        if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
-                           player.board[y][x] = Object.keys(COLORS).includes(type) ?
-type : null;
-                        }
-                    },
-                },
-            };
-};
-
-        const p1Proxy = createPlayerProxy(players[0]);
-        const p2Proxy = createPlayerProxy(players[1]);
-
-        const gameApi = {
-            win: (player) => {
-                let targetPlayer = null;
-                if (player instanceof Player) {
-                    targetPlayer = player;
-                } else if (player === p1Proxy) {
-                    targetPlayer = players[0];
-                } else if (player === p2Proxy) {
-                    targetPlayer = players[1];
-                }
-
-                if (targetPlayer) {
-                    targetPlayer.gameClear = true;
-                    const message = 'clear';
-                    const targetOrigin = '*';
-                    window.parent.postMessage(message, targetOrigin);
-                }
-            },
-            lose: (player) => {
-                let targetPlayer = null;
-                if (player instanceof Player) {
-                    targetPlayer = player;
-                } else if (player === p1Proxy) {
-                    targetPlayer = players[0];
-                } else if (player === p2Proxy) {
-                    targetPlayer = players[1];
-                }
-
-                if (targetPlayer) {
-                    targetPlayer.gameOver = true;
-                }
-            },
-            displayGhostBlock: (player, x, y, type) => {
-                const targetPlayer = (player === p1Proxy && players[0]) ?
-                    players[0] :
-                    (player === p2Proxy && players[1]) ?
-                    players[1] : null;
-                if (targetPlayer) {
-                    if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
-                        const pieceType = Object.keys(COLORS).includes(type) ? type : null;
-                        targetPlayer.customGhosts.push({x, y, pieceType});
-                    }
-                }
-            },
-            clearAllGhostBlocks: (player) => {
-                const targetPlayer = (player === p1Proxy && players[0]) ?
-                    players[0] :
-                    (player === p2Proxy && players[1]) ?
-                    players[1] : null;
-                if (targetPlayer) {
-                    targetPlayer.customGhosts = [];
-                }
-            },
-            setCustomUIText: (player, text) => {
-                const targetPlayer = (player === p1Proxy && players[0]) ?
-players[0] :
-                    (player === p2Proxy && players[1]) ?
-players[1] : null;
-                if (targetPlayer) {
-
-                    targetPlayer.customUIText = String(text);
-                }
-            },
-            getTime: () => performance.now() - startTime,
-            sendAttack: (receivingPlayer, lines) => {
-                const targetPlayer = (receivingPlayer === p1Proxy && players[0]) ?
-                    players[0] :
-                    (receivingPlayer === p2Proxy && players[1]) ?
-                    players[1] : null;
-                if (targetPlayer) {
-                    targetPlayer.garbageQueue.push({
-                        lines: lines,
-                        receivedTime: performance.now()
-                    });
-                }
-            },
-            forceSetting: (key, value) => {
-                if (key in currentRunSettings) {
-                    currentRunSettings[key] = value;
-                } else {
-                    console.warn(`Rule tried to force unknown setting: ${key}`);
-                }
-            },
-                        p1: p1Proxy,
-            p2: p2Proxy,
-            getPiece: (player, type, index = 0) => {
-                const targetPlayer = (player === p1Proxy && players[0]) ? players[0] : (player === p2Proxy && players[1]) ? players[1] : null;
-                if (!targetPlayer) return undefined;
-                if (type === 'hold') {
-                    return targetPlayer.holdPiece;
-                }
-                if (type === 'next') {
-                    return targetPlayer.nextQueue[index];
-                }
-                return undefined;
-            },
-            getFullSequence: (player) => {
-                const targetPlayer = (player === p1Proxy && players[0]) ? players[0] : (player === p2Proxy && players[1]) ? players[1] : null;
-                if (!targetPlayer) return [];
-                return [...targetPlayer.fullMinoSequence];
-            },
-            setPiece: (player, type, piece, index = 0) => {
-                const targetPlayer = (player === p1Proxy && players[0]) ? players[0] : (player === p2Proxy && players[1]) ? players[1] : null;
-                if (!targetPlayer) return;
-                const isValidPiece = Object.keys(TETROMINOS).includes(piece) || piece === null;
-                if (!isValidPiece) return;
-
-                if (type === 'hold') {
-                    targetPlayer.holdPiece = piece;
-                } else if (type === 'next' && index >= 0 && index < targetPlayer.nextQueue.length) {
-                    targetPlayer.nextQueue[index] = piece;
-                }
-            }
-        };
-if (editorData.rule.code) {
+        if (editorData.rule.code) {
             try {
-                const combinedCode = editorData.rule.code + 
-                    `
-return { 
-                        onInit: typeof onInit === 'function' ?
-onInit : undefined,
-     onPieceLock: typeof onPieceLock === 'function' ?
-onPieceLock : undefined,
-                        onUpdate: typeof onUpdate === 'function' ?
-onUpdate : undefined
-                    };`;
-const ruleScript = new Function('api', combinedCode);
-                const returnedFuncs = ruleScript(gameApi);
-if (returnedFuncs.onInit) {
-                    returnedFuncs.onInit(gameApi);
-}
-                userFunctions = returnedFuncs;
-} catch (e) {
-                alert('カスタムルールコードの実行中にエラーが発生しました:\n' + e.message);
-console.error("Custom rule script error:", e);
+                const ruleWorkerScript = `
+                    let userFunctions = {};
+                    const api = {
+                        win: (playerProxy) => postMessage({ command: 'api', func: 'win', args: [playerProxy.id] }),
+                        lose: (playerProxy) => postMessage({ command: 'api', func: 'lose', args: [playerProxy.id] }),
+                        forceSetting: (key, value) => postMessage({ command: 'api', func: 'forceSetting', args: [key, value] }),
+                    };
+                    self.onmessage = (e) => {
+                        const { command, data } = e.data;
+                        if (command === 'init') {
+                            const combinedCode = data.ruleCode + \`
+                                return {
+                                    onInit: typeof onInit === 'function' ? onInit : undefined,
+                                    onPieceLock: typeof onPieceLock === 'function' ? onPieceLock : undefined,
+                                    onUpdate: typeof onUpdate === 'function' ? onUpdate : undefined
+                                };\`;
+                            const ruleScript = new Function('api', combinedCode);
+                            userFunctions = ruleScript(api);
+                            const availableHooks = {};
+                            if (userFunctions.onInit) {
+                                availableHooks.onInit = true;
+                                userFunctions.onInit(data.gameApiProxy);
+                            }
+                            if (userFunctions.onUpdate) availableHooks.onUpdate = true;
+                            if (userFunctions.onPieceLock) availableHooks.onPieceLock = true;
+                            postMessage({ command: 'hooksAvailable', hooks: availableHooks });
+                        }
+                    };
+                `;
+
+                const ruleWorkerBlob = new Blob([ruleWorkerScript], { type: 'application/javascript' });
+
+                players.forEach(p => {
+                    p.ruleWorker = new Worker(URL.createObjectURL(ruleWorkerBlob));
+                    p.ruleWorker.onmessage = (e) => {
+                        const { command, func, args, hooks } = e.data;
+                        if (command === 'api') {
+                            if (func === 'forceSetting') {
+                                if (args[0] in currentRunSettings) {
+                                    currentRunSettings[args[0]] = args[1];
+                                }
+                            }
+                        } else if (command === 'hooksAvailable') {
+                            p.activeRuleHooks = hooks;
+                            if(hooks.onInit){
+                                Object.assign(gameSettings, currentRunSettings);
+                            }
+                        }
+                    };
+                    const p1Proxy = { id: 'p1' };
+                    const p2Proxy = gameMode === '2P' ? { id: 'p2' } : null;
+                    const gameApiProxy = { p1: p1Proxy, p2: p2Proxy };
+                    p.ruleWorker.postMessage({
+                        command: 'init',
+                        data: {
+                            ruleCode: editorData.rule.code,
+                            gameApiProxy: gameApiProxy,
+                        }
+                    });
+                });
+            } catch (e) {
+                alert('カスタムルールWorkerの生成中にエラーが発生しました:\n' + e.message);
+                console.error("Custom rule worker error:", e);
                 return;
             }
         }
         
-        players.forEach(p => {
-            p.ruleHooks = userFunctions;
-            p.gameApi = gameApi;
-        });
-
         const originalSettingsBeforeRun = { ...gameSettings };
-Object.assign(gameSettings, currentRunSettings);
-
+        if(!editorData.rule.code) {
+             Object.assign(gameSettings, currentRunSettings);
+        }
         gameState = 'PLAYING'; 
         document.getElementById('editor-container').style.display = 'none'; 
         document.getElementById('game-container').style.display = 'block';
@@ -4847,6 +4750,9 @@ document.getElementById('backToEditorBtn').addEventListener('click', () => {
             players.forEach(p => {
                 if (p.aiWorker) {
                     p.aiWorker.terminate();
+                }
+                if (p.ruleWorker) {
+                    p.ruleWorker.terminate();
                 }
             });
         }
@@ -5041,10 +4947,13 @@ document.getElementById('retryBtn').addEventListener('click', () => {
             if (p.aiWorker) {
                 p.aiWorker.terminate();
             }
+            if (p.ruleWorker) {
+                p.ruleWorker.terminate();
+            }
         });
 
         loadGameSettings();
-        
+     
         let currentRunSettings = { ...gameSettings };
         let userFunctions = {};
         let startTime = performance.now();
