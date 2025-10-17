@@ -336,32 +336,17 @@ left: 10px; top: 150px;">
     </div>
 </div>
 
-<div id="game-controls" style="display: none; position: fixed; top: 10px; right: 10px; z-index: 160; gap: 10px;">
+<div id="game-controls" style="display: none;
+position: fixed; top: 10px; right: 10px; z-index: 160; gap: 10px;">
      <button id="retryBtn" class="button">リトライ</button>
-     <button id="saveReplayBtn" class="button">譜面を保存</button>
      <button id="gameSettingsBtn" class="button">設定</button>
      <button id="backToEditorBtn" class="button">戻る</button>
-</div>
-
-<div id="replay-viewer-container" style="display: none;">
-    <div id="replay-controls" style="position: fixed;
-top: 20px; left: 50%; transform: translateX(-50%); z-index: 170; display: flex; gap: 10px; background: rgba(26, 26, 46, 0.9); padding: 10px 20px;
-border-radius: 8px; border: 2px solid #4b4b7c; align-items: center;">
-        <button id="replay-to-start" class="button">⬅︎</button>
-        <button id="replay-prev" class="button">←</button>
-        <span id="replay-frame-counter" style="color: white; font-family: 'Orbitron', sans-serif; min-width: 80px; text-align: center;">- / -</span>
-        <button id="replay-next" class="button">→</button>
-        <button id="replay-load-to-editor" class="button">読込</button>
-        <button id="replay-download" class="button">保存</button>
-        <button id="replay-close" class="button">終了</button>
-    </div>
 </div>
 
 
 <div id="virtual-controller-container">
 
     <div id="vc-edit-controls" style="display: none;">
-
         <button id="vc-save-and-close-btn" class="button">保存して閉じる</button>
     </div>
     <canvas id="virtualControllerCanvas"></canvas>
@@ -2118,8 +2103,6 @@ const TETROMINOS = {
 const SRS_OFFSETS = { "JLSTZ": { "0_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], "1_0": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], "1_2": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], "2_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], "2_3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], "3_2": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], "3_0": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], "0_3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], }, "I": { "0_1": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], "1_0": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], "1_2": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], "2_1": [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], "2_3": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], "3_2": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], "3_0": [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], "0_3": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], } };
 
 let players = [], gameMode = '1P', gameState = 'EDITING', lastTime = 0, mainCanvas, ctx, aiWorkerBlob;
-let replayData = null, startTime = 0;
-let replayViewerData = null, currentFrameIndex = -1;
 
 function updateAiDebugDisplay(payload) {
     const display = document.getElementById('ai-debug-display');
@@ -2669,55 +2652,18 @@ lockPiece() {
 
         if (this.opponent && attack > 0) {
             let remainingAttack = attack;
-            if (isPC) {
+             if (isPC) {
                 this.opponent.addGarbage(remainingAttack);
             } else {
-                if (this.pendingGarbage > 0) { const offset = Math.min(this.pendingGarbage, remainingAttack);
-                this.pendingGarbage -= offset; remainingAttack -= offset; }
-                if (remainingAttack > 0) { for (let i=0; i < this.garbageQueue.length && remainingAttack > 0; i++) { const offset = Math.min(this.garbageQueue[i].lines, remainingAttack);
-                this.garbageQueue[i].lines -= offset; remainingAttack -= offset; } this.garbageQueue = this.garbageQueue.filter(g => g.lines > 0);
-                }
-                if (remainingAttack > 0) { this.opponent.addGarbage(remainingAttack);
-                }
+                if (this.pendingGarbage > 0) { const offset = Math.min(this.pendingGarbage, remainingAttack); this.pendingGarbage -= offset; remainingAttack -= offset; }
+                if (remainingAttack > 0) { for (let i=0; i < this.garbageQueue.length && remainingAttack > 0; i++) { const offset = Math.min(this.garbageQueue[i].lines, remainingAttack); this.garbageQueue[i].lines -= offset; remainingAttack -= offset; } this.garbageQueue = this.garbageQueue.filter(g => g.lines > 0); }
+                if (remainingAttack > 0) { this.opponent.addGarbage(remainingAttack); }
             }
-        }
-
-        if (replayData) {
-            const frame = {
-                playerId: this.id,
-                placement: {
-                    pieceType: this.player.pieceType,
-                    x: this.player.x,
-                    y: this.player.y,
-                    rotation: this.player.rotation,
-                },
-                timestamp: performance.now() - startTime,
-                p1: {
-                    board: boardToString(players[0].board),
-                    nextQueue: [...players[0].nextQueue],
-                    hold: players[0].holdPiece,
-                    ren: players[0].ren,
-                    b2b: players[0].isB2B,
-                    pendingGarbage: players[0].pendingGarbage
-                }
-            };
-            if (gameMode === '2P' && players[1]) {
-                frame.p2 = {
-                    board: boardToString(players[1].board),
-                    nextQueue: [...players[1].nextQueue],
-                    hold: players[1].holdPiece,
-                    ren: players[1].ren,
-                    b2b: players[1].isB2B,
-                    pendingGarbage: players[1].pendingGarbage
-                };
-            }
-            replayData.frames.push(frame);
         }
         
         if (this.ruleHooks.onPieceLock && typeof this.ruleHooks.onPieceLock === 'function') {
              try {
                 this.ruleHooks.onPieceLock(this.gameApi, this, moveInfo);
-
             } catch (e) {
                 console.error("Rule error onPieceLock:", e);
                 this.gameOver = true;
@@ -4477,19 +4423,18 @@ function pollGamepads() {
     });
 }
 
+
 function gameLoop(currentTime) {
     if (!ctx) return;
     pollGamepads();
     const dt = currentTime - lastTime;
     lastTime = currentTime;
-ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+    ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
     if (gameState === 'PLAYING') {
         players.forEach(p => p.update(dt || 0));
-players.forEach(p => p.draw());
+        players.forEach(p => p.draw());
     } else if (gameState.startsWith('SCAN')) {
         drawScanner();
-} else if (gameState === 'REPLAY') {
-        drawReplayFrame(currentFrameIndex);
     }
     requestAnimationFrame(gameLoop);
 }
@@ -4635,29 +4580,9 @@ document.addEventListener('DOMContentLoaded', () => {
 document.getElementById('startGameBtn').addEventListener('click', () => {
         let currentRunSettings = { ...gameSettings };
         let userFunctions = {};
-        startTime = performance.now();
+        let startTime = performance.now();
         
-        replayData = {
-            version: 1,
-            gameMode: gameMode,
-            initialState: {
-                p1: {
-                    board: boardToString(editorData.p1.board),
-                    nextQueue: [...editorData.p1.nextQueue],
-                    hold: editorData.p1.hold
-                },
-                p2: gameMode === '2P' ? {
-                    board: boardToString(editorData.p2.board),
-                    nextQueue: [...editorData.p2.nextQueue],
-                    hold: editorData.p2.hold
-                } : null,
-                rule: { ...editorData.rule }
-            },
-            frames: []
-        };
-
         players = [];
-
 const p1_isAi = document.getElementById('p1-ai-toggle').checked;
         const p2_isAi = document.getElementById('p2-ai-toggle').checked;
         
@@ -4898,8 +4823,14 @@ document.getElementById('backToEditorBtn').addEventListener('click', () => {
         document.getElementById('rule-description-display').style.display = 'none';
         
         virtualController.hide();
+        
+        const aiDebugDisplay = document.getElementById('ai-debug-display');
+        const aiDebugControls = document.getElementById('ai-debug-controls');
+        if(aiDebugDisplay) aiDebugDisplay.style.display = 'none';
+        if(aiDebugControls) aiDebugControls.style.display = 'none';
+
         setTimeout(updateScale, 0);
-});
+    });
     
     ['p1', 'p2'].forEach(pId => { 
         document.getElementById(`imageLoader-${pId}`).addEventListener('change', e => { 
@@ -5077,30 +5008,10 @@ document.getElementById('retryBtn').addEventListener('click', () => {
         });
 
         loadGameSettings();
-
-        replayData = {
-            version: 1,
-            gameMode: gameMode,
-            initialState: {
-                p1: {
-                    board: boardToString(editorData.p1.board),
-                    nextQueue: [...editorData.p1.nextQueue],
-                    hold: editorData.p1.hold
-                },
-                p2: gameMode === '2P' ? {
-                    board: boardToString(editorData.p2.board),
-                    nextQueue: [...editorData.p2.nextQueue],
-                    hold: editorData.p2.hold
-                } : null,
-                rule: { ...editorData.rule }
-            },
-            frames: []
-        };
-   
-     
+        
         let currentRunSettings = { ...gameSettings };
         let userFunctions = {};
-        startTime = performance.now();
+        let startTime = performance.now();
         const wasHoldDisabled = players[0].holdDisabled;
 
         const p1_isAi_retry = document.getElementById('p1-ai-toggle').checked;
@@ -5260,16 +5171,7 @@ console.error("Custom rule script error on retry:", e);
             p.gameApi = gameApi;
         });
 });
-document.getElementById('saveReplayBtn').addEventListener('click', () => {
-        if (!replayData || replayData.frames.length === 0) {
-            alert('表示するリプレイデータがありません。');
-            return;
-        }
-        showReplayViewer(replayData);
-    });
-
     document.getElementById('gameSettingsBtn').addEventListener('click', () => {
-
         openUnifiedSettingsModal('general');
     });
     setupEditors();
@@ -5309,273 +5211,6 @@ document.getElementById('saveReplayBtn').addEventListener('click', () => {
         };
 
         aiPlayer.executeAiMove(move);
-    });
-
-    function drawReplayPlayerState(playerData, offsetX) {
-        if (!playerData) return;
-
-        const p = {
-            board: stringToBoard(playerData.board),
-            holdPiece: playerData.hold,
-            nextQueue: playerData.nextQueue,
-            viewY: BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT
-        };
-        
-        ctx.save();
-        ctx.translate(offsetX, 0);
-
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#FFF'; ctx.font = `bold ${BLOCK_SIZE * 0.8}px "Orbitron"`;
-ctx.fillText('HOLD', HOLD_AREA_WIDTH / 2, 40);
-        if (p.holdPiece) {
-            const s = TETROMINOS[p.holdPiece].shape;
-s.forEach(b => {
-                const px = (HOLD_AREA_WIDTH / 2) - (TETROMINOS[p.holdPiece].center[0] * BLOCK_SIZE) + (b[0] * BLOCK_SIZE);
-                const py = 70 - (TETROMINOS[p.holdPiece].center[1] * BLOCK_SIZE) + (b[1] * BLOCK_SIZE);
-                ctx.fillStyle = activeSkin[p.holdPiece];
-                ctx.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
-                ctx.strokeStyle = '#444';
-                ctx.lineWidth = 0.5;
-                ctx.strokeRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
-});
-        }
-        
-        ctx.fillStyle = '#FFF';
-        ctx.fillText('NEXT', PLAYFIELD_X_OFFSET + PLAYFIELD_WIDTH + PADDING + NEXT_AREA_WIDTH / 2, 40);
-for (let i = 0; i < gameSettings.maxNext; i++) {
-            const pT = p.nextQueue[i];
-if (!pT) continue;
-            const s = TETROMINOS[pT].shape;
-            s.forEach(b => {
-                const px = PLAYFIELD_X_OFFSET + PLAYFIELD_WIDTH + PADDING + NEXT_AREA_WIDTH / 2 - (TETROMINOS[pT].center[0] * BLOCK_SIZE) + (b[0] * BLOCK_SIZE);
-                const py = 70 + (i * BLOCK_SIZE * 2.5) - (TETROMINOS[pT].center[1] * BLOCK_SIZE) + (b[1] * BLOCK_SIZE);
-                ctx.fillStyle = activeSkin[pT];
-                ctx.fillRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
-                ctx.strokeStyle = '#444';
-                ctx.lineWidth = 0.5;
-                ctx.strokeRect(px, py, BLOCK_SIZE, BLOCK_SIZE);
-});
-}
-
-                ctx.save();
-ctx.translate(PLAYFIELD_X_OFFSET, 0.5 * BLOCK_SIZE);
-        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, PLAYFIELD_WIDTH, CANVAS_HEIGHT);
-        ctx.strokeStyle = '#444';
-        ctx.lineWidth = 0.5;
-for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) {
-            for (let x = 0; x < BOARD_WIDTH; x++) {
-                ctx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-}
-        }
-        ctx.strokeStyle = '#4b4b7c';
-ctx.lineWidth = 2; ctx.strokeRect(1, 1, PLAYFIELD_WIDTH - 2, CANVAS_HEIGHT - 2);
-for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) {
-            for (let x = 0; x < BOARD_WIDTH; x++) {
-                const boardY = y + p.viewY;
-if (p.board[boardY]?.[x]) {
-                    ctx.fillStyle = activeSkin[p.board[boardY][x]] ||
-'#FFF';
-                    ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-                    ctx.strokeStyle = '#444';
-                    ctx.lineWidth = 0.5;
-                    ctx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-                }
-            }
-        }
-        ctx.restore();
-ctx.restore();
-    }
-
-
-
-    function drawReplayFrame(frameIndex) {
-        if (!replayViewerData || !replayViewerData.frames[frameIndex]) return;
-ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
-        
-        const p1Data = replayViewerData.frames[frameIndex].p1;
-const p2Data = replayViewerData.frames[frameIndex].p2 || null;
-
-        drawReplayPlayerState(p1Data, 0);
-if (replayViewerData.gameMode === '2P') {
-            drawReplayPlayerState(p2Data, PLAYER_CANVAS_WIDTH);
-}
-
-        const frameCounter = document.getElementById('replay-frame-counter');
-        const frameNum = frameIndex + 1;
-frameCounter.textContent = `${frameNum} / ${replayViewerData.frames.length}`;
-}
-
-    function showReplayViewer(data) {
-        gameState = 'REPLAY';
-        replayViewerData = data;
-currentFrameIndex = 0;
-
-        document.getElementById('game-container').style.display = 'block';
-        document.getElementById('game-controls').style.display = 'none';
-document.getElementById('editor-container').style.display = 'none';
-        document.getElementById('replay-viewer-container').style.display = 'block';
-        if (players.length > 0 && virtualController) virtualController.hide();
-
-ctx.setTransform(1, 0, 0, 1, 0, 0);
-        if (replayViewerData.gameMode === '1P') {
-            mainCanvas.width = PLAYER_CANVAS_WIDTH * RESOLUTION_SCALE;
-mainCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
-            mainCanvas.style.width = PLAYER_CANVAS_WIDTH + 'px';
-            mainCanvas.style.height = CANVAS_HEIGHT + 'px';
-} else {
-            const totalWidth = PLAYER_CANVAS_WIDTH * 2;
-mainCanvas.width = totalWidth * RESOLUTION_SCALE;
-            mainCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
-            mainCanvas.style.width = totalWidth + 'px';
-mainCanvas.style.height = CANVAS_HEIGHT + 'px';
-        }
-        ctx.scale(RESOLUTION_SCALE, RESOLUTION_SCALE);
-
-        setTimeout(() => {
-            drawReplayFrame(currentFrameIndex);
-            updateScale();
-        }, 50);
-}
-    
-    document.getElementById('replay-to-start').addEventListener('click', () => {
-        currentFrameIndex = 0;
-        drawReplayFrame(currentFrameIndex);
-    });
-document.getElementById('replay-prev').addEventListener('click', () => {
-        if (currentFrameIndex > 0) {
-            currentFrameIndex--;
-            drawReplayFrame(currentFrameIndex);
-        }
-    });
-document.getElementById('replay-next').addEventListener('click', () => {
-        if (replayViewerData && currentFrameIndex < replayViewerData.frames.length - 1) {
-            currentFrameIndex++;
-            drawReplayFrame(currentFrameIndex);
-
-        }
-    });
-    
-    document.getElementById('replay-download').addEventListener('click', () => {
-        if (!replayViewerData) return;
-        try {
-            const replayJson = JSON.stringify(replayViewerData, null, 2);
-            const blob = new Blob([replayJson], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            const now = new Date();
-            const timestamp = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
-            a.download = `tetris_replay_${timestamp}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        } catch (e) {
-            console.error('Failed to download replay data:', e);
-            alert('リプレイデータのダウンロードに失敗しました。');
-        }
-    });
-
-    document.getElementById('replay-load-to-editor').addEventListener('click', () => {
-        if (!replayViewerData) return;
-        const isInitialState = currentFrameIndex === -1;
-        const p1Data = isInitialState ? replayViewerData.initialState.p1 : replayViewerData.frames[currentFrameIndex].p1;
-
-        editorData.p1.board = stringToBoard(p1Data.board);
-        editorData.p1.nextQueue = [...p1Data.nextQueue];
-        editorData.p1.hold = p1Data.hold;
-
-        if (replayViewerData.gameMode === '2P') {
-            const p2Data = isInitialState ? replayViewerData.initialState.p2 : (replayViewerData.frames[currentFrameIndex].p2 || null);
-            if (p2Data) {
-                editorData.p2.board = stringToBoard(p2Data.board);
-                editorData.p2.nextQueue = [...p2Data.nextQueue];
-                editorData.p2.hold = p2Data.hold;
-            }
-        }
-        
-        gameMode = replayViewerData.gameMode;
-        document.getElementById('mode-1p').classList.toggle('active', gameMode === '1P');
-        document.getElementById('mode-2p').classList.toggle('active', gameMode === '2P');
-        document.getElementById('p2-editor-col').style.display = (gameMode === '2P') ? 'flex' : 'none';
-
-        drawEditorField('p1');
-        updateNextQueueDisplay('p1');
-        if(gameMode === '2P') {
-            drawEditorField('p2');
-            updateNextQueueDisplay('p2');
-}
-
-                if (players.length > 0) {
-            players.forEach(p => {
-                if (p.aiWorker) {
-                    p.aiWorker.terminate();
-                }
-            });
-        }
-                players = [];
-        loadGameSettings();
-virtualController.hide();
-        if (mainCanvas && ctx) {
-            try {
-                ctx.setTransform(1, 0, 0, 1, 0, 0);
-                ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
-            } catch (e) {}
-        }
-
-        document.getElementById('replay-viewer-container').style.display = 'none';
-        document.getElementById('game-controls').style.display = 'none';
-        document.getElementById('game-container').style.display = 'none';
-        document.getElementById('editor-container').style.display = 'flex';
-        document.getElementById('rule-description-display').style.display = 'none';
-        
-        const aiDebugDisplay = document.getElementById('ai-debug-display');
-        const aiDebugControls = document.getElementById('ai-debug-controls');
-        if(aiDebugDisplay) aiDebugDisplay.style.display = 'none';
-        if(aiDebugControls) aiDebugControls.style.display = 'none';
-        
-        gameState = 'EDITING';
-        replayViewerData = null;
-        currentFrameIndex = -1;
-        setTimeout(updateScale, 0);
-        alert('現在の盤面をエディタに読み込みました。');
-    });
-
-    
-    document.getElementById('replay-close').addEventListener('click', () => {
-        if (players.length > 0) {
-            players.forEach(p => {
-                if (p.aiWorker) {
-                    p.aiWorker.terminate();
-                }
-            });
-        }
-        players = [];
-        loadGameSettings();
-        virtualController.hide();
-        if (mainCanvas && ctx) {
-            try {
-                ctx.setTransform(1, 0, 0, 1, 0, 0);
-                ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
-            } catch (e) {}
-        }
-        
-        document.getElementById('replay-viewer-container').style.display = 'none';
-        document.getElementById('game-controls').style.display = 'none';
-        document.getElementById('game-container').style.display = 'none';
-        document.getElementById('editor-container').style.display = 'flex';
-        document.getElementById('rule-description-display').style.display = 'none';
-     
-        const aiDebugDisplay = document.getElementById('ai-debug-display');
-        const aiDebugControls = document.getElementById('ai-debug-controls');
-        if(aiDebugDisplay) aiDebugDisplay.style.display = 'none';
-        if(aiDebugControls) aiDebugControls.style.display = 'none';
-        
-        gameState = 'EDITING';
-        replayViewerData = null;
-        currentFrameIndex = -1;
-   
-        setTimeout(updateScale, 0);
     });
 });
 </script>
