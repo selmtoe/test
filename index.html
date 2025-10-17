@@ -3322,9 +3322,49 @@ async executeAiMove(move) {
 this.isAiThinking = false;
     }
 
+    win() {
+        this.gameClear = true;
+        if (this.opponent) {
+            this.opponent.gameOver = true;
+        }
+    }
+
+    lose() {
+        this.gameOver = true;
+        if (this.opponent) {
+            this.opponent.gameClear = true;
+        }
+    }
+
+    setCustomUIText(text) {
+        this.customUIText = String(text);
+    }
+    
+    displayGhostBlock(x, y, type) {
+        if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
+            const pieceType = Object.keys(COLORS).includes(type) ? type : null;
+            this.customGhosts.push({x, y, pieceType});
+        }
+    }
+
+    clearAllGhostBlocks() {
+        this.customGhosts = [];
+    }
+    
+    setPiece(type, piece, index = 0) {
+        const isValidPiece = Object.keys(TETROMINOS).includes(piece) || piece === null;
+        if (!isValidPiece) return;
+
+        if (type === 'hold') {
+            this.holdPiece = piece;
+        } else if (type === 'next' && index >= 0 && index < this.nextQueue.length) {
+            this.nextQueue[index] = piece;
+        }
+    }
+
     async executeDrawMove(path) {
         if (this.isExecutingSequence) return;
-        this.isExecutingSequence = true;
+this.isExecutingSequence = true;
 
         for (const action of path) {
             if (this.gameOver || this.gameClear) break;
