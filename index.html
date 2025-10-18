@@ -2329,13 +2329,8 @@ case 'rotateCW':  this.rotate(1); break;
             case 'hardDrop':  this.hardDrop(); break;
             case 'hold':      this.hold(); break;
         }
-    }
-update(dt) {
-        if (this.gameOver || this.gameClear || this.isExecutingSequence) return;
-        if (this.specialMoveTextTimer > 0) {
-            this.specialMoveTextTimer -= dt;
 }
-    
+update(dt) {
         if (gameStartTime > 0) {
             const totalMilliseconds = performance.now() - gameStartTime;
 const minutes = Math.floor(totalMilliseconds / 60000);
@@ -2344,6 +2339,11 @@ const minutes = Math.floor(totalMilliseconds / 60000);
 this.elapsedTimeText = `${minutes}:${String(seconds).padStart(2, '0')}.${String(milliseconds).padStart(3, '0')}`;
         }
 
+        if (this.gameOver || this.gameClear || this.isExecutingSequence) return;
+if (this.specialMoveTextTimer > 0) {
+            this.specialMoveTextTimer -= dt;
+}
+    
 this.processGarbageQueue();
         const left = this.isActionPressed('left');
         const right = this.isActionPressed('right');
