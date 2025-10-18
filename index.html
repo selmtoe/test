@@ -3404,24 +3404,36 @@ piece === null;
 }
     }
 
-    async executeDrawMove(path) {
-        if (this.isExecutingSequence) return;
+    executeDrawMove(path) {
+        if (this.isExecutingSequence || path.length === 0) return;
 this.isExecutingSequence = true;
 
-        for (const action of path) {
-            if (this.gameOver || this.gameClear) break;
-                        switch (action) {
+        let stepIndex = 0;
+        const executeNextStep = () => {
+            if (this.gameOver || this.gameClear || stepIndex >= path.length) {
+                this.isExecutingSequence = false;
+                return;
+            }
+
+            const action = path[stepIndex];
+switch (action) {
                 case '←': this.move(-1, 0); break;
-                case '→': this.move(1, 0); break;
+case '→': this.move(1, 0); break;
                 case '↓': this.move(0, 1); break;
                 case 'R': this.rotate(1); break;
                 case 'L': this.rotate(-1); break;
-                case '↑': this.hardDrop(); break;
+case '↑': this.hardDrop(); break;
             }
-            await new Promise(resolve => setTimeout(resolve, gameSettings.drawMoveDelay));
-        }
 
-        this.isExecutingSequence = false;
+            stepIndex++;
+            if (action === '↑') {
+                this.isExecutingSequence = false;
+                return;
+            }
+setTimeout(executeNextStep, gameSettings.drawMoveDelay);
+        };
+        
+        executeNextStep();
 }
     
     async processDrawing() {
