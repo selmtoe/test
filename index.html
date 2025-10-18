@@ -5158,8 +5158,117 @@ const p2 = new Player('2', PLAYER_CANVAS_WIDTH, keyBindings.p2, 1, p2_isAi_retry
 }
         
         if (editorData.rule.code) {
+             const ruleWorkerScript = `
+                    let userFunctions = {};
+let startTime = 0;
+                    let playerStates = {
+                        '1': { board: [], holdPiece: null, currentPiece: null, nextQueue: [], fullMinoSequence: [], stats: {} },
+                        '2': { board: [], holdPiece: null, currentPiece: null, nextQueue: [], fullMinoSequence: [], stats: {} }
+                 
+   };
+const createBoardAPI = (playerId) => ({
+                        hasBlock: (x, y) => {
+                            const board = playerStates[playerId]?.board;
+                            if (!board || y 
+< 0 || y 
+>= board.length || x < 0 || x >= (board[0] || []).length) {
+                                return false;
+                            }
+                       
+    
+ return board[y][x] !== null;
+                        },
+                        placeBlock: (x, y, type) => {
+                            postMessage({ command: 'api', func: 'placeBlock', args: [playerId, x, y, type] });
+ 
+    
+                   }
+                    });
+const api = {
+                        win: (playerProxy) => postMessage({ command: 'api', func: 'win', args: [playerProxy.id] }),
+                        lose: (playerProxy) => postMessage({ command: 'api', func: 'lose', args: [playerProxy.id] }),
+                        setCustomUIText: 
+(playerProxy, text) => postMessage({ 
+
+command: 'api', func: 'setCustomUIText', args: [playerProxy.id, text] }),
+                        getTime: () => performance.now() - startTime,
+                        sendAttack: (receivingPlayerProxy, lines) => postMessage({ command: 'api', func: 'sendAttack', args: [receivingPlayerProxy.id, lines] }),
+forceSetting: (key, value) => postMessage({ command: 'api', func: 'forceSetting', args: [key, value] }),
+                
+
+        displayGhostBlock: (playerProxy, x, y, type) => postMessage({ command: 'api', func: 'displayGhostBlock', args: [playerProxy.id, x, y, type] }),
+                        clearAllGhostBlocks: (playerProxy) => postMessage({ command: 'api', func: 'clearAllGhostBlocks', args: [playerProxy.id] }),
+         getPiece: (playerProxy, type, index = 0) => {
+                          
+
+  const state = playerStates[playerProxy.id];
+                            if (!state) return null;
+                            if (type === 'hold') return state.holdPiece;
+if (type === 'next') {
+                                if (index === 0) return state.currentPiece;
+return state.nextQueue[index - 1] || null;
+                            }
+                            return null;
+},
+                        getFullSequence: (playerProxy) => {
+                            const state = playerStates[playerProxy.id];
+return state ? [...state.fullMinoSequence] : [];
+},
+                        setPiece: (playerProxy, type, piece, index) => postMessage({ command: 'api', func: 'setPiece', args: [playerProxy.id, type, piece, index] }),
+                    };
+self.onmessage = (e) => {
+                        const { command, data } = e.data;
+if (data && data.playerStateProxy) {
+                            const { id, board, holdPiece, currentPiece, nextQueue, fullMinoSequence, stats } = data.playerStateProxy;
+if (playerStates[id]) {
+                                playerStates[id] = { id, board, holdPiece, currentPiece, nextQueue, fullMinoSequence, stats };
+}
+                        }
+
+if (command === 'init') {
+                            startTime = data.startTime;
+const p1Proxy = { id: '1', board: createBoardAPI('1') };
+                            const p2Proxy = data.is2P ?
+{ id: '2', board: createBoardAPI('2') } : null;
+const gameApiProxy = { p1: p1Proxy, p2: p2Proxy, ...api };
+const combinedCode = data.ruleCode + \`
+                                return {
+                                    onInit: typeof onInit === 'function' ?
+onInit : undefined,
+                                    onPieceLock: typeof onPieceLock === 'function' ?
+onPieceLock : undefined,
+                                    onUpdate: typeof onUpdate === 'function' ?
+onUpdate : undefined
+                                };\`;
+const ruleScript = new Function('api', combinedCode);
+                            userFunctions = ruleScript(gameApiProxy);
+                            const availableHooks = {};
+if (userFunctions.onInit) {
+                                availableHooks.onInit = true;
+userFunctions.onInit(gameApiProxy);
+                            }
+                            if (userFunctions.onUpdate) availableHooks.onUpdate = true;
+if (userFunctions.onPieceLock) availableHooks.onPieceLock = true;
+                            postMessage({ command: 'hooksAvailable', hooks: availableHooks });
+} else if ((command === 'pieceLock' && userFunctions.onPieceLock) || (command === 'update' && userFunctions.onUpdate)) {
+                            const p1Proxy = { id: '1', board: createBoardAPI('1'), stats: playerStates['1'].stats };
+const p2Proxy = data.is2P ? { id: '2', board: createBoardAPI('2'), stats: playerStates['2'].stats } : null;
+if (p1Proxy && p2Proxy) {
+                                p1Proxy.opponent = p2Proxy;
+p2Proxy.opponent = p1Proxy;
+                            }
+                            const gameApiProxy = { p1: p1Proxy, p2: p2Proxy, ...api };
+const playerProxy = data.playerStateProxy.id === '1' ? p1Proxy : p2Proxy;
+if (command === 'pieceLock') {
+                                userFunctions.onPieceLock(gameApiProxy, playerProxy, data.moveInfo);
+} else {
+                                userFunctions.onUpdate(gameApiProxy, playerProxy);
+}
+}
+};
+`;
              const ruleWorkerBlob = new Blob([ruleWorkerScript], { type: 'application/javascript' });
-             players.forEach(p => {
+players.forEach(p => {
                 p.ruleWorker = new Worker(URL.createObjectURL(ruleWorkerBlob));
                 p.ruleWorker.onmessage = (e) => {
                     const { command, func, args, hooks } = e.data;
