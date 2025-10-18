@@ -4797,51 +4797,47 @@ if (command === 'pieceLock') {
                     p.ruleWorker = new Worker(URL.createObjectURL(ruleWorkerBlob));
                     p.ruleWorker.onmessage = (e) => {
                         const { command, func, args, hooks } = e.data;
-                   
-     
-     if (command === 'api') {
-                            
-     
-     if (command === 'api') {
-                            const getPlayerById = (id) => players.find(player => player.id === id);
-                            switch(func) {
-                    
-     
-       case 'win': getPlayerById(args[0])?.win(); break;
+
+
+                        if (command === 'api') {
+                            const getPlayerById = (id) => players.find(player => player.id === id); // Define once
+
+                     switch(func) {
+
+                                case 'win': getPlayerById(args[0])?.win(); break;
                                 case 'lose': getPlayerById(args[0])?.lose(); break;
-                                case 'setCustomUIText': getPlayerById(args[0])?.setCustomUIText(args[1]); break;
-               
-     
-            case 'sendAttack':
+
+                        case 'setCustomUIText': getPlayerById(args[0])?.setCustomUIText(args[1]); break;
+
+
+                                case 'sendAttack':
                                     const targetPlayer = getPlayerById(args[0]);
-                                    if (targetPlayer) {
+
+                                   if (targetPlayer) {
                                         targetPlayer.garbageQueue.push({
-                                            lines: args[1],
+
+                                     lines: args[1],
                                             receivedTime: performance.now()
-                                        });
+
+                                });
                                     }
                                     break;
-                                case 'forceSetting': 
+                        case 'forceSetting':
                                     if (args[0] in currentRunSettings) currentRunSettings[args[0]] = args[1];
-    
-     
-                           break;
-case 'displayGhostBlock': getPlayerById(args[0])?.displayGhostBlock(args[1], args[2], args[3]); break;
+                                break;
+                                case 'displayGhostBlock': getPlayerById(args[0])?.displayGhostBlock(args[1], args[2], args[3]); break;
                                 case 'clearAllGhostBlocks': getPlayerById(args[0])?.clearAllGhostBlocks(); break;
                                 case 'setPiece': getPlayerById(args[0])?.setPiece(args[1], args[2], args[3]); break;
-                                case 'placeBlock': getPlayerById(args[0])?.placeBlock(args[1], args[2], args[3]); break;
-}
-                        } 
-else if (command === 'hooksAvailable') {
+                        case 'placeBlock': getPlayerById(args[0])?.placeBlock(args[1], args[2], args[3]); break;
+                            }
+                        } else if (command === 'hooksAvailable') {
                             p.activeRuleHooks = hooks;
-                            if(hooks.onInit){
+                        if(hooks.onInit){
                                 Object.assign(gameSettings, currentRunSettings);
-    
                         }
                         }
                     };
-
-                    p.ruleWorker.postMessage({
+p.ruleWorker.postMessage({
                         command: 'init',
                         data: {
                             ruleCode: editorData.rule.code,
