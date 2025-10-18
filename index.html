@@ -2102,10 +2102,10 @@ const TETROMINOS = {
 };
 const SRS_OFFSETS = { "JLSTZ": { "0_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], "1_0": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], "1_2": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], "2_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], "2_3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], "3_2": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], "3_0": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], "0_3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], }, "I": { "0_1": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], "1_0": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], "1_2": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], "2_1": [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], "2_3": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], "3_2": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], "3_0": [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], "0_3": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], } };
 
-let players = [], gameMode = '1P', gameState = 'EDITING', lastTime = 0, mainCanvas, ctx, aiWorkerBlob;
-
+let players = [], gameMode = '1P', gameState = 'EDITING', lastTime = 0, mainCanvas, ctx, aiWorkerBlob, gameStartTime = 0;
 function updateAiDebugDisplay(payload) {
     const display = document.getElementById('ai-debug-display');
+
     if (!display) return;
 
     // 盤面データをJavaScriptの2D配列形式の文字列に変換します
@@ -2333,14 +2333,14 @@ update(dt) {
         if (this.gameOver || this.gameClear || this.isExecutingSequence) return;
         if (this.specialMoveTextTimer > 0) {
             this.specialMoveTextTimer -= dt;
-        }
-
-        if (this.gameApi && typeof this.gameApi.getTime === 'function') {
-            const totalMilliseconds = this.gameApi.getTime();
-            const minutes = Math.floor(totalMilliseconds / 60000);
+}
+    
+        if (gameStartTime > 0) {
+            const totalMilliseconds = performance.now() - gameStartTime;
+const minutes = Math.floor(totalMilliseconds / 60000);
             const seconds = Math.floor((totalMilliseconds % 60000) / 1000);
             const milliseconds = Math.floor(totalMilliseconds % 1000);
-            this.elapsedTimeText = `${minutes}:${String(seconds).padStart(2, '0')}.${String(milliseconds).padStart(3, '0')}`;
+this.elapsedTimeText = `${minutes}:${String(seconds).padStart(2, '0')}.${String(milliseconds).padStart(3, '0')}`;
         }
 
 this.processGarbageQueue();
@@ -4664,7 +4664,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 document.getElementById('startGameBtn').addEventListener('click', () => {
         let currentRunSettings = { ...gameSettings };
-        let startTime = performance.now();
+        gameStartTime = performance.now();
+        let startTime = gameStartTime;
         
         players = [];
         const p1_isAi = document.getElementById('p1-ai-toggle').checked;
@@ -5126,7 +5127,7 @@ document.getElementById('retryBtn').addEventListener('click', () => {
                 p.aiWorker.terminate();
             }
             if (p.ruleWorker) {
-     
+
            p.ruleWorker.terminate();
             }
         });
@@ -5134,7 +5135,8 @@ document.getElementById('retryBtn').addEventListener('click', () => {
         loadGameSettings();
      
         let currentRunSettings = { ...gameSettings };
-        let startTime = performance.now();
+        gameStartTime = performance.now();
+        let startTime = gameStartTime;
         const wasHoldDisabled = players[0].holdDisabled;
 
         players = [];
