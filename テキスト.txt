@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1a1a2e">
+<title>譜面エディタ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<style>
+    /* 基本的なスタイル設定 */
+    :root {
+        --bg-color: #1a1a2e;
+        --primary-color: #4b4b7c;
+        --primary-hover-color: #6a6aff;
+        --font-color: #e0e0e0;
+        --border-color: #4b4b7c;
+        --canvas-bg-color: #0f0f18;
+        --font-display: 'Orbitron', sans-serif;
+        --font-ui: 'Noto Sans JP', sans-serif;
+    }
+    html, body {
+        margin: 0;
+        padding: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        -webkit-tap-highlight-color: transparent;
+    }
+    body {
+        background-color: var(--bg-color);
+        color: var(--font-color);
+        font-family: var(--font-ui);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    .main-container {
+        text-align: center;
+        transform-origin: center center;
+    }
+    #editor-container {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        background-color: rgba(15, 15, 24, 0.8);
+        padding: 20px;
+        border-radius: 10px;
+        border: 2px solid var(--border-color);
+        width: 100%;
+        max-width: 1200px;
+    }
+    canvas {
+        background-color: var(--canvas-bg-color);
+        border-radius: 8px;
+        border: 2px solid var(--border-color);
+    }
+    h2 {
+        font-family: var(--font-display);
+        color: var(--primary-hover-color);
+        margin: 0 0 10px 0;
+        border-bottom: 2px solid var(--primary-color);
+        padding-bottom: 5px;
+        text-align: center;
+    }
+    .button, button {
+        background-color: var(--primary-color);
+        color: var(--font-color);
+        border: none;
+        padding: 8px 12px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 14px;
+        font-family: var(--font-display);
+        transition: background-color 0.2s;
+        text-align: center;
+        display: inline-block;
+    }
+    .button:hover, button:hover {
+        background-color: var(--primary-hover-color);
+    }
+    button:disabled {
+        background-color: #333;
+        color: #888;
+        cursor: not-allowed;
+    }
+
+    /* エディタのレイアウト */
+    .edit-section {
+        background-color: rgba(255,255,255,0.05);
+        padding: 15px;
+        border-radius: 8px;
+    }
+    .top-controls {
+        display: flex;
+        justify-content: space-between; /* 両端揃えに変更 */
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 15px;
+    }
+    .mode-selection, .page-controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+    .mode-selection .button.active {
+        background-color: var(--primary-hover-color);
+        box-shadow: 0 0 10px var(--primary-hover-color);
+    }
+    #page-indicator {
+        font-family: var(--font-display);
+        font-size: 16px;
+        padding: 0 10px;
+        min-width: 100px; /* 幅を確保 */
+    }
+    .player-editors {
+        display: flex;
+        justify-content: space-around;
+        gap: 20px;
+        flex-wrap: nowrap;
+        margin-top: 15px;
+    }
+    .editor-column {
+        flex: 1;
+        min-width: 320px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    /* カラーパレットとフィールドエディタ */
+    .color-palette {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: center;
+        margin-bottom: 10px;
+    }
+    .color-swatch {
+        width: 40px;
+        height: 40px;
+        border-radius: 4px;
+        cursor: pointer;
+        border: 2px solid transparent;
+        transition: all 0.2s;
+        box-sizing: border-box;
+    }
+    .color-swatch:hover {
+        transform: scale(1.1);
+    }
+    .color-swatch.active {
+        border-color: #fff;
+        box-shadow: 0 0 8px #fff;
+    }
+    .field-editor canvas {
+        margin-bottom: 10px;
+        cursor: crosshair;
+        touch-action: none;
+    }
+    .field-controls {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+</style>
+</head>
+<body>
+
+<div class="main-container">
+    <div id="editor-container">
+        <!-- 上部コントロール -->
+        <div class="edit-section top-controls">
+            <div class="mode-selection">
+                <h2>MODE</h2>
+                <div class="button active" id="mode-1p">1P</div>
+                <div class="button" id="mode-2p">2P</div>
+            </div>
+            <div class="page-controls">
+                <button id="prev-page">‹ Prev</button>
+                <span id="page-indicator">Page 1 / 1</span>
+                <button id="next-page">Next ›</button>
+                <button id="new-page" style="margin-left: 15px;">New Page</button>
+                <button id="delete-page">Delete Page</button>
+            </div>
+        </div>
+
+        <!-- プレイヤーエディタエリア -->
+        <div class="player-editors">
+            <!-- Player 1 エディタ -->
+            <div class="editor-column" id="p1-editor-col">
+                <div class="edit-section field-editor">
+                    <h2>PLAYER 1 - FIELD</h2>
+                    <div class="color-palette" id="p1-palette"></div>
+                    <canvas id="field-editor-canvas-p1"></canvas>
+                    <div class="field-controls">
+                        <button class="button" id="p1-field-shift-up">↑ Up</button>
+                        <button class="button" id="p1-field-shift-down">↓ Down</button>
+                        <button class="button" id="p1-field-shift-left">← Left</button>
+                        <button class="button" id="p1-field-shift-right">→ Right</button>
+                        <button class="button" id="p1-field-clear">Clear</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Player 2 エディタ (最初は非表示) -->
+            <div class="editor-column" id="p2-editor-col" style="display: none;">
+                <div class="edit-section field-editor">
+                    <h2>PLAYER 2 - FIELD</h2>
+                    <div class="color-palette" id="p2-palette"></div>
+                    <canvas id="field-editor-canvas-p2"></canvas>
+                    <div class="field-controls">
+                        <button class="button" id="p2-field-shift-up">↑ Up</button>
+                        <button class="button" id="p2-field-shift-down">↓ Down</button>
+                        <button class="button" id="p2-field-shift-left">← Left</button>
+                        <button class="button" id="p2-field-shift-right">→ Right</button>
+                        <button class="button" id="p2-field-clear">Clear</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// 定数設定
+const EDITOR_BLOCK_SIZE = 50;
+const BOARD_WIDTH = 10;
+const BOARD_VISIBLE_HEIGHT = 20;
+const BOARD_HEIGHT = 40;
+const COLORS = { 'I': '#00f0f0', 'O': '#f0f000', 'T': '#a000f0', 'L': '#f0a000', 'J': '#0000f0', 'S': '#00f000', 'Z': '#f00000', 'G': '#999999' };
+const EDITOR_COLORS = {...COLORS, 'EMPTY': '#000000'};
+
+// グローバル変数
+let gameMode = '1P';
+let fumenPages = [];
+let currentPageIndex = 0;
+
+// --- ページ管理ロジック ---
+
+/**
+ * 空の盤面データを作成する
+ * @returns {Array<Array<null>>}
+ */
+const createEmptyBoard = () => Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(null));
+
+/**
+ * 新しい空のページオブジェクトを作成する
+ * @returns {object}
+ */
+const createBlankPage = () => ({
+    p1: { board: createEmptyBoard(), viewY: BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT, activeColor: 'I' },
+    p2: { board: createEmptyBoard(), viewY: BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT, activeColor: 'I' }
+});
+
+/**
+ * 指定されたインデックスのページを読み込む
+ * @param {number} index - 読み込むページのインデックス
+ */
+function loadPage(index) {
+    if (index < 0 || index >= fumenPages.length) return;
+    currentPageIndex = index;
+
+    ['p1', 'p2'].forEach(playerId => {
+        const data = fumenPages[currentPageIndex][playerId];
+        const palette = document.getElementById(`${playerId}-palette`);
+        
+        // アクティブカラーを更新
+        palette.querySelector('.active')?.classList.remove('active');
+        const swatches = palette.querySelectorAll('.color-swatch');
+        swatches.forEach(swatch => {
+            if (swatch.dataset.color === data.activeColor) {
+                swatch.classList.add('active');
+            }
+        });
+
+        drawEditorField(playerId);
+    });
+
+    updatePageControls();
+}
+
+/**
+ * ページコントロール（ボタンの状態やインジケーター）を更新する
+ */
+function updatePageControls() {
+    document.getElementById('page-indicator').textContent = `Page ${currentPageIndex + 1} / ${fumenPages.length}`;
+    document.getElementById('prev-page').disabled = (currentPageIndex === 0);
+    document.getElementById('next-page').disabled = (currentPageIndex === fumenPages.length - 1);
+    document.getElementById('delete-page').disabled = (fumenPages.length <= 1);
+}
+
+// --- エディタ本体のロジック ---
+
+/**
+ * 全エディタの初期設定を行う
+ */
+function setupEditors() {
+    ['p1', 'p2'].forEach(setupPlayerEditor);
+}
+
+/**
+ * プレイヤーごとのエディタを設定する
+ * @param {string} playerId - 'p1' または 'p2'
+ */
+function setupPlayerEditor(playerId) {
+    const palette = document.getElementById(`${playerId}-palette`);
+
+    // カラーパレットの作成
+    Object.keys(EDITOR_COLORS).forEach(key => {
+        const swatch = document.createElement('div');
+        swatch.className = 'color-swatch';
+        swatch.dataset.color = key; // データ属性として色を保持
+        swatch.style.backgroundColor = key === 'EMPTY' ? '#333' : EDITOR_COLORS[key];
+        if (key === 'EMPTY') {
+            swatch.style.border = '1px dashed #fff';
+            swatch.title = 'Eraser';
+        }
+        swatch.addEventListener('click', () => {
+            fumenPages[currentPageIndex][playerId].activeColor = key;
+            palette.querySelector('.active')?.classList.remove('active');
+            swatch.classList.add('active');
+        });
+        palette.appendChild(swatch);
+    });
+
+    const canvas = document.getElementById(`field-editor-canvas-${playerId}`);
+    canvas.width = BOARD_WIDTH * EDITOR_BLOCK_SIZE;
+    canvas.height = BOARD_VISIBLE_HEIGHT * EDITOR_BLOCK_SIZE;
+    
+    let isDrawing = false;
+    let isEraserMode = false; // 描画開始時に決定する
+
+    const getCoordsFromEvent = e => {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const relativeX = (clientX - rect.left) / rect.width;
+        const relativeY = (clientY - rect.top) / rect.height;
+        const x = Math.floor(relativeX * BOARD_WIDTH);
+        const y = Math.floor(relativeY * BOARD_VISIBLE_HEIGHT);
+        return { x, y };
+    };
+    
+    const applyDraw = (x, y) => {
+        if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_VISIBLE_HEIGHT) return;
+        
+        const pageData = fumenPages[currentPageIndex][playerId];
+        const boardY = y + pageData.viewY;
+        
+        const newColor = isEraserMode ? null : pageData.activeColor;
+
+        if (pageData.board[boardY][x] !== newColor) {
+            pageData.board[boardY][x] = newColor;
+            drawEditorField(playerId);
+        }
+    };
+
+    // --- 自動消しゴムモードを実装 ---
+    const handleDrawStart = e => {
+        e.preventDefault();
+        isDrawing = true;
+
+        const { x, y } = getCoordsFromEvent(e);
+        const pageData = fumenPages[currentPageIndex][playerId];
+        const selectedColor = pageData.activeColor;
+        const boardY = y + pageData.viewY;
+        const currentCellColor = (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_VISIBLE_HEIGHT)
+            ? pageData.board[boardY][x]
+            : null;
+
+        // 消しゴムが選択されているか、または同じ色のブロックをクリックした場合に消しゴムモードにする
+        isEraserMode = (selectedColor === 'EMPTY' || currentCellColor === selectedColor);
+        
+        applyDraw(x, y);
+    };
+
+    const handleDrawMove = e => {
+        if (!isDrawing) return;
+        e.preventDefault();
+        const { x, y } = getCoordsFromEvent(e);
+        applyDraw(x, y);
+    };
+    
+    const handleDrawEnd = () => {
+        isDrawing = false;
+    };
+
+    canvas.addEventListener('mousedown', handleDrawStart);
+    canvas.addEventListener('mouseup', handleDrawEnd);
+    canvas.addEventListener('mouseleave', handleDrawEnd);
+    canvas.addEventListener('mousemove', handleDrawMove);
+    canvas.addEventListener('touchstart', handleDrawStart, { passive: false });
+    canvas.addEventListener('touchend', handleDrawEnd, { passive: false });
+    canvas.addEventListener('touchcancel', handleDrawEnd, { passive: false });
+    canvas.addEventListener('touchmove', handleDrawMove, { passive: false });
+
+    document.getElementById(`${playerId}-field-shift-up`).addEventListener('click', () => shiftField(playerId, 'up'));
+    document.getElementById(`${playerId}-field-shift-down`).addEventListener('click', () => shiftField(playerId, 'down'));
+    document.getElementById(`${playerId}-field-shift-left`).addEventListener('click', () => shiftField(playerId, 'left'));
+    document.getElementById(`${playerId}-field-shift-right`).addEventListener('click', () => shiftField(playerId, 'right'));
+    document.getElementById(`${playerId}-field-clear`).addEventListener('click', () => {
+        fumenPages[currentPageIndex][playerId].board.forEach(row => row.fill(null));
+        drawEditorField(playerId);
+    });
+}
+
+/**
+ * フィールドを上下左右にシフトする
+ * @param {string} playerId - 'p1' または 'p2'
+ * @param {string} direction - 'up', 'down', 'left', 'right'
+ */
+function shiftField(playerId, direction) {
+    const board = fumenPages[currentPageIndex][playerId].board;
+    if (direction === 'up') {
+        board.shift();
+        board.push(Array(BOARD_WIDTH).fill(null));
+    } else if (direction === 'down') {
+        board.pop();
+        board.unshift(Array(BOARD_WIDTH).fill(null));
+    } else if (direction === 'left') {
+        board.forEach(row => {
+            row.shift();
+            row.push(null);
+        });
+    } else if (direction === 'right') {
+        board.forEach(row => {
+            row.pop();
+            row.unshift(null);
+        });
+    }
+    drawEditorField(playerId);
+}
+
+/**
+ * エディタの盤面を描画する
+ * @param {string} playerId - 'p1' または 'p2'
+ */
+function drawEditorField(playerId) {
+    const canvas = document.getElementById(`field-editor-canvas-${playerId}`);
+    const ctx = canvas.getContext('2d');
+    const data = fumenPages[currentPageIndex][playerId];
+    ctx.fillStyle = '#0f0f18';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 1;
+
+    for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) {
+        for (let x = 0; x < BOARD_WIDTH; x++) {
+            const pieceType = data.board[y + data.viewY]?.[x];
+            if (pieceType) {
+                ctx.fillStyle = COLORS[pieceType] || '#FFF';
+                ctx.fillRect(x * EDITOR_BLOCK_SIZE, y * EDITOR_BLOCK_SIZE, EDITOR_BLOCK_SIZE, EDITOR_BLOCK_SIZE);
+            }
+            ctx.strokeRect(x * EDITOR_BLOCK_SIZE, y * EDITOR_BLOCK_SIZE, EDITOR_BLOCK_SIZE, EDITOR_BLOCK_SIZE);
+        }
+    }
+}
+
+/**
+ * 画面サイズに合わせてコンテナのスケールを調整する
+ */
+function updateScale() {
+    const mainContainer = document.querySelector('.main-container');
+    mainContainer.style.transform = 'none';
+
+    const rect = mainContainer.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+
+    const scale = Math.min(
+        window.innerWidth / rect.width,
+        window.innerHeight / rect.height
+    ) * 0.98;
+
+    mainContainer.style.transform = `scale(${scale})`;
+}
+
+// --- DOMContentLoaded ---
+document.addEventListener('DOMContentLoaded', () => {
+    fumenPages.push(createBlankPage());
+    setupEditors();
+    loadPage(0);
+
+    // モード切替ボタン
+    document.getElementById('mode-1p').addEventListener('click', () => {
+        gameMode = '1P';
+        document.getElementById('mode-1p').classList.add('active');
+        document.getElementById('mode-2p').classList.remove('active');
+        document.getElementById('p2-editor-col').style.display = 'none';
+        setTimeout(updateScale, 0);
+    });
+    document.getElementById('mode-2p').addEventListener('click', () => {
+        gameMode = '2P';
+        document.getElementById('mode-2p').classList.add('active');
+        document.getElementById('mode-1p').classList.remove('active');
+        document.getElementById('p2-editor-col').style.display = 'flex';
+        setTimeout(updateScale, 0);
+    });
+
+    // ページ操作ボタン
+    document.getElementById('prev-page').addEventListener('click', () => {
+        if (currentPageIndex > 0) {
+            loadPage(currentPageIndex - 1);
+        }
+    });
+    document.getElementById('next-page').addEventListener('click', () => {
+        if (currentPageIndex < fumenPages.length - 1) {
+            loadPage(currentPageIndex + 1);
+        }
+    });
+    document.getElementById('new-page').addEventListener('click', () => {
+        fumenPages.splice(currentPageIndex + 1, 0, createBlankPage());
+        loadPage(currentPageIndex + 1);
+    });
+    document.getElementById('delete-page').addEventListener('click', () => {
+        if (fumenPages.length > 1) {
+            fumenPages.splice(currentPageIndex, 1);
+            if (currentPageIndex >= fumenPages.length) {
+                currentPageIndex = fumenPages.length - 1;
+            }
+            loadPage(currentPageIndex);
+        }
+    });
+
+    window.addEventListener('resize', updateScale);
+    setTimeout(updateScale, 100);
+});
+</script>
+</body>
+</html>
