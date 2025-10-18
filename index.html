@@ -2613,16 +2613,11 @@ if (isPC) {
 this.stats.perfectClear++;
             if (lines === 4) {
                 this.stats.tetris++;
-            }
+}
             moveInfo.isPC = true;
             this.ren++;
             this.isB2B = true;
-            this.specialMoveText.push("PERFECT CLEAR");
-/*} else if (lines > 0) {
-            isAction = true;
-this.ren++;
-            this.isB2B = true;
-            this.specialMoveText.push("PERFECT CLEAR");*/
+this.specialMoveText.push("PERFECT CLEAR");
         } else if (lines > 0) {
             isAction = true; this.ren++;
             
@@ -3383,15 +3378,20 @@ this.isAiThinking = false;
         this.customGhosts = [];
     }
     
-    setPiece(type, piece, index = 0) {
-        const isValidPiece = Object.keys(TETROMINOS).includes(piece) || piece === null;
+setPiece(type, piece, index = 0) {
+        const isValidPiece = Object.keys(TETROMINOS).includes(piece) ||
+piece === null;
         if (!isValidPiece) return;
 
         if (type === 'hold') {
             this.holdPiece = piece;
-        } else if (type === 'next' && index >= 0 && index < this.nextQueue.length) {
-            this.nextQueue[index] = piece;
-        }
+} else if (type === 'next') {
+            if (index === 0) {
+                this.player.pieceType = piece;
+            } else if (index > 0 && index - 1 < this.nextQueue.length) {
+                this.nextQueue[index - 1] = piece;
+            }
+}
     }
 
     async executeDrawMove(path) {
