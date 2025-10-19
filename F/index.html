@@ -289,10 +289,11 @@ flex-wrap: wrap;
 <div id="code-gen-modal">
     <div id="code-gen-content">
         <h2>Generate Simulator Code</h2>
-        <div id="code-gen-tabs">
+                <div id="code-gen-tabs">
             <button class="button active" data-type="check">Check Blocks</button>
             <button class="button" data-type="ghost">Draw Ghost</button>
             <button class="button" data-type="place">Place Blocks</button>
+            <button class="button" data-type="export">Export P1 Data</button>
         </div>
         <textarea id="code-gen-output" readonly></textarea>
         <div id="code-gen-controls">
@@ -655,12 +656,15 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (type === 'place') {
             playersToGen.forEach(pid => {
                 const blocks = getBoardData(page[pid].board);
-                if (blocks.length > 0) {
+                                if (blocks.length > 0) {
                     blocks.forEach(b => {
                         code += `api.${pid}.board.placeBlock(${b.x}, ${b.y}, '${b.type}');\n`;
                     });
                 }
             });
+        } else if (type === 'export') {
+            const board = page.p1.board;
+            code = JSON.stringify(board, null, 2);
         }
 
         codeOutput.value = code.trim();
