@@ -2689,13 +2689,13 @@ this.specialMoveText.push("PERFECT CLEAR");
 
         if (this.opponent && attack > 0) {
             let remainingAttack = attack;
-             if (isPC) {
-                this.opponent.addGarbage(remainingAttack);
-            } else {
-                if (this.pendingGarbage > 0) { const offset = Math.min(this.pendingGarbage, remainingAttack); this.pendingGarbage -= offset; remainingAttack -= offset; }
-                if (remainingAttack > 0) { for (let i=0; i < this.garbageQueue.length && remainingAttack > 0; i++) { const offset = Math.min(this.garbageQueue[i].lines, remainingAttack); this.garbageQueue[i].lines -= offset; remainingAttack -= offset; } this.garbageQueue = this.garbageQueue.filter(g => g.lines > 0); }
-                if (remainingAttack > 0) { this.opponent.addGarbage(remainingAttack); }
-            }
+                if (this.pendingGarbage > 0) { const offset = Math.min(this.pendingGarbage, remainingAttack);
+this.pendingGarbage -= offset; remainingAttack -= offset; }
+                if (remainingAttack > 0) { for (let i=0; i < this.garbageQueue.length && remainingAttack > 0; i++) { const offset = Math.min(this.garbageQueue[i].lines, remainingAttack);
+this.garbageQueue[i].lines -= offset; remainingAttack -= offset; } this.garbageQueue = this.garbageQueue.filter(g => g.lines > 0);
+}
+                if (remainingAttack > 0) { this.opponent.addGarbage(remainingAttack);
+}
 }
         
         if (this.activeRuleHooks.onPieceLock) {
