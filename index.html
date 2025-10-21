@@ -2517,15 +2517,18 @@ const ghostY = this.getGhostY(); if (ghostY > this.player.y) this.drawPiece(shap
                 if (pieceType !== null) {
                     const [x, y] = key.split(',').map(Number);
                     const screenY = y - this.viewY;
-                    if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
-                        ctx.globalAlpha = 0.15;
-                        ctx.fillStyle = activeSkin[pieceType] || '#FFF';
-                        ctx.fillRect(x * BLOCK_SIZE, screenY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-                        ctx.globalAlpha = 1.0;
+                    if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) 
+{
+                        ctx.globalAlpha = 0.30;
+                        ctx.strokeStyle = activeSkin[pieceType] || '#FFF';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(x * BLOCK_SIZE, screenY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+               
+         ctx.globalAlpha = 1.0;
                     }
                 }
             });
-        }
+}
 
         if (this.drawnBlocks.size > 0) {
             ctx.fillStyle = '#FFFFFF';
