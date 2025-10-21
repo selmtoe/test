@@ -3372,17 +3372,18 @@ this.isAiThinking = false;
 
     setCustomUIText(text) {
         this.customUIText = String(text);
-    }
+}
     
     placeBlock(x, y, type) {
         if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
             this.board[y][x] = type;
-        }
+}
     }
 
     displayGhostBlock(x, y, type) {
-        if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT) {
-            const pieceType = Object.keys(COLORS).includes(type) ? type : null;
+        if (x >= 0 && x < BOARD_WIDTH && y >= 0 && y < BOARD_HEIGHT && !this.board[y][x]) {
+            const pieceType = Object.keys(COLORS).includes(type) ?
+type : null;
             this.customGhosts.push({x, y, pieceType});
         }
     }
