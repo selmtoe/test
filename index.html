@@ -3605,10 +3605,15 @@ endIcon.addEventListener('click', () => {
 
     const autoSwatch = document.createElement('div');
     autoSwatch.className = 'color-swatch';
-autoSwatch.style.alignItems = 'center';
+    autoSwatch.style.display = 'flex';
+    autoSwatch.style.alignItems = 'center';
     autoSwatch.style.justifyContent = 'center';
-    autoSwatch.style.fontFamily = 'var(--font-display)';
-autoSwatch.addEventListener('click', () => {
+autoSwatch.style.fontFamily = 'var(--font-display)';
+    autoSwatch.style.color = '#FFFFFF';
+    autoSwatch.style.fontSize = '14px';
+    autoSwatch.style.fontWeight = 'bold';
+    autoSwatch.textContent = 'AUTO';
+    autoSwatch.addEventListener('click', () => {
         editorData[playerId].activeColor = 'AUTO';
         palette.querySelector('.active')?.classList.remove('active');
         autoSwatch.classList.add('active');
