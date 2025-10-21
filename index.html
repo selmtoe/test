@@ -2522,7 +2522,7 @@ const ghostY = this.getGhostY(); if (ghostY > this.player.y) this.drawPiece(shap
                         ctx.globalAlpha = 0.30;
                         ctx.strokeStyle = activeSkin[pieceType] || '#FFF';
                         ctx.lineWidth = 2;
-                        ctx.strokeRect(x * BLOCK_SIZE, screenY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+                        ctx.strokeRect(x * BLOCK_SIZE + 1, screenY * BLOCK_SIZE + 1, BLOCK_SIZE - 2, BLOCK_SIZE - 2);
                
          ctx.globalAlpha = 1.0;
                     }
