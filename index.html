@@ -2504,9 +2504,37 @@ ctx.translate(this.offsetX, 0);
         }
         ctx.strokeStyle = '#444';
 ctx.lineWidth = 0.5;
-        for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) { for (let x = 0; x < BOARD_WIDTH; x++) { const boardY = y + this.viewY;
-if (this.board[boardY]?.[x]) { this.drawBlock(this.board[boardY][x], x * BLOCK_SIZE, y * BLOCK_SIZE);
-} } }
+        for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) {
+            for (let x = 0; x < BOARD_WIDTH; x++) {
+                ctx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+            }
+        }
+        ctx.strokeStyle = '#4b4b7c'; ctx.lineWidth = 2; ctx.strokeRect(1, 1, PLAYFIELD_WIDTH - 2, CANVAS_HEIGHT - 2);
+        for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) { for (let x = 0; x < BOARD_WIDTH; x++) { const boardY = y + this.viewY; if (this.board[boardY]?.[x]) { this.drawBlock(this.board[boardY][x], x * BLOCK_SIZE, y * BLOCK_SIZE); } } }
+
+        const occupiedCells = new Set();
+        let shape, ghostY;
+
+        if (!this.gameOver && !this.gameClear && !this.isClearingLine && this.player.pieceType) { 
+            shape = this.getShape(this.player.pieceType, this.player.rotation);
+            ghostY = this.getGhostY(); 
+            
+            if (ghostY > this.player.y) {
+                this.drawPiece(shape, this.player.x, ghostY, this.player.pieceType, true);
+                shape.forEach(b => {
+                    const bx = Math.floor(this.player.x + b[0]);
+                    const by = Math.floor(ghostY + b[1]);
+                    occupiedCells.add(`${bx},${by}`);
+                });
+            }
+            
+            this.drawPiece(shape, this.player.x, this.player.y, this.player.pieceType, false);
+            shape.forEach(b => {
+                const bx = Math.floor(this.player.x + b[0]);
+                const by = Math.floor(this.player.y + b[1]);
+                occupiedCells.add(`${bx},${by}`);
+            });
+}
 
         if (this.customGhosts.length > 0) {
             const ghostMap = new Map();
@@ -2515,18 +2543,15 @@ this.customGhosts.forEach(ghost => {
                 ghostMap.set(key, ghost.pieceType);
             });
 ghostMap.forEach((pieceType, key) => {
+                if (occupiedCells.has(key)) return;
+
                 const [x, y] = key.split(',').map(Number);
                 const screenY = y - this.viewY;
-                if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) 
-{
+                if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
                     this.drawBlock(pieceType, x * BLOCK_SIZE, screenY * BLOCK_SIZE, true);
-}
+                }
      
        });
-}
-
-        if (!this.gameOver && !this.gameClear && !this.isClearingLine && this.player.pieceType) { const shape = this.getShape(this.player.pieceType, this.player.rotation);
-const ghostY = this.getGhostY(); if (ghostY > this.player.y) this.drawPiece(shape, this.player.x, ghostY, this.player.pieceType, true); this.drawPiece(shape, this.player.x, this.player.y, this.player.pieceType, false);
 }
 
         if (this.drawnBlocks.size > 0) {
