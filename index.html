@@ -2517,10 +2517,10 @@ ctx.lineWidth = 0.5;
 
         if (!this.gameOver && !this.gameClear && !this.isClearingLine && this.player.pieceType) { 
             shape = this.getShape(this.player.pieceType, this.player.rotation);
-            ghostY = this.getGhostY(); 
+ghostY = this.getGhostY(); 
             
             if (ghostY > this.player.y) {
-                this.drawPiece(shape, this.player.x, ghostY, this.player.pieceType, true);
+                this.drawPiece(shape, this.player.x, ghostY, this.player.pieceType, 0.4);
 shape.forEach(b => {
                     const bx = Math.floor(this.player.x + b[0]);
                     const by = Math.floor(ghostY + b[1]);
@@ -2528,7 +2528,7 @@ shape.forEach(b => {
                 });
 }
             
-            this.drawPiece(shape, this.player.x, this.player.y, this.player.pieceType, false);
+            this.drawPiece(shape, this.player.x, this.player.y, this.player.pieceType, 1.0);
 shape.forEach(b => {
                 const bx = Math.floor(this.player.x + b[0]);
                 const by = Math.floor(this.player.y + b[1]);
@@ -2542,7 +2542,7 @@ this.customGhosts.forEach(ghost => {
                 const key = `${ghost.x},${ghost.y}`;
                 ghostMap.set(key, ghost.pieceType);
             });
-            ghostMap.forEach((pieceType, key) => {
+ghostMap.forEach((pieceType, key) => {
                 const [x, y] = key.split(',').map(Number);
 
                 if (occupiedCells.has(key) || (y >= 0 && y < BOARD_HEIGHT && this.board[y][x])) {
@@ -2880,7 +2880,7 @@ ctx.lineWidth = 0.5;
         ctx.globalAlpha=1.0;
 }
 
-drawPiece(s,x,y,p,alpha=1.0) {s.forEach(b=>{const px=Math.floor(x+b[0])*BLOCK_SIZE, py=(Math.floor(y+b[1])-this.viewY)*BLOCK_SIZE; this.drawBlock(p,px,py,alpha);});}
+drawPiece(s,x,y,p,alpha) {s.forEach(b=>{const px=Math.floor(x+b[0])*BLOCK_SIZE, py=(Math.floor(y+b[1])-this.viewY)*BLOCK_SIZE; this.drawBlock(p,px,py,alpha);});}
     drawUI() {
         ctx.textAlign = 'center'; ctx.fillStyle = '#FFF'; ctx.font = `bold ${BLOCK_SIZE * 0.8}px "Orbitron"`;
         if (!this.holdDisabled) {
