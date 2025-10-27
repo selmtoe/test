@@ -2521,15 +2521,15 @@ ctx.lineWidth = 0.5;
             
             if (ghostY > this.player.y) {
                 this.drawPiece(shape, this.player.x, ghostY, this.player.pieceType, true);
-                shape.forEach(b => {
+shape.forEach(b => {
                     const bx = Math.floor(this.player.x + b[0]);
                     const by = Math.floor(ghostY + b[1]);
                     occupiedCells.add(`${bx},${by}`);
                 });
-            }
+}
             
             this.drawPiece(shape, this.player.x, this.player.y, this.player.pieceType, false);
-            shape.forEach(b => {
+shape.forEach(b => {
                 const bx = Math.floor(this.player.x + b[0]);
                 const by = Math.floor(this.player.y + b[1]);
                 occupiedCells.add(`${bx},${by}`);
@@ -2542,16 +2542,17 @@ this.customGhosts.forEach(ghost => {
                 const key = `${ghost.x},${ghost.y}`;
                 ghostMap.set(key, ghost.pieceType);
             });
-ghostMap.forEach((pieceType, key) => {
+            ghostMap.forEach((pieceType, key) => {
                 const [x, y] = key.split(',').map(Number);
 
                 if (occupiedCells.has(key) || (y >= 0 && y < BOARD_HEIGHT && this.board[y][x])) {
                     return;
                 }
 
-                const screenY = y - this.viewY;
+             
+   const screenY = y - this.viewY;
                 if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
-                    this.drawBlock(pieceType, x * BLOCK_SIZE, screenY * BLOCK_SIZE, true);
+                    this.drawBlock(pieceType, x * BLOCK_SIZE, screenY * BLOCK_SIZE, 0.3);
                 }
      
        });
@@ -2863,23 +2864,23 @@ if (this.linesClearedLastLock > 0) { this.isClearingLine = true; this.lineClearD
         this.pendingGarbage = 0;
     }
 
-    drawBlock(p,x,y,isGhost=false) {
+    drawBlock(p,x,y,alpha=1.0) {
         if(y<-BLOCK_SIZE)return;
         const skinImage = activeSkin[p];
-        ctx.globalAlpha=isGhost?0.3:1.0;
-        if (skinImage && skinImage.src) {
+        ctx.globalAlpha=alpha;
+if (skinImage && skinImage.src) {
             ctx.drawImage(skinImage, x, y, BLOCK_SIZE, BLOCK_SIZE);
-        } else {
+} else {
             ctx.fillStyle=activeSkinColors[p]||'#FFF';
             ctx.fillRect(x,y,BLOCK_SIZE,BLOCK_SIZE);
-        }
+}
         ctx.strokeStyle = '#444';
 ctx.lineWidth = 0.5;
         ctx.strokeRect(x,y,BLOCK_SIZE,BLOCK_SIZE);
         ctx.globalAlpha=1.0;
-    }
+}
 
-drawPiece(s,x,y,p,g) {s.forEach(b=>{const px=Math.floor(x+b[0])*BLOCK_SIZE, py=(Math.floor(y+b[1])-this.viewY)*BLOCK_SIZE; this.drawBlock(p,px,py,g);});}
+drawPiece(s,x,y,p,alpha=1.0) {s.forEach(b=>{const px=Math.floor(x+b[0])*BLOCK_SIZE, py=(Math.floor(y+b[1])-this.viewY)*BLOCK_SIZE; this.drawBlock(p,px,py,alpha);});}
     drawUI() {
         ctx.textAlign = 'center'; ctx.fillStyle = '#FFF'; ctx.font = `bold ${BLOCK_SIZE * 0.8}px "Orbitron"`;
         if (!this.holdDisabled) {
