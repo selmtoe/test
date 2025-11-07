@@ -494,7 +494,7 @@ justify-content: center; gap: 10px; flex-wrap: wrap;">
 <script>
 
 const aiWorkerScript = `
-        const WIDTH = 10;
+                const WIDTH = 10;
         const HEIGHT = 20;
         const BOARD_HEIGHT = 40;
         const SPAWN_X = 4;
@@ -1039,7 +1039,7 @@ const aiWorkerScript = `
                 '1->2': [[0,0], [-1,0], [2,0], [-1,2], [2,-1]],
                 '2->1': [[0,0], [1,0], [-2,0], [1,-2], [-2,1]],
                 '2->3': [[0,0], [2,0], [-1,0], [2,1], [-1,-2]],
-                '3->2': [[0,0], [-2,0], [1,0], [-2,-1], [1,2]],Indented block
+                '3->2': [[0,0], [-2,0], [1,0], [-2,-1], [1,2]],
                 '3->0': [[0,0], [1,0], [-2,0], [1,-2], [-2,1]],
                 '0->3': [[0,0], [-1,0], [2,0], [-1,2], [2,-1]],
             }
@@ -1119,7 +1119,7 @@ const aiWorkerScript = `
         }
 
         function getSrsOffsets(type, r1, r2) {
-            const key = `${r1}->${r2}`;
+            const key = r1 + "->" + r2;
             const source = (type === 'I' || type === 'O') ? SRS_OFFSETS_RAW.I : SRS_OFFSETS_RAW.common;
             if (type === 'O') return [[0,0]];
             
@@ -1315,6 +1315,7 @@ const aiWorkerScript = `
 
         function calculateAccEval(node, placementResult) {
             let acc_eval = 0;
+            const weights = weights;
 
             if (placementResult.perfectClear) {
                 acc_eval += weights.perfect_clear;
@@ -1369,6 +1370,7 @@ const aiWorkerScript = `
             }
 
             let transient_eval = 0;
+            const weights = weights;
             
             const heights = board.getColumnHeights();
             const highest_point = Math.max(0, ...heights);
@@ -1683,14 +1685,14 @@ const aiWorkerScript = `
                 for(const childId of nodeMap.get(rootID).childrenIDs){
                     if(nodeMap.has(childId)){
                         const childNode = nodeMap.get(childId);
-                        const pieceKey = `${childNode.place.pieceType}-${childNode.holdUsedThisTurn}`;
+                        const pieceKey = childNode.place.pieceType + "-" + childNode.holdUsedThisTurn;
                         expandedPieces[pieceKey] = true;
                     }
                 }
             }
             
             for (const pieceOption of availablePieceOptions) {
-                const pieceKey = `${pieceOption.pieceType}-${pieceOption.holdUsed}`;
+                const pieceKey = pieceOption.pieceType + "-" + pieceOption.holdUsed;
                 if (!expandedPieces[pieceKey]) {
                     expand(rootID, initialBoard, pieceOption);
                 }
