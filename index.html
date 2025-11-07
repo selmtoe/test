@@ -494,7 +494,7 @@ justify-content: center; gap: 10px; flex-wrap: wrap;">
 <script>
 
 const aiWorkerScript = `
-                const WIDTH = 10;
+        const WIDTH = 10;
         const HEIGHT = 20;
         const BOARD_HEIGHT = 40;
         const SPAWN_X = 4;
@@ -1851,7 +1851,7 @@ const aiWorkerScript = `
         }
 
         self.onmessage = (e) => {
-            const { type, boardString, nextString, isB2B, ren, holdPiece } = e.data;
+            const { type, boardString, nextString, isB2B, ren } = e.data;
             
             if (type === 'start') {
                 const createBoardFromLayout = (layout) => {
@@ -1893,7 +1893,37 @@ const aiWorkerScript = `
                 pruneAndReroot(chosenNodeID);
 
                 const rootNode = nodeMap.get(rootID);
-                if (rootNode && rootNode.board && boardsAreEqual(rootNode.board, board) && rootNode.holdPiece === holdPiece) {
+                
+                // --- データ再構築ロジック ---
+                let actualHoldPiece = e.data.holdPiece;
+                let sequenceFromHost = nextString.split('');
+                let actualMinoSequence = [];
+                
+                if (actualHoldPiece === undefined) {
+                    let holdPieceFromHost = null;
+                    
+                    if (rootNode && rootNode.board && boardsAreEqual(rootNode.board, board)) {
+                         holdPieceFromHost = rootNode.holdPiece;
+                    }
+                    
+                    if (holdPieceFromHost) {
+                        if (sequenceFromHost.length > 0 && sequenceFromHost[0] === holdPieceFromHost) {
+                            actualHoldPiece = holdPieceFromHost;
+                            actualMinoSequence = sequenceFromHost.slice(1);
+                        } else {
+                            actualHoldPiece = null;
+                            actualMinoSequence = sequenceFromHost;
+                        }
+                    } else {
+                        actualHoldPiece = null;
+                        actualMinoSequence = sequenceFromHost;
+                    }
+                } else {
+                    actualHoldPiece = e.data.holdPiece;
+                    actualMinoSequence = nextString.split('');
+                }
+
+                if (rootNode && rootNode.board && boardsAreEqual(rootNode.board, board) && rootNode.holdPiece === actualHoldPiece) {
                     self.postMessage({type: 'debug', message: '探索木を引き継ぎました'});
                 } else {
                     nodeMap.clear();
@@ -1901,9 +1931,10 @@ const aiWorkerScript = `
                     self.postMessage({type: 'debug', message: '探索木をリセットしました'});
                 }
                 
-                currentMinoSequence = nextString.split('');
-                runAI(board, currentMinoSequence, isB2B, ren, holdPiece);
-                
+                currentMinoSequence = actualMinoSequence;
+                runAI(board, currentMinoSequence, isB2B, ren, actualHoldPiece);
+                // --- 修正ここまで ---
+
                 if (!isThinking) {
                     isThinking = true;
                     thinkingLoop();
