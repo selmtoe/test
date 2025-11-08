@@ -1847,29 +1847,25 @@ function thinkingLoop() {
 }
 
 self.onmessage = (e) => {
-    const { type, boardString, nextString, isB2B, ren } = e.data;
-    
-    if (type === 'start') {
+    const { type, boardString, holdPiece, currentPiece, nextQueue, isB2B, ren } = e.data;
+if (type === 'start') {
         let initialLayout;
-        try {
+try {
             initialLayout = JSON.parse(boardString);
-        } catch (e) {
+} catch (e) {
             console.error("Failed to parse boardString:", e);
-            initialLayout = Array(HEIGHT).fill(null).map(() => Array(WIDTH).fill(null));
+initialLayout = Array(HEIGHT).fill(null).map(() => Array(WIDTH).fill(null));
         }
         
         const board = createBoardFromLayout(initialLayout);
-        
-        const sequence = nextString.split('');
-        const currentHoldPiece = sequence.length > 0 ? sequence[0] : null;
-        const pieceQueue = sequence.length > 1 ? sequence.slice(1) : [];
+const currentHoldPiece = holdPiece || null;
+const pieceQueue = [currentPiece, ...(nextQueue ? nextQueue.split('') : [])];
         currentPieceQueue = pieceQueue; 
 
         pruneAndReroot(bestNodeIDAtDepth1); 
 
         runAI(board, pieceQueue, currentHoldPiece, isB2B, ren);
-        
-        if (!isThinking) {
+if (!isThinking) {
             isThinking = true;
             thinkingLoop();
         }
@@ -3252,23 +3248,18 @@ requestAiMove() {
             }
         }
         boardString += '\n]';
-        let nextPiecesForWorker;
-        if (this.holdPiece) {
-            nextPiecesForWorker = [this.holdPiece, this.player.pieceType, ...this.nextQueue];
-        } else {
-            nextPiecesForWorker = [this.player.pieceType, ...this.nextQueue];
-        }
-        const nextString = nextPiecesForWorker.join('');
-        
-        const aiWorkerStartPayload = {
+const nextQueueString = this.nextQueue.join('');
+const aiWorkerStartPayload = {
             type: 'start',
             boardString: boardString,
-            nextString: nextString,
-            isB2B: this.isB2B,
+            holdPiece: this.holdPiece,
+            currentPiece: this.player.pieceType,
+            nextQueue: nextQueueString,
+isB2B: this.isB2B,
             ren: this.ren + 1,
         };
-        
-        if (this.aiWorker) {
+
+if (this.aiWorker) {
             this.aiWorker.postMessage(aiWorkerStartPayload);
             this.aiWorker.postMessage({ type: 'stop' });
         }
