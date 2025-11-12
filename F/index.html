@@ -219,11 +219,35 @@ flex-wrap: wrap;
         box-sizing: border-box;
         white-space: pre;
         overflow: auto;
-    }
+}
     #code-gen-controls {
         display: flex;
         justify-content: space-between;
         gap: 10px;
+}
+    .sequence-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 15px;
+        padding-top: 15px;
+        border-top: 1px solid var(--primary-color);
+    }
+    .sequence-controls label {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-family: var(--font-display);
+    }
+    .sequence-controls input {
+        flex: 1;
+        background-color: var(--canvas-bg-color);
+        color: var(--font-color);
+        border: 1px solid var(--border-color);
+        border-radius: 5px;
+        padding: 5px 8px;
+        font-family: monospace;
+        text-transform: uppercase;
     }
 </style>
 </head>
@@ -256,29 +280,40 @@ flex-wrap: wrap;
                 <div class="edit-section field-editor">
                     <h2>PLAYER 1 - FIELD</h2>
                     <div class="color-palette" id="p1-palette"></div>
-                    <canvas id="field-editor-canvas-p1"></canvas>
+                                    <canvas id="field-editor-canvas-p1"></canvas>
                     <div class="field-controls">
                         <button class="button" id="p1-field-shift-up">↑ Up</button>
                         <button class="button" id="p1-field-shift-down">↓ Down</button>
-                        <button class="button" id="p1-field-shift-left">← Left</button>
+        
+                <button class="button" id="p1-field-shift-left">← Left</button>
                         <button class="button" id="p1-field-shift-right">→ Right</button>
                         <button class="button" id="p1-field-clear">Clear</button>
                     </div>
-                </div>
+                    <div class="sequence-controls">
+                        <label>Hold: <input type="text" id="p1-hold-input" maxlength="1" placeholder="例: T"></label>
+                        <label>Next: <input type="text" id="p1-next-input" placeholder="例: SZJLO"></label>
+                    </div>
+               </div>
             </div>
             <!-- Player 2 エディタ (最初は非表示) -->
             <div class="editor-column" id="p2-editor-col" style="display: none;">
                 <div class="edit-section field-editor">
                     <h2>PLAYER 2 - FIELD</h2>
-                    <div class="color-palette" id="p2-palette"></div>
+                                  <div class="color-palette" id="p2-palette"></div>
                     <canvas id="field-editor-canvas-p2"></canvas>
                     <div class="field-controls">
                         <button class="button" id="p2-field-shift-up">↑ Up</button>
-                        <button class="button" id="p2-field-shift-down">↓ Down</button>
+               
+         <button class="button" id="p2-field-shift-down">↓ Down</button>
                         <button class="button" id="p2-field-shift-left">← Left</button>
                         <button class="button" id="p2-field-shift-right">→ Right</button>
                         <button class="button" id="p2-field-clear">Clear</button>
                     </div>
+                    <div class="sequence-controls">
+                        <label>Hold: <input type="text" id="p2-hold-input" maxlength="1" placeholder="例: T"></label>
+                        <label>Next: <input type="text" id="p2-next-input" placeholder="例: SZJLO"></label>
+                    </div>
+                  </div>
                 </div>
             </div>
         </div>
@@ -331,9 +366,10 @@ const createEmptyBoard = () => Array.from({ length: BOARD_HEIGHT }, () => Array(
  * @returns {object}
  */
 const createBlankPage = () => ({
-    p1: { board: createEmptyBoard(), viewY: BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT, activeColor: 'I' },
-    p2: { board: createEmptyBoard(), viewY: BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT, activeColor: 'I' }
+    p1: { board: createEmptyBoard(), viewY: BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT, activeColor: 'I', hold: '', next: '' },
+    p2: { board: createEmptyBoard(), viewY: BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT, activeColor: 'I', hold: '', next: '' }
 });
+
 
 /**
  * 指定されたインデックスのページを読み込む
@@ -352,14 +388,17 @@ function loadPage(index) {
         const swatches = palette.querySelectorAll('.color-swatch');
         swatches.forEach(swatch => {
             if (swatch.dataset.color === data.activeColor) {
-                swatch.classList.add('active');
+          
+      swatch.classList.add('active');
             }
         });
 
+        document.getElementById(`${playerId}-hold-input`).value = data.hold || '';
+        document.getElementById(`${playerId}-next-input`).value = data.next || '';
+
         drawEditorField(playerId);
     });
-
-    updatePageControls();
+updatePageControls();
 }
 
 /**
@@ -481,9 +520,23 @@ function setupPlayerEditor(playerId) {
     document.getElementById(`${playerId}-field-shift-down`).addEventListener('click', () => shiftField(playerId, 'down'));
     document.getElementById(`${playerId}-field-shift-left`).addEventListener('click', () => shiftField(playerId, 'left'));
     document.getElementById(`${playerId}-field-shift-right`).addEventListener('click', () => shiftField(playerId, 'right'));
-    document.getElementById(`${playerId}-field-clear`).addEventListener('click', () => {
+document.getElementById(`${playerId}-field-clear`).addEventListener('click', () => {
         fumenPages[currentPageIndex][playerId].board.forEach(row => row.fill(null));
         drawEditorField(playerId);
+    });
+
+    const holdInput = document.getElementById(`${playerId}-hold-input`);
+    const nextInput = document.getElementById(`${playerId}-next-input`);
+
+    holdInput.addEventListener('input', (e) => {
+        const val = e.target.value.toUpperCase().trim();
+        e.target.value = val;
+        fumenPages[currentPageIndex][playerId].hold = val;
+    });
+    nextInput.addEventListener('input', (e) => {
+        const val = e.target.value.toUpperCase().trim();
+        e.target.value = val;
+        fumenPages[currentPageIndex][playerId].next = val;
     });
 }
 
@@ -713,28 +766,35 @@ document.addEventListener('DOMContentLoaded', () => {
             generateCode(tab.dataset.type);
         });
     });
-
 window.addEventListener('resize', updateScale);
     setTimeout(updateScale, 100);
 
     document.getElementById('send-to-simulator').addEventListener('click', () => {
         const currentPage = fumenPages[currentPageIndex];
         
+        const sanitize = (str) => str.replace(/[^IOTLSJZ]/gi, '');
+        const p1Hold = sanitize(currentPage.p1.hold || '');
+        const p1Next = sanitize(currentPage.p1.next || '');
+
         const stateData = {
             v: 2,
             m: gameMode,
             p1: {
                 b: boardToString(currentPage.p1.board),
-                n: '',
-                h: ''
+       
+         n: p1Next,
+                h: p1Hold
             },
         };
 
         if (gameMode === '2P') {
+            const p2Hold = sanitize(currentPage.p2.hold || '');
+            const p2Next = sanitize(currentPage.p2.next || '');
             stateData.p2 = {
                 b: boardToString(currentPage.p2.board),
-                n: '',
-                h: ''
+          
+      n: p2Next,
+                h: p2Hold
             };
         }
 
@@ -743,8 +803,10 @@ window.addEventListener('resize', updateScale);
         const base64Data = btoa(String.fromCharCode.apply(null, uint8Array));
         
         location.href = `../index.html#${base64Data}`;
-    });
+   
+ });
 });
+
 </script>
 </body>
 </html>
