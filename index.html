@@ -5408,7 +5408,6 @@ e.preventDefault();
 document.getElementById('retryBtn').addEventListener('click', () => {
         if (gameState !== 'PLAYING' || !players.length) return;
         
-        players.forEach(p => {
             players.forEach(p => {
             if (p.aiWorker) {
                 p.aiWorker.terminate();
