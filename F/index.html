@@ -291,14 +291,13 @@ flex-wrap: wrap;
                 <span id="page-indicator">Page 1 / 1</span>
                 <button id="next-page">Next ›</button>
                 <button id="new-page" style="margin-left: 15px;">New Page</button>
-                <button id="delete-page">Delete Page</button>
+     
+           <button id="delete-page">Delete Page</button>
                 <button id="gen-code" style="margin-left: 15px; background-color: #00a0f0;">Gen Code</button>
-                <a class="button" id="send-to-simulator" href="#" style="margin-left: 5px; background-color: #00a000; text-decoration: none;">Simulator</a>
-                <button id="view-mode-btn" style="margin-left: 5px;
-background-color: #30a070;">View</button>
+                <button id="send-to-simulator" style="margin-left: 5px; background-color: #00a000;">Simulator</button>
+                <button id="view-mode-btn" style="margin-left: 5px; background-color: #30a070;">View</button>
             </div>
         </div>
-           
         <!-- プレイヤーエディタエリア -->
         <div class="player-editors">
             <!-- Player 1 エディタ -->
@@ -351,7 +350,7 @@ background-color: #30a070;">View</button>
 <div id="viewer-container">
     <canvas id="viewerCanvas"></canvas>
     <div id="viewer-controls">
-        <a id="viewer-simulator-btn" class="button" href="#" style="text-decoration: none;">Simulator</a>
+        <button id="viewer-simulator-btn" class="button">Simulator</button>
         <button id="back-to-editor-btn" class="button">Editor</button>
     </div>
 </div>
@@ -818,16 +817,18 @@ function viewerLoop() {
     drawViewer();
     viewerLoopHandle = requestAnimationFrame(viewerLoop);
 }
+
 /**
  * シミュレータへのデータ送信（ビューワー/エディタ共通）
  */
-function generateSimulatorURL() {
+function sendToSimulator() {
     const currentPage = fumenPages[currentPageIndex];
     
     const sanitize = (str) => str.replace(/[^IOTLSJZ]/gi, '');
-const p1Hold = sanitize(currentPage.p1.hold || '');
+    const p1Hold = sanitize(currentPage.p1.hold || '');
     const p1Next = sanitize(currentPage.p1.next || '');
-const stateData = {
+
+    const stateData = {
         v: 2,
         m: gameMode,
         p1: {
@@ -836,22 +837,23 @@ const stateData = {
             h: p1Hold
         },
     };
-if (gameMode === '2P') {
+
+    if (gameMode === '2P') {
         const p2Hold = sanitize(currentPage.p2.hold || '');
-const p2Next = sanitize(currentPage.p2.next || '');
+        const p2Next = sanitize(currentPage.p2.next || '');
         stateData.p2 = {
             b: boardToString(currentPage.p2.board),
             n: p2Next,
             h: p2Hold
         };
-}
+    }
 
     const jsonString = JSON.stringify(stateData);
     const uint8Array = new TextEncoder().encode(jsonString);
     const base64Data = btoa(String.fromCharCode.apply(null, uint8Array));
-// シミュレータ (index.html) が譜面エディタ (fumen.html) の一つ上の階層にあると仮定
-    let simulatorURL = '../index.html';
-// デフォルトを ../index.html に変更
+    
+    // シミュレータ (index.html) が譜面エディタ (fumen.html) の一つ上の階層にあると仮定
+    let simulatorURL = '../index.html'; // デフォルトを ../index.html に変更
     try {
         // 現在のパスからファイル名を取り除いて '../index.html' を足す
         const path = window.location.pathname;
@@ -859,11 +861,10 @@ const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
         simulatorURL = parentPath + '../index.html';
 } catch(e) { /* fallback to '../index.html' */ }
 
-    return `${simulatorURL}#${base64Data}`;
+    location.href = `${simulatorURL}#${base64Data}`;
 }
 
 // --- DOMContentLoaded ---
-
 document.addEventListener('DOMContentLoaded', () => {
     fumenPages.push(createBlankPage());
     setupEditors();
@@ -972,12 +973,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
-// ビューワーのシミュレータボタン
-    document.getElementById('viewer-simulator-btn').addEventListener('click', function(e) {
-        e.currentTarget.href = generateSimulatorURL();
-    });
 
-    const modal = document.getElementById('code-gen-modal');
+    // ビューワーのシミュレータボタン
+    document.getElementById('viewer-simulator-btn').addEventListener('click', sendToSimulator);
+
+    const modal = document.getElementById('code-gen-modal');   
     const genCodeBtn = document.getElementById('gen-code');
     const closeModalBtn = document.getElementById('close-modal-button');
     const copyCodeBtn = document.getElementById('copy-code-button');
@@ -1082,9 +1082,7 @@ document.addEventListener('DOMContentLoaded', () => {
 window.addEventListener('resize', updateScale);
     setTimeout(updateScale, 100);
 
-    document.getElementById('send-to-simulator').addEventListener('click', function(e) {
-        e.currentTarget.href = generateSimulatorURL();
-    });
+    document.getElementById('send-to-simulator').addEventListener('click', sendToSimulator);
 
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('../sw.js', { scope: '..' })
