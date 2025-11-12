@@ -348,15 +348,10 @@ flex-wrap: wrap;
 
 <div id="viewer-container">
     <canvas id="viewerCanvas"></canvas>
-<div id="viewer-controls">
+    <div id="viewer-controls">
         <button id="viewer-simulator-btn" class="button">Simulator</button>
         <button id="back-to-editor-btn" class="button">Editor</button>
     </div>
-</div>
-
-<div id="simulator-iframe-container" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2000; background: var(--bg-color);">
-    <iframe id="simulator-iframe" style="width: 100%; height: 100%; border: none;"></iframe>
-    <button id="close-simulator-iframe" class="button" style="position: absolute; top: 10px; right: 10px; z-index: 2001;">Close Simulator</button>
 </div>
 
 <div id="code-gen-modal">
@@ -821,7 +816,7 @@ function viewerLoop() {
     drawViewer();
     viewerLoopHandle = requestAnimationFrame(viewerLoop);
 }
-// 変更後
+
 /**
  * シミュレータへのデータ送信（ビューワー/エディタ共通）
  */
@@ -831,6 +826,7 @@ function sendToSimulator() {
     const sanitize = (str) => str.replace(/[^IOTLSJZ]/gi, '');
     const p1Hold = sanitize(currentPage.p1.hold || '');
     const p1Next = sanitize(currentPage.p1.next || '');
+
     const stateData = {
         v: 2,
         m: gameMode,
@@ -840,6 +836,7 @@ function sendToSimulator() {
             h: p1Hold
         },
     };
+
     if (gameMode === '2P') {
         const p2Hold = sanitize(currentPage.p2.hold || '');
         const p2Next = sanitize(currentPage.p2.next || '');
@@ -853,25 +850,20 @@ function sendToSimulator() {
     const jsonString = JSON.stringify(stateData);
     const uint8Array = new TextEncoder().encode(jsonString);
     const base64Data = btoa(String.fromCharCode.apply(null, uint8Array));
+    
     // シミュレータ (index.html) が譜面エディタ (fumen.html) の一つ上の階層にあると仮定
-    let simulatorURL = '../index.html';
-    // デフォルトを ../index.html に変更
+    let simulatorURL = '../index.html'; // デフォルトを ../index.html に変更
     try {
         // 現在のパスからファイル名を取り除いて '../index.html' を足す
         const path = window.location.pathname;
-        const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
+const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
         simulatorURL = parentPath + '../index.html';
-    } catch(e) { /* fallback to '../index.html' */ }
+} catch(e) { /* fallback to '../index.html' */ }
 
-    const iframeContainer = document.getElementById('simulator-iframe-container');
-    const iframe = document.getElementById('simulator-iframe');
-    
-    iframe.src = `${simulatorURL}#${base64Data}`;
-    iframeContainer.style.display = 'block';
+    location.href = `${simulatorURL}#${base64Data}`;
 }
 
 // --- DOMContentLoaded ---
-
 document.addEventListener('DOMContentLoaded', () => {
     fumenPages.push(createBlankPage());
     setupEditors();
@@ -1086,19 +1078,10 @@ document.addEventListener('DOMContentLoaded', () => {
             generateCode(tab.dataset.type);
         });
     });
-// 変更後
-    window.addEventListener('resize', updateScale);
+window.addEventListener('resize', updateScale);
     setTimeout(updateScale, 100);
 
     document.getElementById('send-to-simulator').addEventListener('click', sendToSimulator);
-
-    // iframeを閉じるボタン
-    document.getElementById('close-simulator-iframe').addEventListener('click', () => {
-        const iframeContainer = document.getElementById('simulator-iframe-container');
-        const iframe = document.getElementById('simulator-iframe');
-        iframe.src = 'about:blank'; // iframeの読み込みを停止
-        iframeContainer.style.display = 'none';
-    });
 });
 </script>
 </body>
