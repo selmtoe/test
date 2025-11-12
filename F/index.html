@@ -293,8 +293,10 @@ flex-wrap: wrap;
      
            <button id="delete-page">Delete Page</button>
                 <button id="gen-code" style="margin-left: 15px; background-color: #00a0f0;">Gen Code</button>
+                <button id="share-btn" style="margin-left: 5px; background-color: #f0a000;">Share</button>
                 <button id="send-to-simulator" style="margin-left: 5px; background-color: #00a000;">Simulator</button>
-                <button id="view-mode-btn" style="margin-left: 5px; background-color: #30a070;">View</button>
+                <button id="view-mode-btn" style="margin-left: 5px;
+background-color: #30a070;">View</button>
             </div>
         </div>
         <!-- プレイヤーエディタエリア -->
@@ -365,8 +367,38 @@ flex-wrap: wrap;
         </div>
         <textarea id="code-gen-output" readonly></textarea>
         <div id="code-gen-controls">
-            <button id="copy-code-button" class="button">Copy to Clipboard</button>
+                    <button id="copy-code-button" class="button">Copy to Clipboard</button>
             <button id="close-modal-button" class="button">Close</button>
+        </div>
+    </div>
+</div>
+
+<div id="share-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.75); display: none; justify-content: center; align-items: center; z-index: 200;">
+    <div class="modal-content" style="background-color: var(--bg-color); padding: 25px; border-radius: 10px; border: 2px solid var(--primary-color); width: 90%; max-width: 500px; font-family: var(--font-ui);">
+        <h2>共有 (Share Fumen)</h2>
+        
+        <div class="share-section">
+            <h3 style="font-family: var(--font-display); color: var(--primary-hover-color); margin-top: 0; margin-bottom: 10px; border-bottom: 1px solid var(--primary-color); padding-bottom: 5px;">エクスポート</h3>
+            <p></p>
+            <div class="share-item" style="display: flex; flex-direction: column; align-items: flex-start;">
+                 <span>共有リンク</span>
+                <input type="text" id="share-link-input" readonly style="width: 100%; margin-top: 5px; margin-bottom: 5px; box-sizing: border-box; background-color: var(--primary-color); color: var(--font-color); border: 1px solid var(--border-color); padding: 8px; border-radius: 4px; font-family: var(--font-ui);">
+                <div style="display: flex; gap: 10px; margin-top: 5px;">
+                    <button id="copy-link-btn" class="button">リンクをコピー</button>
+                </div>
+            </div>
+        </div>
+        
+        <hr style="border-color: var(--primary-color); margin: 20px 0;">
+        
+        <div class="share-section">
+            <h3 style="font-family: var(--font-display); color: var(--primary-hover-color); margin-top: 0; margin-bottom: 10px; border-bottom: 1px solid var(--primary-color); padding-bottom: 5px;">インポート</h3>
+            <p></p>
+            <button id="import-from-data-btn" class="button">クリップボードからインポート</button>
+        </div>
+
+        <div class="modal-controls" style="text-align: center; margin-top: 15px;">
+            <button id="share-close" class="button">閉じる</button>
         </div>
     </div>
 </div>
@@ -669,6 +701,20 @@ function boardToString(board) {
     ).join('');
 }
 
+function stringToBoard(str) {
+    const board = [];
+    if (!str || str.length !== BOARD_WIDTH * BOARD_HEIGHT) {
+        console.error('Invalid board string length. Returning empty board.');
+        return Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(null));
+    }
+    for (let i = 0; i < BOARD_HEIGHT; i++) {
+        const rowStr = str.substring(i * BOARD_WIDTH, (i + 1) * BOARD_WIDTH);
+        const row = rowStr.split('').map(char => (char === '_') ? null : char);
+        board.push(row);
+    }
+    return board;
+}
+
 // --- ビューワー用描画ロジック (シミュレータから移植・改変) ---
 
 /**
@@ -863,12 +909,139 @@ const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
     location.href = `${simulatorURL}#${base64Data}`;
 }
 
+// --- 共有 (Share) / URL処理ロジック ---
+
+function getFumenDataForExport() {
+    const exportedData = {
+        v: 'f1', // Fumen version 1
+        m: gameMode,
+        p: fumenPages.map(page => {
+            const p1Data = {
+                b: boardToString(page.p1.board),
+                h: page.p1.hold || '',
+                n: page.p1.next || ''
+            };
+            const pageData = { p1: p1Data };
+            if (gameMode === '2P') {
+                pageData.p2 = {
+                    b: boardToString(page.p2.board),
+                    h: page.p2.hold || '',
+                    n: page.p2.next || ''
+                };
+            }
+            return pageData;
+        })
+    };
+    return exportedData;
+}
+
+function applyFumenData(data) {
+    try {
+        if (!data || data.v !== 'f1' || !data.p || data.p.length === 0) {
+            alert('無効または非対応のデータです。');
+            return false;
+        }
+        
+        gameMode = data.m || '1P';
+        document.getElementById('mode-1p').classList.toggle('active', gameMode === '1P');
+        document.getElementById('mode-2p').classList.toggle('active', gameMode === '2P');
+        document.getElementById('p2-editor-col').style.display = (gameMode === '2P') ? 'flex' : 'none';
+
+        fumenPages = data.p.map(pageData => {
+            const newPage = createBlankPage();
+            if (pageData.p1) {
+                newPage.p1.board = stringToBoard(pageData.p1.b);
+                newPage.p1.hold = pageData.p1.h || '';
+                newPage.p1.next = pageData.p1.n || '';
+            }
+            if (gameMode === '2P' && pageData.p2) {
+                newPage.p2.board = stringToBoard(pageData.p2.b);
+                newPage.p2.hold = pageData.p2.h || '';
+                newPage.p2.next = pageData.p2.n || '';
+            }
+            return newPage;
+        });
+
+        currentPageIndex = 0;
+        loadPage(0);
+        updateScale();
+        return true;
+
+    } catch (e) {
+        console.error('Failed to apply fumen data:', e);
+        alert('データの読み込みに失敗しました。');
+        return false;
+    }
+}
+
+function generateAndDisplayLink() {
+    const stateData = getFumenDataForExport();
+    const jsonString = JSON.stringify(stateData);
+    const uint8Array = new TextEncoder().encode(jsonString);
+    const base64Data = btoa(String.fromCharCode.apply(null, uint8Array));
+    const url = new URL(window.location);
+    url.hash = base64Data;
+    document.getElementById('share-link-input').value = url.href;
+}
+
+function openShareModal() {
+    generateAndDisplayLink();
+    document.getElementById('share-modal').style.display = 'flex';
+}
+
+function loadStateFromURL() {
+    if (window.location.hash) {
+        try {
+            const base64Data = window.location.hash.substring(1);
+            const binaryString = atob(base64Data);
+            const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0));
+            const jsonString = new TextDecoder().decode(bytes);
+            const data = JSON.parse(jsonString);
+
+            if (data.v === 'f1') {
+                if (applyFumenData(data)) {
+                    // alert('URLから譜面データを読み込みました。');
+                }
+            } else if (data.v === 2) {
+                // シミュレータのデータをインポートしようとしている
+                fumenPages = [createBlankPage()];
+                
+                gameMode = data.m || '1P';
+                document.getElementById('mode-1p').classList.toggle('active', gameMode === '1P');
+                document.getElementById('mode-2p').classList.toggle('active', gameMode === '2P');
+                document.getElementById('p2-editor-col').style.display = (gameMode === '2P') ? 'flex' : 'none';
+
+                if (data.p1) {
+                    fumenPages[0].p1.board = stringToBoard(data.p1.b);
+                    fumenPages[0].p1.next = data.p1.n || '';
+                    fumenPages[0].p1.hold = data.p1.h || '';
+                }
+                if (gameMode === '2P' && data.p2) {
+                    fumenPages[0].p2.board = stringToBoard(data.p2.b);
+                    fumenPages[0].p2.next = data.p2.n || '';
+                    fumenPages[0].p2.hold = data.p2.h || '';
+                }
+                currentPageIndex = 0;
+                loadPage(0);
+                alert('シミュレータのデータを譜面の1ページ目として読み込みました。');
+            }
+
+            history.pushState("", document.title, window.location.pathname + window.location.search);
+        } catch (e) {
+            console.error('Failed to load state from URL hash:', e);
+            alert('URLからのデータ読み込みに失敗しました。');
+            history.pushState("", document.title, window.location.pathname + window.location.search);
+        }
+    }
+}
+
 // --- DOMContentLoaded ---
 document.addEventListener('DOMContentLoaded', () => {
     fumenPages.push(createBlankPage());
     setupEditors();
     loadPage(0);
-    viewerCanvas = document.getElementById('viewerCanvas');
+    loadStateFromURL();
+viewerCanvas = document.getElementById('viewerCanvas');
     viewerCtx = viewerCanvas.getContext('2d');
 
     // モード切替ボタン
@@ -1072,8 +1245,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, (err) => {
         });
     });
-
-    codeGenTabs.querySelectorAll('.button').forEach(tab => {
+codeGenTabs.querySelectorAll('.button').forEach(tab => {
         tab.addEventListener('click', () => {
             generateCode(tab.dataset.type);
         });
@@ -1082,7 +1254,50 @@ window.addEventListener('resize', updateScale);
     setTimeout(updateScale, 100);
 
     document.getElementById('send-to-simulator').addEventListener('click', sendToSimulator);
+
+    // --- 共有モーダル (Share Modal) ---
+    document.getElementById('share-btn').addEventListener('click', openShareModal);
+    document.getElementById('share-close').addEventListener('click', () => {
+        document.getElementById('share-modal').style.display = 'none';
+    });
+    document.getElementById('copy-link-btn').addEventListener('click', () => {
+        const input = document.getElementById('share-link-input');
+        input.select();
+        navigator.clipboard.writeText(input.value)
+            .then(() => alert('共有リンクをクリップボードにコピーしました！'))
+            .catch(err => alert('コピーに失敗しました: ' + err));
+    });
+    document.getElementById('import-from-data-btn').addEventListener('click', async () => {
+        try {
+            const text = await navigator.clipboard.readText();
+            if (!text) {
+                alert('クリップボードが空です。');
+                return;
+            }
+
+            let data;
+            if (text.startsWith('http') && text.includes('#')) {
+                const base64Data = text.substring(text.indexOf('#') + 1);
+                const binaryString = atob(base64Data);
+                const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0));
+                const jsonString = new TextDecoder().decode(bytes);
+                data = JSON.parse(jsonString);
+            } else {
+                data = JSON.parse(text);
+            }
+            
+            if(applyFumenData(data)) {
+                 alert('クリップボードから譜面データを読み込みました。');
+                 document.getElementById('share-modal').style.display = 'none';
+            }
+
+        } catch (e) {
+            alert('クリップボードのデータが無効か、読み込みに失敗しました。');
+            console.error('Failed to import from clipboard:', e);
+        }
+    });
 });
 </script>
 </body>
 </html>
+    
