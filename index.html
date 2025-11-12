@@ -5358,41 +5358,11 @@ e.preventDefault();
             players.forEach(p => p.keys[e.key.toLowerCase()] = false );
         }
     });
-
-    const manifest = {
-        "name": "Tetris Simulator", "short_name": "TetrisSim", "start_url": ".",
-        "display": "standalone", "background_color": "#1a1a2e", "theme_color": "#1a1a2e",
-        "description": "A Tetris simulator with a 2-player mode and a powerful board editor.",
-    "icons": [
-        { "src": "https://raw.githubusercontent.com/selmtoe/Tetris_Simulator/main/icons/icon-192x192.png", "type": "image/png", "sizes": "192x192" },
-        { "src": "https://raw.githubusercontent.com/selmtoe/Tetris_Simulator/main/icons/icon-512x512.png", "type": "image/png", "sizes": "512x512" }
-    ]
-    };
-    const manifestURL = 'data:application/json;base64,' + btoa(unescape(encodeURIComponent(JSON.stringify(manifest))));
-    document.getElementById('manifest-link').setAttribute('href', manifestURL);
-    if ('serviceWorker' in navigator) {
-        const swCode = `
-            const CACHE_NAME = 'tetris-sim-cache-v1';
-            self.addEventListener('install', event => {
-                event.waitUntil(
-                    caches.open(CACHE_NAME).then(cache => {
-                        return cache.add(location.pathname);
-                    })
-                );
-            });
-            self.addEventListener('fetch', event => {
-                event.respondWith(
-                    caches.match(event.request).then(response => {
-                        return response || fetch(event.request);
-                    })
-                );
-            });
-        `;
-        const blob = new Blob([swCode], { type: 'application/javascript' });
-        navigator.serviceWorker.register(URL.createObjectURL(blob))
+if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js', { scope: '.' })
             .then(reg => console.log('Service Worker registered successfully.'))
             .catch(err => console.error('Service Worker registration failed:', err));
-}
+    }
     
 document.getElementById('retryBtn').addEventListener('click', () => {
         if (gameState !== 'PLAYING' || !players.length) return;
