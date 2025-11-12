@@ -519,20 +519,36 @@ function loadPage(index) {
 updatePageControls();
     if (currentDisplayMode === 'viewer') {
         drawViewer();
-    }
-}
+    }}
 
 /**
  * ページコントロール（ボタンの状態やインジケーター）を更新する
  */
 function updatePageControls() {
-    document.getElementById('page-indicator').textContent = `Page ${currentPageIndex + 1} / ${fumenPages.length}`;
+    const pageText = `Page ${currentPageIndex + 1} / ${fumenPages.length}`;
+    
+    // Editor UI
+    document.getElementById('page-indicator').textContent = pageText;
     document.getElementById('prev-page').disabled = (currentPageIndex === 0);
     document.getElementById('next-page').disabled = (currentPageIndex === fumenPages.length - 1);
     document.getElementById('delete-page').disabled = (fumenPages.length <= 1);
+
+    // Viewer UI
+    const viewerIndicator = document.getElementById('viewer-page-indicator');
+    const viewerSlider = document.getElementById('viewer-page-slider');
+    
+    if (viewerIndicator) {
+        viewerIndicator.textContent = pageText;
+    }
+    if (viewerSlider) {
+        viewerSlider.max = fumenPages.length - 1;
+        viewerSlider.value = currentPageIndex;
+        viewerSlider.disabled = (fumenPages.length <= 1);
+    }
 }
 
 // --- エディタ本体のロジック ---
+
 
 /**
  * 全エディタの初期設定を行う
@@ -1184,6 +1200,14 @@ viewerCanvas = document.getElementById('viewerCanvas');
 
     // ビューワーのシミュレータボタン
     document.getElementById('viewer-simulator-btn').addEventListener('click', sendToSimulator);
+
+    // ビューワーのスライダー
+    document.getElementById('viewer-page-slider').addEventListener('input', (e) => {
+        const newIndex = parseInt(e.target.value, 10);
+        if (newIndex !== currentPageIndex) {
+            loadPage(newIndex);
+        }
+    });
 
     const modal = document.getElementById('code-gen-modal');   
     const genCodeBtn = document.getElementById('gen-code');
