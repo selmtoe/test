@@ -5692,6 +5692,7 @@ p.ruleWorker.postMessage({
                     pageData.p2 = page.p2;
                 }
                 return pageData;          
+                                
                         })
         };
 
@@ -5699,31 +5700,39 @@ p.ruleWorker.postMessage({
 
         try {
             jsonString = JSON.stringify(fumenData);
-const uint8Array = new TextEncoder().encode(jsonString);
+            const uint8Array = new TextEncoder().encode(jsonString);
             base64Data = btoa(String.fromCharCode.apply(null, uint8Array));
-            
+        } catch (e) {
+            console.error('譜面データのエンコードに失敗しました:', e);
+            alert('譜面データのエンコードに失敗しました。データが大きすぎる可能性があります。');
+            return;
+        }
+        
+    
+        try {
             let fumenEditorURL 
 = './F/index.html';
  
            try {
                 const path = window.location.pathname;
                 const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
-                fumenEditorURL = parentPath + 'F/index.html';
+fumenEditorURL = parentPath + 'F/index.html';
 } catch (e) { /* fallback */ }
 
             window.open(`${fumenEditorURL}#${base64Data}`, '_blank');
 } catch (e) {
             console.error('譜面データの生成に失敗しました:', e);
-            if (confirm('リンクの生成に失敗しました。データが長すぎる可能性があります。\n譜面データ（Base64）をクリップボードにコピーしますか？')) {
+if (confirm('リンクの生成に失敗しました。データが長すぎる可能性があります。\n譜面データ（Base64）をクリップボードにコピーしますか？')) {
                 navigator.clipboard.writeText(base64Data)
                     .then(() => {
                         alert('譜面データをクリップボードにコピーしました。\n譜面エディタで手動で読み込んでください。');
                     })
-                    .catch(err => {
+                
+    .catch(err => {
                         console.error('クリップボードへのコピーに失敗しました:', err);
                         alert('クリップボードへのコピーに失敗しました。');
                     });
-            }
+}
 }
     });
 
