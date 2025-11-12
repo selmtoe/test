@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1a1a2e">
+<link rel="manifest" href="../manifest.json">
 <title>譜面エディタ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1082,6 +1083,12 @@ window.addEventListener('resize', updateScale);
     setTimeout(updateScale, 100);
 
     document.getElementById('send-to-simulator').addEventListener('click', sendToSimulator);
+
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('../sw.js', { scope: '..' })
+            .then(reg => console.log('Service Worker registered successfully from editor.'))
+            .catch(err => console.error('Service Worker registration failed from editor:', err));
+    }
 });
 </script>
 </body>
