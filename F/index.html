@@ -736,7 +736,8 @@ function drawViewerUI(ctx, playerPageData, offsetX) {
 
     // Next
     const rX = PLAYFIELD_X_OFFSET + PLAYFIELD_WIDTH + PADDING + NEXT_AREA_WIDTH / 2;
-    ctx.fillText('NEXT', rX, 40);
+    ctx.fillStyle = '#FFF'; // 色を白に再設定
+ctx.fillText('NEXT', rX, 40);
     const nextQueue = playerPageData.next.split('');
     for (let i = 0; i < Math.min(nextQueue.length, 6); i++) {
         const pT = nextQueue[i];
@@ -775,20 +776,22 @@ function drawViewer() {
         // 盤面描画
         viewerCtx.save();
         viewerCtx.translate(PLAYFIELD_X_OFFSET, 0.5 * BLOCK_SIZE);
-        
+ 
+       
         viewerCtx.fillStyle = 'rgba(0,0,0,0.5)';
-        viewerCtx.fillRect(0, 0, PLAYFIELD_WIDTH, CANVAS_HEIGHT);
+        viewerCtx.fillRect(0, 0, PLAYFIELD_WIDTH, BOARD_VISIBLE_HEIGHT * BLOCK_SIZE);
         
         viewerCtx.strokeStyle = '#444';
         viewerCtx.lineWidth = 0.5;
         for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) {
             for (let x = 0; x < BOARD_WIDTH; x++) {
-                viewerCtx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+      
+          viewerCtx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
             }
         }
         viewerCtx.strokeStyle = '#4b4b7c';
         viewerCtx.lineWidth = 2; 
-        viewerCtx.strokeRect(1, 1, PLAYFIELD_WIDTH - 2, CANVAS_HEIGHT - 2);
+        viewerCtx.strokeRect(1, 1, PLAYFIELD_WIDTH - 2, (BOARD_VISIBLE_HEIGHT * BLOCK_SIZE) - 2);
 
         // ブロック描画
         const viewY = BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT;
@@ -848,14 +851,14 @@ function sendToSimulator() {
     const uint8Array = new TextEncoder().encode(jsonString);
     const base64Data = btoa(String.fromCharCode.apply(null, uint8Array));
     
-    // index.htmlが譜面エディタ(fumen.html)と同じ階層にあると仮定
-    let simulatorURL = 'index.html'; 
+    // シミュレータ (index.html) が譜面エディタ (fumen.html) の一つ上の階層にあると仮定
+    let simulatorURL = '../index.html'; // デフォルトを ../index.html に変更
     try {
-        // 現在のパスからファイル名を取り除いて 'index.html' を足す
+        // 現在のパスからファイル名を取り除いて '../index.html' を足す
         const path = window.location.pathname;
-        const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
-        simulatorURL = parentPath + 'index.html';
-    } catch(e) { /* fallback to 'index.html' */ }
+const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
+        simulatorURL = parentPath + '../index.html';
+} catch(e) { /* fallback to '../index.html' */ }
 
     location.href = `${simulatorURL}#${base64Data}`;
 }
