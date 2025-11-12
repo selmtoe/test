@@ -1,7 +1,7 @@
 {
     "name": "Tetris Simulator",
     "short_name": "TetrisSim",
-    "start_url": ".",
+    "start_url": "./F/index.html",
     "display": "standalone",
     "background_color": "#1a1a2e",
     "theme_color": "#1a1a2e",
