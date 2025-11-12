@@ -5724,8 +5724,7 @@ function logCurrentGameState() {
     const getPlayerData = (player) => {
         if (!player) return null;
 const next = [
-            player.player.pieceType, 
-            ...player.nextQueue.slice(0, Math.max(0, gameSettings.maxNext - 1))
+            ...player.nextQueue.slice(0, Math.max(0, gameSettings.maxNext))
         ].filter(p => p !== null && p !== 'E').join('');
 return {
             b: boardToString(player.board),
