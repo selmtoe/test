@@ -461,7 +461,7 @@ const EDITOR_COLORS = {...COLORS, 'EMPTY': '#000000'};
 let gameMode = '1P';
 let fumenPages = [];
 let currentPageIndex = 0;
-let currentDisplayMode = 'editor'; // 'editor' or 'viewer'
+let currentDisplayMode = 'viewer'; // 'editor' or 'viewer'
 let viewerCanvas, viewerCtx;
 let viewerLoopHandle;
 // ミノの形状データ (シミュレータから)
@@ -1094,6 +1094,32 @@ document.addEventListener('DOMContentLoaded', () => {
     loadStateFromURL();
 viewerCanvas = document.getElementById('viewerCanvas');
     viewerCtx = viewerCanvas.getContext('2d');
+
+    // --- 初期表示をビューワーモードにする ---
+    document.getElementById('editor-container').style.display = 'none';
+    document.getElementById('viewer-container').style.display = 'flex';
+    
+    // キャンバスのサイズ設定 (シミュレータ参考)
+    viewerCtx.setTransform(1, 0, 0, 1, 0, 0);
+    if (gameMode === '1P') {
+        viewerCanvas.width = PLAYER_CANVAS_WIDTH * RESOLUTION_SCALE;
+        viewerCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
+        viewerCanvas.style.width = PLAYER_CANVAS_WIDTH + 'px';
+        viewerCanvas.style.height = CANVAS_HEIGHT + 'px';
+    } else {
+        const totalWidth = PLAYER_CANVAS_WIDTH * 2;
+        viewerCanvas.width = totalWidth * RESOLUTION_SCALE; 
+        viewerCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
+        viewerCanvas.style.width = totalWidth + 'px';
+        viewerCanvas.style.height = CANVAS_HEIGHT + 'px';
+    }
+    viewerCtx.scale(RESOLUTION_SCALE, RESOLUTION_SCALE);
+
+    // ページコントロールをビューワー用に更新
+    updatePageControls();
+    // 初回描画
+    drawViewer();
+    // --- ここまで初期表示処理 ---
 
     // モード切替ボタン
     document.getElementById('mode-1p').addEventListener('click', () => {
