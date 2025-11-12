@@ -242,11 +242,42 @@ flex-wrap: wrap;
     }
     #viewer-controls {
         position: fixed;
-        top: 10px;
-        right: 10px;
+        top: 20px; /* 上からの位置調整 */
+        left: 50%; /* 左右中央 */
+        transform: translateX(-50%); /* 左右中央 */
         z-index: 160;
         display: flex;
+        flex-direction: column; /* 縦積みに変更 */
+        gap: 15px; /* 要素間の隙間 */
+        align-items: center; /* 中央揃え */
+        background-color: rgba(15, 15, 24, 0.8); /* 背景を追加 */
+        padding: 15px; /* 内側余白 */
+        border-radius: 10px; /* 角丸 */
+        border: 2px solid var(--border-color); /* 枠線 */
+    }
+    /* ボタンを横並びにするためのラッパー */
+    .viewer-main-buttons {
+        display: flex;
         gap: 10px;
+    }
+    /* スライダーとページ番号のコンテナ */
+    .viewer-page-controls {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        width: 300px; /* スライダーの幅を確保 */
+    }
+    /* スライダー本体 */
+    #viewer-page-slider {
+        width: 100%;
+        cursor: pointer;
+    }
+    /* ページ番号 (a/b) */
+    #viewer-page-indicator {
+        font-family: var(--font-display);
+        font-size: 16px;
+        color: var(--font-color);
     }
     .sequence-controls {
         display: flex;
@@ -340,19 +371,24 @@ background-color: #30a070;">View</button>
                         <label>Next: <input type="text" id="p2-next-input" placeholder="例: SZJLO"></label>
                     </div>
                   </div>
-                </div>
+              </div>
             </div>
         </div>
     </div>
-   
 </div>
 </div>
 
 <div id="viewer-container">
     <canvas id="viewerCanvas"></canvas>
-    <div id="viewer-controls">
-        <button id="viewer-simulator-btn" class="button">Simulator</button>
-        <button id="back-to-editor-btn" class="button">Editor</button>
+    <div id="viewer-controls"> 
+        <div class="viewer-main-buttons">
+            <button id="viewer-simulator-btn" class="button">Simulator</button>
+            <button id="back-to-editor-btn" class="button">Editor</button>
+        </div>
+        <div class="viewer-page-controls">
+            <span id="viewer-page-indicator">Page 1 / 1</span>
+            <input type="range" id="viewer-page-slider" min="0" max="0" value="0">
+        </div>
     </div>
 </div>
 
