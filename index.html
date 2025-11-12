@@ -5409,7 +5409,12 @@ document.getElementById('retryBtn').addEventListener('click', () => {
         if (gameState !== 'PLAYING' || !players.length) return;
         
         players.forEach(p => {
-      p.ruleWorker.terminate();
+            players.forEach(p => {
+            if (p.aiWorker) {
+                p.aiWorker.terminate();
+            }
+            if (p.ruleWorker) {
+                p.ruleWorker.terminate();
             }
         });
 
