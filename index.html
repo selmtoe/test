@@ -5691,8 +5691,7 @@ p.ruleWorker.postMessage({
                 if (gameMode === '2P' && page.p2) {
                     pageData.p2 = page.p2;
                 }
-                return pageData;          
-                                
+                return pageData;                  
                         })
         };
 
@@ -5701,10 +5700,27 @@ p.ruleWorker.postMessage({
         try {
             jsonString = JSON.stringify(fumenData);
             const uint8Array = new TextEncoder().encode(jsonString);
-            base64Data = btoa(String.fromCharCode.apply(null, uint8Array));
+            
+            let binaryString = '';
+            const CHUNK_SIZE = 8192; 
+            for (let i = 0; i < uint8Array.length; i += CHUNK_SIZE) {
+                const chunk = uint8Array.subarray(i, i + CHUNK_SIZE);
+                binaryString += String.fromCharCode.apply(null, chunk);
+            }
+            base64Data = btoa(binaryString);
+
         } catch (e) {
             console.error('譜面データのエンコードに失敗しました:', e);
-            alert('譜面データのエンコードに失敗しました。データが大きすぎる可能性があります。');
+            if (confirm('譜面データのエンコードに失敗しました。データが大きすぎる可能性があります。\n\n生の譜面データ(JSON)をクリップボードにコピーしますか？ (Base64ではありません)')) {
+                navigator.clipboard.writeText(jsonString)
+                    .then(() => {
+                        alert('生の譜面データ(JSON)をクリップボードにコピーしました。');
+                    })
+                    .catch(err => {
+                        console.error('クリップボードへのコピーに失敗しました:', err);
+                        alert('クリップボードへのコピーに失敗しました。');
+                    });
+            }
             return;
         }
         
