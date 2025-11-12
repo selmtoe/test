@@ -5723,18 +5723,17 @@ function logCurrentGameState() {
 
     const getPlayerData = (player) => {
         if (!player) return null;
-        
-        const next = [
+const next = [
             player.player.pieceType, 
             ...player.nextQueue.slice(0, Math.max(0, gameSettings.maxNext - 1))
         ].filter(p => p !== null && p !== 'E').join('');
-
-        return {
+return {
             b: boardToString(player.board),
-            h: player.holdPiece || '',
+            h: player.holdPiece ||
+'',
             n: next
         };
-    };
+};
 
     const p1Data = getPlayerData(players[0]);
     const p2Data = (gameMode === '2P' && players[1]) ? getPlayerData(players[1]) : null;
