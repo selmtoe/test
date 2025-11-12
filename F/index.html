@@ -246,6 +246,7 @@ flex-wrap: wrap;
      
            <button id="delete-page">Delete Page</button>
                 <button id="gen-code" style="margin-left: 15px; background-color: #00a0f0;">Gen Code</button>
+                <button id="send-to-simulator" style="margin-left: 5px; background-color: #00a000;">シミュレータに移す</button>
             </div>
         </div>
         <!-- プレイヤーエディタエリア -->
@@ -553,7 +554,13 @@ function updateScale() {
         window.innerHeight / rect.height
     ) * 0.98;
 
-    mainContainer.style.transform = `scale(${scale})`;
+mainContainer.style.transform = `scale(${scale})`;
+}
+
+function boardToString(board) {
+    return board.map(row => 
+        row.map(cell => cell === null ? '_' : cell).join('')
+    ).join('');
 }
 
 // --- DOMContentLoaded ---
@@ -707,8 +714,37 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    window.addEventListener('resize', updateScale);
+window.addEventListener('resize', updateScale);
     setTimeout(updateScale, 100);
+
+    document.getElementById('send-to-simulator').addEventListener('click', () => {
+        const currentPage = fumenPages[currentPageIndex];
+        
+        const stateData = {
+            v: 2,
+            m: gameMode,
+            p1: {
+                b: boardToString(currentPage.p1.board),
+                n: '',
+                h: ''
+            },
+            ss: 1
+        };
+
+        if (gameMode === '2P') {
+            stateData.p2 = {
+                b: boardToString(currentPage.p2.board),
+                n: '',
+                h: ''
+            };
+        }
+
+        const jsonString = JSON.stringify(stateData);
+        const uint8Array = new TextEncoder().encode(jsonString);
+        const base64Data = btoa(String.fromCharCode.apply(null, uint8Array));
+        
+        location.href = `../index.html#${base64Data}`;
+    });
 });
 </script>
 </body>
