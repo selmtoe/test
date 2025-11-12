@@ -340,6 +340,7 @@ left: 10px; top: 150px;">
 
 <div id="game-controls" style="display: none;
 position: fixed; top: 10px; right: 10px; z-index: 160; gap: 10px;">
+     <button id="exportFumenBtn" class="button" style="background-color: #f0a000;">記録</button>
      <button id="retryBtn" class="button">リトライ</button>
      <button id="gameSettingsBtn" class="button">設定</button>
      <button id="backToEditorBtn" class="button">戻る</button>
@@ -2102,6 +2103,7 @@ const TETROMINOS = {
 const SRS_OFFSETS = { "JLSTZ": { "0_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], "1_0": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], "1_2": [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], "2_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], "2_3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], "3_2": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], "3_0": [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], "0_3": [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], }, "I": { "0_1": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], "1_0": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], "1_2": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], "2_1": [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], "2_3": [[0, 0], [2, 0], [-1, 0], [2, 1], [-1, -2]], "3_2": [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]], "3_0": [[0, 0], [1, 0], [-2, 0], [1, -2], [-2, 1]], "0_3": [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]], } };
 
 let players = [], gameMode = '1P', gameState = 'EDITING', lastTime = 0, mainCanvas, ctx, aiWorkerBlob, gameStartTime = 0;
+let gameHistoryLog = [];
 function updateAiDebugDisplay(payload) {
     const display = document.getElementById('ai-debug-display');
 
@@ -2637,7 +2639,12 @@ lockPiece() {
 if (by >= 0) this.board[by][bx] = this.player.pieceType; }
         
         this.linesClearedLastLock = this.clearLines();
-        const lines = this.linesClearedLastLock;
+
+        if (gameState === 'PLAYING') {
+            logCurrentGameState();
+        }
+
+const lines = this.linesClearedLastLock;
 const isPC = lines > 0 && this.board.every(row => row.every(cell => cell === null));
         
         let attack = 0;
@@ -4919,6 +4926,7 @@ document.getElementById('advanced-link-btn').addEventListener('click', () => {
         });
     });
 document.getElementById('startGameBtn').addEventListener('click', () => {
+        gameHistoryLog = [];
         let currentRunSettings = { ...gameSettings };
         gameStartTime = performance.now();
         let startTime = gameStartTime;
@@ -4938,13 +4946,15 @@ document.getElementById('startGameBtn').addEventListener('click', () => {
             const p2 = new Player('2', PLAYER_CANVAS_WIDTH, keyBindings.p2, 1, p2_isAi);
             p2.holdDisabled = autoStartParams.nh;
       
-      p1.opponent = p2;
+            p1.opponent = p2;
             p2.opponent = p1;
             players.push(p1, p2);
         }
 
+        logCurrentGameState();
+
         if (editorData.rule.code) {
-            try {
+ try {
         const ruleWorkerScript = `
                     let userFunctions = {};
 let startTime = 0;
@@ -5199,6 +5209,7 @@ if (gameSettings.touchControlsEnabled && gameSettings.touchControlType === 'butt
 
 document.getElementById('backToEditorBtn').addEventListener('click', () => {
         gameState = 'EDITING';
+        gameHistoryLog = [];
         
         if (players.length > 0) {
             players.forEach(p => {
@@ -5398,16 +5409,12 @@ document.getElementById('retryBtn').addEventListener('click', () => {
         if (gameState !== 'PLAYING' || !players.length) return;
         
         players.forEach(p => {
-            if (p.aiWorker) {
-                p.aiWorker.terminate();
-            }
-            if (p.ruleWorker) {
-
-           p.ruleWorker.terminate();
+      p.ruleWorker.terminate();
             }
         });
 
         loadGameSettings();
+        gameHistoryLog = [];
      
         let currentRunSettings = { ...gameSettings };
         gameStartTime = performance.now();
@@ -5433,6 +5440,8 @@ const p2 = new Player('2', PLAYER_CANVAS_WIDTH, keyBindings.p2, 1, p2_isAi_retry
             p2.opponent = p1;
             players.push(p1, p2);
 }
+        
+        logCurrentGameState();
         
         if (editorData.rule.code) {
              const ruleWorkerScript = `
@@ -5655,7 +5664,7 @@ p.ruleWorker.postMessage({
         }
         
         const move = {
-            pieceType: piece,
+             pieceType: piece,
             x: x,
             y: y,
             rotation: rot
@@ -5663,7 +5672,75 @@ p.ruleWorker.postMessage({
 
         aiPlayer.executeAiMove(move);
     });
+
+    document.getElementById('exportFumenBtn').addEventListener('click', () => {
+        if (gameHistoryLog.length === 0) {
+            alert('記録するデータがありません。');
+            return;
+        }
+
+        const fumenData = {
+            v: 'f1',
+            m: gameMode,
+            p: gameHistoryLog.map(page => {
+                const pageData = { p1: page.p1 };
+                if (gameMode === '2P' && page.p2) {
+                    pageData.p2 = page.p2;
+                }
+                return pageData;
+            })
+        };
+
+        try {
+            const jsonString = JSON.stringify(fumenData);
+            const uint8Array = new TextEncoder().encode(jsonString);
+            const base64Data = btoa(String.fromCharCode.apply(null, uint8Array));
+            
+            let fumenEditorURL = 'fumen.html';
+            try {
+                const path = window.location.pathname;
+                const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
+                fumenEditorURL = parentPath + 'fumen.html';
+            } catch (e) { /* fallback */ }
+
+            window.open(`${fumenEditorURL}#${base64Data}`, '_blank');
+
+        } catch (e) {
+            console.error('譜面データの生成に失敗しました:', e);
+            alert('譜面データの生成に失敗しました。');
+        }
+    });
+
 });
+
+function logCurrentGameState() {
+    if (players.length === 0) return;
+
+    const getPlayerData = (player) => {
+        if (!player) return null;
+        
+        const next = [
+            player.player.pieceType, 
+            ...player.nextQueue.slice(0, Math.max(0, gameSettings.maxNext - 1))
+        ].filter(p => p !== null && p !== 'E').join('');
+
+        return {
+            b: boardToString(player.board),
+            h: player.holdPiece || '',
+            n: next
+        };
+    };
+
+    const p1Data = getPlayerData(players[0]);
+    const p2Data = (gameMode === '2P' && players[1]) ? getPlayerData(players[1]) : null;
+
+    const pageData = { p1: p1Data };
+    if (p2Data) {
+        pageData.p2 = p2Data;
+    }
+    
+    gameHistoryLog.push(pageData);
+}
 </script>
 </body>
 </html>
