@@ -5720,30 +5720,60 @@ p.ruleWorker.postMessage({
                         console.error('クリップボードへのコピーに失敗しました:', err);
                         alert('クリップボードへのコピーに失敗しました。');
                     });
+}
+                return;
+}
+            
+            
+            gameState = 'EDITING';
+            
+            if (players.length > 0) {
+                players.forEach(p => {
+                    if (p.aiWorker) {
+                        p.aiWorker.terminate();
+                    }
+                    if (p.ruleWorker) {
+                        p.ruleWorker.terminate();
+                    }
+                });
             }
-            return;
-        }
+            
+            players = [];
+            loadGameSettings();
+            document.getElementById('game-container').style.display = 'none';
+            document.getElementById('game-controls').style.display = 'none';
+            document.getElementById('editor-container').style.display = 'flex';
+            document.getElementById('rule-description-display').style.display = 'none';
+            
+            virtualController.hide();
+            
+            const aiDebugDisplay = document.getElementById('ai-debug-display');
+            const aiDebugControls = document.getElementById('ai-debug-controls');
+            if(aiDebugDisplay) aiDebugDisplay.style.display = 'none';
+            if(aiDebugControls) aiDebugControls.style.display = 'none';
+
+            setTimeout(updateScale, 0);
+
         
-    
-        try {
-            let fumenEditorURL 
+            try {
+                let fumenEditorURL 
 = './F/index.html';
- 
-           try {
+try {
                 const path = window.location.pathname;
-                const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
+const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
 fumenEditorURL = parentPath + 'F/index.html';
 } catch (e) { /* fallback */ }
 
-            window.open(`${fumenEditorURL}#${base64Data}`, '_blank');
+                window.open(`${fumenEditorURL}#${base64Data}`, '_blank');
 } catch (e) {
-            console.error('譜面データの生成に失敗しました:', e);
+                console.error('譜面データの生成に失敗しました:', e);
 if (confirm('リンクの生成に失敗しました。データが長すぎる可能性があります。\n譜面データ（Base64）をクリップボードにコピーしますか？')) {
                 navigator.clipboard.writeText(base64Data)
                     .then(() => {
                         alert('譜面データをクリップボードにコピーしました。\n譜面エディタで手動で読み込んでください。');
                     })
                 
+
     .catch(err => {
                         console.error('クリップボードへのコピーに失敗しました:', err);
                         alert('クリップボードへのコピーに失敗しました。');
@@ -5753,6 +5783,7 @@ if (confirm('リンクの生成に失敗しました。データが長すぎる�
     });
 
 });
+
 function logCurrentGameState() {
     if (players.length === 0) return;
     
