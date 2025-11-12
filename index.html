@@ -5717,15 +5717,27 @@ p.ruleWorker.postMessage({
     });
 
 });
-
 function logCurrentGameState() {
     if (players.length === 0) return;
+    
+    const isInitialCall = gameHistoryLog.length === 0;
 
-    const getPlayerData = (player) => {
+const getPlayerData = (player) => {
         if (!player) return null;
-const next = [
-            ...player.nextQueue.slice(0, Math.max(0, gameSettings.maxNext))
-        ].filter(p => p !== null && p !== 'E').join('');
+        
+        let nextPieces;
+        if (isInitialCall) {
+            nextPieces = [
+                player.player.pieceType, 
+                ...player.nextQueue.slice(0, Math.max(0, gameSettings.maxNext - 1))
+            ];
+        } else {
+            nextPieces = [
+                ...player.nextQueue.slice(0, Math.max(0, gameSettings.maxNext))
+            ];
+        }
+
+const next = nextPieces.filter(p => p !== null && p !== 'E').join('');
 return {
             b: boardToString(player.board),
             h: player.holdPiece ||
@@ -5736,14 +5748,14 @@ return {
 
     const p1Data = getPlayerData(players[0]);
     const p2Data = (gameMode === '2P' && players[1]) ? getPlayerData(players[1]) : null;
-
-    const pageData = { p1: p1Data };
+const pageData = { p1: p1Data };
     if (p2Data) {
         pageData.p2 = p2Data;
-    }
+}
     
     gameHistoryLog.push(pageData);
 }
+
 </script>
 </body>
 </html>
