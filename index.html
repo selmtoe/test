@@ -5691,8 +5691,7 @@ p.ruleWorker.postMessage({
                 if (gameMode === '2P' && page.p2) {
                     pageData.p2 = page.p2;
                 }
-                return pageData;
-            })
+                return pageData;          })
         };
 
         try {
@@ -5700,14 +5699,16 @@ p.ruleWorker.postMessage({
             const uint8Array = new TextEncoder().encode(jsonString);
             const base64Data = btoa(String.fromCharCode.apply(null, uint8Array));
             
-            let fumenEditorURL = 'fumen.html';
+            let fumenEditorURL 
+= './F/index.html';
             try {
                 const path = window.location.pathname;
                 const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
-                fumenEditorURL = parentPath + 'fumen.html';
-            } catch (e) { /* fallback */ }
+                fumenEditorURL = parentPath + 'F/index.html';
+} catch (e) { /* fallback */ }
 
             window.open(`${fumenEditorURL}#${base64Data}`, '_blank');
+
 
         } catch (e) {
             console.error('譜面データの生成に失敗しました:', e);
