@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1a1a2e">
-<link rel="manifest" href="../manifest.json">
 <title>譜面エディタ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -352,23 +351,12 @@ flex-wrap: wrap;
     <div id="viewer-controls">
         <button id="viewer-simulator-btn" class="button">Simulator</button>
         <button id="back-to-editor-btn" class="button">Editor</button>
-</div>
-</div>
-
-<div id="simulator-link-modal" style="display: none; position: fixed; z-index: 1001; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.7); justify-content: center; align-items: center;">
-    <div style="background-color: var(--bg-color); border: 2px solid var(--border-color); border-radius: 10px; padding: 20px; width: 90%; max-width: 800px; display: flex; flex-direction: column; gap: 15px;">
-        <h2>Simulator Link</h2>
-        <p style="color: var(--font-color); font-family: var(--font-ui);">Tap the link to open in the simulator.</p>
-        <a id="simulator-link-output" href="#" style="color: #00a0f0; font-family: monospace; font-size: 16px; word-break: break-all; background-color: var(--canvas-bg-color); padding: 10px; border-radius: 5px; border: 1px solid var(--border-color);"></a>
-        <div style="display: flex; justify-content: flex-end; gap: 10px;">
-            <button id="close-simulator-link-modal-button" class="button">Close</button>
-        </div>
     </div>
 </div>
 
 <div id="code-gen-modal">
     <div id="code-gen-content">
-        <h2>Generate Simulator Code</h2>     
+        <h2>Generate Simulator Code</h2>
                 <div id="code-gen-tabs">
             <button class="button active" data-type="check">Check Blocks</button>
             <button class="button" data-type="ghost">Draw Ghost</button>
@@ -829,13 +817,17 @@ function viewerLoop() {
     viewerLoopHandle = requestAnimationFrame(viewerLoop);
 }
 
+/**
+ * シミュレータへのデータ送信（ビューワー/エディタ共通）
+ */
 function sendToSimulator() {
     const currentPage = fumenPages[currentPageIndex];
     
     const sanitize = (str) => str.replace(/[^IOTLSJZ]/gi, '');
-const p1Hold = sanitize(currentPage.p1.hold || '');
+    const p1Hold = sanitize(currentPage.p1.hold || '');
     const p1Next = sanitize(currentPage.p1.next || '');
-const stateData = {
+
+    const stateData = {
         v: 2,
         m: gameMode,
         p1: {
@@ -844,22 +836,23 @@ const stateData = {
             h: p1Hold
         },
     };
-if (gameMode === '2P') {
+
+    if (gameMode === '2P') {
         const p2Hold = sanitize(currentPage.p2.hold || '');
-const p2Next = sanitize(currentPage.p2.next || '');
+        const p2Next = sanitize(currentPage.p2.next || '');
         stateData.p2 = {
             b: boardToString(currentPage.p2.board),
             n: p2Next,
             h: p2Hold
         };
-}
+    }
 
     const jsonString = JSON.stringify(stateData);
     const uint8Array = new TextEncoder().encode(jsonString);
     const base64Data = btoa(String.fromCharCode.apply(null, uint8Array));
-// シミュレータ (index.html) が譜面エディタ (fumen.html) の一つ上の階層にあると仮定
-    let simulatorURL = '../index.html';
-// デフォルトを ../index.html に変更
+    
+    // シミュレータ (index.html) が譜面エディタ (fumen.html) の一つ上の階層にあると仮定
+    let simulatorURL = '../index.html'; // デフォルトを ../index.html に変更
     try {
         // 現在のパスからファイル名を取り除いて '../index.html' を足す
         const path = window.location.pathname;
@@ -867,11 +860,7 @@ const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
         simulatorURL = parentPath + '../index.html';
 } catch(e) { /* fallback to '../index.html' */ }
 
-    const fullURL = `${simulatorURL}#${base64Data}`;
-    const linkOutput = document.getElementById('simulator-link-output');
-    linkOutput.href = fullURL;
-    linkOutput.textContent = fullURL;
-    document.getElementById('simulator-link-modal').style.display = 'flex';
+    location.href = `${simulatorURL}#${base64Data}`;
 }
 
 // --- DOMContentLoaded ---
@@ -1093,22 +1082,6 @@ window.addEventListener('resize', updateScale);
     setTimeout(updateScale, 100);
 
     document.getElementById('send-to-simulator').addEventListener('click', sendToSimulator);
-
-    const simLinkModal = document.getElementById('simulator-link-modal');
-    document.getElementById('close-simulator-link-modal-button').addEventListener('click', () => {
-        simLinkModal.style.display = 'none';
-    });
-    simLinkModal.addEventListener('click', (event) => {
-        if (event.target === simLinkModal) {
-            simLinkModal.style.display = 'none';
-        }
-    });
-
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('../sw.js', { scope: '..' })
-            .then(reg => console.log('Service Worker registered successfully from editor.'))
-            .catch(err => console.error('Service Worker registration failed from editor:', err));
-}
 });
 </script>
 </body>
