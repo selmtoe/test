@@ -1166,10 +1166,8 @@ viewerCanvas = document.getElementById('viewerCanvas');
         }
     });
 
-    // ビューワーのシミュレータボタン
     document.getElementById('viewer-simulator-btn').addEventListener('click', sendToSimulator);
 
-    // ビューワーのスライダー
     document.getElementById('viewer-page-slider').addEventListener('input', (e) => {
         const newIndex = parseInt(e.target.value, 10);
         if (newIndex !== currentPageIndex) {
@@ -1283,7 +1281,6 @@ window.addEventListener('resize', updateScale);
 
     document.getElementById('send-to-simulator').addEventListener('click', sendToSimulator);
 
-    // --- 共有モーダル (Share Modal) ---
     document.getElementById('share-btn').addEventListener('click', openShareModal);
     document.getElementById('share-close').addEventListener('click', () => {
         document.getElementById('share-modal').style.display = 'none';
