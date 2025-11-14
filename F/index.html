@@ -10,7 +10,6 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
 <style>
-    /* 基本的なスタイル設定 */
     :root {
         --bg-color: #1a1a2e;
         --primary-color: #4b4b7c;
@@ -87,7 +86,6 @@
         cursor: not-allowed;
     }
 
-    /* エディタのレイアウト */
     .edit-section {
         background-color: rgba(255,255,255,0.05);
         padding: 15px;
@@ -95,7 +93,7 @@
     }
     .top-controls {
         display: flex;
-        justify-content: space-between; /* 両端揃えに変更 */
+        justify-content: space-between;
         align-items: center;
         flex-wrap: wrap;
         gap: 15px;
@@ -113,7 +111,7 @@
         font-family: var(--font-display);
         font-size: 16px;
         padding: 0 10px;
-        min-width: 100px; /* 幅を確保 */
+        min-width: 100px;
     }
     .player-editors {
         display: flex;
@@ -130,7 +128,6 @@
         gap: 15px;
     }
 
-    /* カラーパレットとフィールドエディタ */
     .color-palette {
         display: flex;
         flex-wrap: wrap;
@@ -242,41 +239,38 @@ flex-wrap: wrap;
     }
     #viewer-controls {
         position: fixed;
-        top: 20px; /* 上からの位置調整 */
-        left: 50%; /* 左右中央 */
-        transform: translateX(-50%); /* 左右中央 */
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
         z-index: 160;
         display: flex;
-        flex-direction: column; /* 縦積み */
-        gap: 10px; /* 要素間の隙間を少し詰める */
-        align-items: center; /* 中央揃え */
-        background-color: rgba(15, 15, 24, 0.8); /* 背景を追加 */
-        padding: 15px; /* 内側余白 */
-        border-radius: 10px; /* 角丸 */
-        border: 2px solid var(--border-color); /* 枠線 */
+        flex-direction: column; 
+        gap: 10px;
+        align-items: center;
+        background-color: rgba(15, 15, 24, 0.8);
+        padding: 15px; 
+        border-radius: 10px;
+        border: 2px solid var(--border-color);
     }
-    /* 1行目 (ページ数 + ボタン) */
+
     .viewer-top-row {
         display: flex;
-        align-items: center; /* 高さを揃える */
-        gap: 15px; /* 要素間の隙間 */
+        align-items: center;
+        gap: 15px;
     }
-    /* 2行目 (スライダーのコンテナ) */
     .viewer-slider-container {
-        width: 300px; /* スライダーの幅を確保 */
+        width: 300px;
     }
-    /* スライダー本体 */
     #viewer-page-slider {
         width: 100%;
         cursor: pointer;
     }
-    /* ページ番号 (a/b) */
     #viewer-page-indicator {
         font-family: var(--font-display);
         font-size: 16px;
         color: var(--font-color);
-        min-width: 120px; /* ページ数が変わっても幅を固定 */
-        text-align: center; /* 中央揃え */
+        min-width: 120px;
+        text-align: center;
     }
     .sequence-controls {
         display: flex;
@@ -308,7 +302,6 @@ flex-wrap: wrap;
 
 <div class="main-container">
     <div id="editor-container">
-        <!-- 上部コントロール -->
         <div class="edit-section top-controls">
             <div class="mode-selection">
                 <h2>MODE</h2>
@@ -329,9 +322,7 @@ flex-wrap: wrap;
 background-color: #30a070;">View</button>
             </div>
         </div>
-        <!-- プレイヤーエディタエリア -->
         <div class="player-editors">
-            <!-- Player 1 エディタ -->
             <div class="editor-column" id="p1-editor-col">
                 <div class="edit-section field-editor">
                     <h2>PLAYER 1 - FIELD</h2>
@@ -351,7 +342,6 @@ background-color: #30a070;">View</button>
                     </div>
                </div>
             </div>
-            <!-- Player 2 エディタ (最初は非表示) -->
             <div class="editor-column" id="p2-editor-col" style="display: none;">
                 <div class="edit-section field-editor">
                     <h2>PLAYER 2 - FIELD</h2>
@@ -439,12 +429,10 @@ background-color: #30a070;">View</button>
 </div>
 
 <script>
-// 定数設定
 const EDITOR_BLOCK_SIZE = 50;
 const BOARD_WIDTH = 10;
 const BOARD_VISIBLE_HEIGHT = 20;
 const BOARD_HEIGHT = 40;
-// シミュレータ/ビューワー用定数
 const RESOLUTION_SCALE = 2;
 const BLOCK_SIZE = 28;
 const HOLD_AREA_WIDTH = 5 * BLOCK_SIZE;
@@ -457,42 +445,26 @@ const PLAYFIELD_X_OFFSET = HOLD_AREA_WIDTH + PADDING;
 const COLORS = { 'I': '#00f0f0', 'O': '#f0f000', 'T': '#a000f0', 'L': '#f0a000', 'J': '#0000f0', 'S': '#00f000', 'Z': '#f00000', 'G': '#999999' };
 const EDITOR_COLORS = {...COLORS, 'EMPTY': '#000000'};
 
-// グローバル変数
 let gameMode = '1P';
 let fumenPages = [];
 let currentPageIndex = 0;
-let currentDisplayMode = 'viewer'; // 'editor' or 'viewer'
+let currentDisplayMode = 'viewer';
 let viewerCanvas, viewerCtx;
 let viewerLoopHandle;
-// ミノの形状データ (シミュレータから)
 const TETROMINOS = {
     'I': { shape: [[0, 0], [1, 0], [2, 0], [3, 0]], center: [1.5, 0.5] }, 'O': { shape: [[0, 0], [1, 0], [0, -1], [1, -1]], center: [0.5, -0.5] },
     'T': { shape: [[0, 0], [-1, 0], [0, -1], [1, 0]], center: [0, 0] }, 'L': { shape: [[-1, 0], [0, 0], [1, 0], [1, -1]], center: [0, 0] },
     'J': { shape: [[0, 0], [-1, 0], [1, 0], [-1, -1]], center: [0, 0] }, 'S': { shape: [[1, -1], [-1, 0], [0, 0], [0, -1]], center: [0, 0] },
     'Z': { shape: [[0, 0], [1, 0], [0, -1], [-1, -1]], center: [0, 0] }
 };
-// --- ページ管理ロジック ---
 
-/**
- * 空の盤面データを作成する
- * @returns {Array<Array<null>>}
- */
 const createEmptyBoard = () => Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(null));
 
-/**
- * 新しい空のページオブジェクトを作成する
- * @returns {object}
- */
 const createBlankPage = () => ({
     p1: { board: createEmptyBoard(), viewY: BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT, activeColor: 'I', hold: '', next: '' },
     p2: { board: createEmptyBoard(), viewY: BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT, activeColor: 'I', hold: '', next: '' }
 });
 
-
-/**
- * 指定されたインデックスのページを読み込む
- * @param {number} index - 読み込むページのインデックス
- */
 function loadPage(index) {
     if (index < 0 || index >= fumenPages.length) return;
     currentPageIndex = index;
@@ -501,7 +473,6 @@ function loadPage(index) {
         const data = fumenPages[currentPageIndex][playerId];
         const palette = document.getElementById(`${playerId}-palette`);
         
-        // アクティブカラーを更新
         palette.querySelector('.active')?.classList.remove('active');
         const swatches = palette.querySelectorAll('.color-swatch');
         swatches.forEach(swatch => {
@@ -520,19 +491,14 @@ updatePageControls();
         drawViewer();
     }}
 
-/**
- * ページコントロール（ボタンの状態やインジケーター）を更新する
- */
 function updatePageControls() {
     const pageText = `Page ${currentPageIndex + 1} / ${fumenPages.length}`;
     
-    // Editor UI
     document.getElementById('page-indicator').textContent = pageText;
     document.getElementById('prev-page').disabled = (currentPageIndex === 0);
     document.getElementById('next-page').disabled = (currentPageIndex === fumenPages.length - 1);
     document.getElementById('delete-page').disabled = (fumenPages.length <= 1);
 
-    // Viewer UI
     const viewerIndicator = document.getElementById('viewer-page-indicator');
     const viewerSlider = document.getElementById('viewer-page-slider');
     
@@ -546,24 +512,14 @@ function updatePageControls() {
     }
 }
 
-// --- エディタ本体のロジック ---
-
-
-/**
- * 全エディタの初期設定を行う
- */
 function setupEditors() {
     ['p1', 'p2'].forEach(setupPlayerEditor);
 }
 
-/**
- * プレイヤーごとのエディタを設定する
- * @param {string} playerId - 'p1' または 'p2'
- */
 function setupPlayerEditor(playerId) {
     const palette = document.getElementById(`${playerId}-palette`);
 
-    // カラーパレットの作成
+
     Object.keys(EDITOR_COLORS).forEach(key => {
         const swatch = document.createElement('div');
         swatch.className = 'color-swatch';
@@ -586,7 +542,7 @@ function setupPlayerEditor(playerId) {
     canvas.height = BOARD_VISIBLE_HEIGHT * EDITOR_BLOCK_SIZE;
     
     let isDrawing = false;
-    let isEraserMode = false; // 描画開始時に決定する
+    let isEraserMode = false;
 
     const getCoordsFromEvent = e => {
         const rect = canvas.getBoundingClientRect();
@@ -613,7 +569,6 @@ function setupPlayerEditor(playerId) {
         }
     };
 
-    // --- 自動消しゴムモードを実装 ---
     const handleDrawStart = e => {
         e.preventDefault();
         isDrawing = true;
@@ -626,7 +581,6 @@ function setupPlayerEditor(playerId) {
             ? pageData.board[boardY][x]
             : null;
 
-        // 消しゴムが選択されているか、または同じ色のブロックをクリックした場合に消しゴムモードにする
         isEraserMode = (selectedColor === 'EMPTY' || currentCellColor === selectedColor);
         
         applyDraw(x, y);
@@ -676,11 +630,6 @@ document.getElementById(`${playerId}-field-clear`).addEventListener('click', () 
     });
 }
 
-/**
- * フィールドを上下左右にシフトする
- * @param {string} playerId - 'p1' または 'p2'
- * @param {string} direction - 'up', 'down', 'left', 'right'
- */
 function shiftField(playerId, direction) {
     const board = fumenPages[currentPageIndex][playerId].board;
     if (direction === 'up') {
@@ -703,10 +652,6 @@ function shiftField(playerId, direction) {
     drawEditorField(playerId);
 }
 
-/**
- * エディタの盤面を描画する
- * @param {string} playerId - 'p1' または 'p2'
- */
 function drawEditorField(playerId) {
     const canvas = document.getElementById(`field-editor-canvas-${playerId}`);
     const ctx = canvas.getContext('2d');
@@ -747,9 +692,6 @@ if (pieceType) {
     }
 }
 
-/**
- * 画面サイズに合わせてコンテナのスケールを調整する
- */
 function updateScale() {
     const mainContainer = document.querySelector('.main-container');
     mainContainer.style.transform = 'none';
@@ -785,11 +727,6 @@ function stringToBoard(str) {
     return board;
 }
 
-// --- ビューワー用描画ロジック (シミュレータから移植・改変) ---
-
-/**
- * ミノの形状を取得 (シミュレータから)
- */
 function getShape(p, r) { 
     if(!p) return []; 
     const o=TETROMINOS[p].shape; 
@@ -802,9 +739,6 @@ function getShape(p, r) {
     });
 }
 
-/**
- * ビューワーでブロックを1つ描画
- */
 function drawViewerBlock(ctx, p, x, y, alpha = 1.0) {
     if(y < -BLOCK_SIZE) return;
     ctx.globalAlpha = alpha;
@@ -816,9 +750,6 @@ function drawViewerBlock(ctx, p, x, y, alpha = 1.0) {
     ctx.globalAlpha = 1.0;
 }
 
-/**
- * ビューワーでピースを描画
- */
 function drawViewerPiece(ctx, s, x, y, p, alpha) {
     s.forEach(b => {
         const px = Math.floor(x + b[0]) * BLOCK_SIZE;
@@ -827,9 +758,6 @@ function drawViewerPiece(ctx, s, x, y, p, alpha) {
     });
 }
 
-/**
- * ビューワーのUI (Hold, Next) を描画
- */
 function drawViewerUI(ctx, playerPageData, offsetX) {
     ctx.save();
     ctx.translate(offsetX, 0);
@@ -838,7 +766,6 @@ function drawViewerUI(ctx, playerPageData, offsetX) {
     ctx.fillStyle = '#FFF'; 
     ctx.font = `bold ${BLOCK_SIZE * 0.8}px "Orbitron"`;
 
-    // Hold
     ctx.fillText('HOLD', HOLD_AREA_WIDTH / 2, 40);
     const holdPiece = playerPageData.hold;
     if (holdPiece) { 
@@ -850,9 +777,8 @@ function drawViewerUI(ctx, playerPageData, offsetX) {
         });
     }
 
-    // Next
     const rX = PLAYFIELD_X_OFFSET + PLAYFIELD_WIDTH + PADDING + NEXT_AREA_WIDTH / 2;
-    ctx.fillStyle = '#FFF'; // 色を白に再設定
+    ctx.fillStyle = '#FFF';
 ctx.fillText('NEXT', rX, 40);
     const nextQueue = playerPageData.next.split('');
     for (let i = 0; i < Math.min(nextQueue.length, 6); i++) {
@@ -869,9 +795,6 @@ ctx.fillText('NEXT', rX, 40);
     ctx.restore();
 }
 
-/**
- * ビューワーのメイン描画
- */
 function drawViewer() {
     if (!viewerCtx) return;
     
@@ -886,10 +809,8 @@ function drawViewer() {
         viewerCtx.save();
         viewerCtx.translate(offsetX, 0);
 
-        // UI描画
         drawViewerUI(viewerCtx, playerData, 0);
 
-        // 盤面描画
         viewerCtx.save();
         viewerCtx.translate(PLAYFIELD_X_OFFSET, 0.5 * BLOCK_SIZE);
  
@@ -908,7 +829,7 @@ function drawViewer() {
         viewerCtx.strokeStyle = '#4b4b7c';
         viewerCtx.lineWidth = 2; 
         viewerCtx.strokeRect(1, 1, PLAYFIELD_WIDTH - 2, (BOARD_VISIBLE_HEIGHT * BLOCK_SIZE) - 2);
-// ブロック描画
+
         const viewY = BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT;
 for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) { 
             const boardY = y + viewY;
@@ -948,22 +869,16 @@ if (playerData.board[boardY]?.[x]) {
             } 
         }
         
-        viewerCtx.restore(); // 盤面描画
-        viewerCtx.restore(); // プレイヤーオフセット
+        viewerCtx.restore();
+        viewerCtx.restore();
     });
 }
 
-/**
- * ビューワーループ
- */
 function viewerLoop() {
     drawViewer();
     viewerLoopHandle = requestAnimationFrame(viewerLoop);
 }
 
-/**
- * シミュレータへのデータ送信（ビューワー/エディタ共通）
- */
 function sendToSimulator() {
     const currentPage = fumenPages[currentPageIndex];
     
@@ -995,10 +910,8 @@ function sendToSimulator() {
     const uint8Array = new TextEncoder().encode(jsonString);
     const base64Data = btoa(String.fromCharCode.apply(null, uint8Array));
     
-    // シミュレータ (index.html) が譜面エディタ (fumen.html) の一つ上の階層にあると仮定
-    let simulatorURL = '../index.html'; // デフォルトを ../index.html に変更
+    let simulatorURL = '../index.html';
     try {
-        // 現在のパスからファイル名を取り除いて '../index.html' を足す
         const path = window.location.pathname;
 const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
         simulatorURL = parentPath + '../index.html';
@@ -1007,11 +920,9 @@ const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
     location.href = `${simulatorURL}#${base64Data}`;
 }
 
-// --- 共有 (Share) / URL処理ロジック ---
-
 function getFumenDataForExport() {
     const exportedData = {
-        v: 'f1', // Fumen version 1
+        v: 'f1',
         m: gameMode,
         p: fumenPages.map(page => {
             const p1Data = {
@@ -1098,10 +1009,10 @@ function loadStateFromURL() {
 
             if (data.v === 'f1') {
                 if (applyFumenData(data)) {
-                    // alert('URLから譜面データを読み込みました。');
+                
                 }
             } else if (data.v === 2) {
-                // シミュレータのデータをインポートしようとしている
+                
                 fumenPages = [createBlankPage()];
                 
                 gameMode = data.m || '1P';
@@ -1133,7 +1044,6 @@ function loadStateFromURL() {
     }
 }
 
-// --- DOMContentLoaded ---
 document.addEventListener('DOMContentLoaded', () => {
     fumenPages.push(createBlankPage());
     setupEditors();
@@ -1142,11 +1052,10 @@ document.addEventListener('DOMContentLoaded', () => {
 viewerCanvas = document.getElementById('viewerCanvas');
     viewerCtx = viewerCanvas.getContext('2d');
 
-    // --- 初期表示をビューワーモードにする ---
     document.getElementById('editor-container').style.display = 'none';
     document.getElementById('viewer-container').style.display = 'flex';
     
-    // キャンバスのサイズ設定 (シミュレータ参考)
+
     viewerCtx.setTransform(1, 0, 0, 1, 0, 0);
     if (gameMode === '1P') {
         viewerCanvas.width = PLAYER_CANVAS_WIDTH * RESOLUTION_SCALE;
@@ -1162,13 +1071,8 @@ viewerCanvas = document.getElementById('viewerCanvas');
     }
     viewerCtx.scale(RESOLUTION_SCALE, RESOLUTION_SCALE);
 
-    // ページコントロールをビューワー用に更新
     updatePageControls();
-    // 初回描画
     drawViewer();
-    // --- ここまで初期表示処理 ---
-
-    // モード切替ボタン
     document.getElementById('mode-1p').addEventListener('click', () => {
         gameMode = '1P';
         document.getElementById('mode-1p').classList.add('active');
@@ -1184,7 +1088,6 @@ viewerCanvas = document.getElementById('viewerCanvas');
         setTimeout(updateScale, 0);
     });
 
-    // ページ操作ボタン
     document.getElementById('prev-page').addEventListener('click', () => {
         if (currentPageIndex > 0) {
             loadPage(currentPageIndex - 1);
@@ -1210,13 +1113,11 @@ viewerCanvas = document.getElementById('viewerCanvas');
     
 });
 
-    // --- ビューワーモード切替 ---
     document.getElementById('view-mode-btn').addEventListener('click', () => {
         currentDisplayMode = 'viewer';
         document.getElementById('editor-container').style.display = 'none';
         document.getElementById('viewer-container').style.display = 'flex';
 
-        // キャンバスのサイズ設定 (シミュレータ参考)
         viewerCtx.setTransform(1, 0, 0, 1, 0, 0);
         if (gameMode === '1P') {
             viewerCanvas.width = PLAYER_CANVAS_WIDTH * RESOLUTION_SCALE;
@@ -1232,9 +1133,7 @@ viewerCanvas = document.getElementById('viewerCanvas');
         }
         viewerCtx.scale(RESOLUTION_SCALE, RESOLUTION_SCALE);
 
-        // ページコントロールをビューワー用に更新
         updatePageControls();
-        // 初回描画
         drawViewer();
     });
 
@@ -1243,13 +1142,10 @@ viewerCanvas = document.getElementById('viewerCanvas');
         document.getElementById('editor-container').style.display = 'flex';
         document.getElementById('viewer-container').style.display = 'none';
         
-        // エディタのスケールを再計算
         updateScale();
     });
     
-    // ビューワーの左右タップでページ送り
     document.getElementById('viewer-container').addEventListener('click', (e) => {
-        // コントロールボタン上でのクリックは無視
         if (e.target.closest('#viewer-controls')) {
             return;
         }
@@ -1258,12 +1154,12 @@ viewerCanvas = document.getElementById('viewerCanvas');
         const screenWidth = window.innerWidth;
         
         if (clickX < screenWidth / 2) {
-            // 左側
+            
             if (currentPageIndex > 0) {
                 loadPage(currentPageIndex - 1);
             }
         } else {
-            // 右側
+            
             if (currentPageIndex < fumenPages.length - 1) {
                 loadPage(currentPageIndex + 1);
             }
