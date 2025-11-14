@@ -2639,14 +2639,14 @@ lockPiece() {
 if (by >= 0) this.board[by][bx] = this.player.pieceType; }
         
         if (gameState === 'PLAYING') {
-            logCurrentGameState();
-        }
+            logCurrentGameState(this);
+}
 
         this.linesClearedLastLock = this.clearLines();
 if (gameState === 'PLAYING') {
             if (this.linesClearedLastLock > 0) {
-                logCurrentGameState();
-            }
+                logCurrentGameState(this);
+}
 }
 
 const lines = this.linesClearedLastLock;
@@ -5789,25 +5789,28 @@ if (confirm('リンクの生成に失敗しました。データが長すぎる�
 
 });
 
-function logCurrentGameState() {
+function logCurrentGameState(lockingPlayer = null) {
     if (players.length === 0) return;
-    
-    const isInitialCall = gameHistoryLog.length === 0;
+const isInitialCall = gameHistoryLog.length === 0;
 
-const getPlayerData = (player) => {
+const getPlayerData = (player, isOpponentOfLocking) => {
         if (!player) return null;
-        
-        let nextPieces;
+let nextPieces;
         if (isInitialCall) {
             nextPieces = [
                 player.player.pieceType, 
+                ...player.nextQueue.slice(0, Math.max(0, gameSettings.maxNext - 1))
+            ];
+} else if (lockingPlayer && isOpponentOfLocking) {
+            nextPieces = [
+                player.player.pieceType,
                 ...player.nextQueue.slice(0, Math.max(0, gameSettings.maxNext - 1))
             ];
         } else {
             nextPieces = [
                 ...player.nextQueue.slice(0, Math.max(0, gameSettings.maxNext))
             ];
-        }
+}
 
 const next = nextPieces.filter(p => p !== null && p !== 'E').join('');
 return {
@@ -5818,8 +5821,15 @@ return {
         };
 };
 
-    const p1Data = getPlayerData(players[0]);
-    const p2Data = (gameMode === '2P' && players[1]) ? getPlayerData(players[1]) : null;
+    const p1 = players[0];
+    const p2 = (gameMode === '2P' && players[1]) ? players[1] : null;
+
+    const p1IsOpponent = (lockingPlayer && p2 && lockingPlayer.id === p2.id);
+    const p2IsOpponent = (lockingPlayer && p1 && lockingPlayer.id === p1.id);
+
+    const p1Data = getPlayerData(p1, p1IsOpponent);
+    const p2Data = getPlayerData(p2, p2IsOpponent);
+
 const pageData = { p1: p1Data };
     if (p2Data) {
         pageData.p2 = p2Data;
