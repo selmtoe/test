@@ -714,14 +714,33 @@ function drawEditorField(playerId) {
     ctx.fillStyle = '#0f0f18';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.strokeStyle = '#444';
-    ctx.lineWidth = 1;
+ctx.lineWidth = 1;
 
     for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) {
+        const boardY = y + data.viewY;
+        let isLineClear = true;
+        if (data.board[boardY]) {
+            for (let xCheck = 0; xCheck < BOARD_WIDTH; xCheck++) {
+                if (!data.board[boardY][xCheck]) {
+                    isLineClear = false;
+                    break;
+                }
+            }
+        } else {
+            isLineClear = false;
+        }
+
         for (let x = 0; x < BOARD_WIDTH; x++) {
             const pieceType = data.board[y + data.viewY]?.[x];
-            if (pieceType) {
-                ctx.fillStyle = COLORS[pieceType] || '#FFF';
+if (pieceType) {
+                ctx.fillStyle = COLORS[pieceType] ||
+'#FFF';
                 ctx.fillRect(x * EDITOR_BLOCK_SIZE, y * EDITOR_BLOCK_SIZE, EDITOR_BLOCK_SIZE, EDITOR_BLOCK_SIZE);
+                
+                if (isLineClear) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                    ctx.fillRect(x * EDITOR_BLOCK_SIZE, y * EDITOR_BLOCK_SIZE, EDITOR_BLOCK_SIZE, EDITOR_BLOCK_SIZE);
+                }
             }
             ctx.strokeRect(x * EDITOR_BLOCK_SIZE, y * EDITOR_BLOCK_SIZE, EDITOR_BLOCK_SIZE, EDITOR_BLOCK_SIZE);
         }
@@ -889,15 +908,43 @@ function drawViewer() {
         viewerCtx.strokeStyle = '#4b4b7c';
         viewerCtx.lineWidth = 2; 
         viewerCtx.strokeRect(1, 1, PLAYFIELD_WIDTH - 2, (BOARD_VISIBLE_HEIGHT * BLOCK_SIZE) - 2);
-
-        // ブロック描画
+// ブロック描画
         const viewY = BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT;
-        for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) { 
+for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) { 
+            const boardY = y + viewY;
+            
+            let isLineClear = true;
+            if (playerData.board[boardY]) {
+                for (let xCheck = 0; xCheck < BOARD_WIDTH; xCheck++) {
+                    if (!playerData.board[boardY][xCheck]) {
+                        isLineClear = false;
+                        break;
+                    }
+                }
+            } else {
+                isLineClear = false;
+            }
+
             for (let x = 0; x < BOARD_WIDTH; x++) { 
-                const boardY = y + viewY;
-                if (playerData.board[boardY]?.[x]) { 
-                    drawViewerBlock(viewerCtx, playerData.board[boardY][x], x * BLOCK_SIZE, y * BLOCK_SIZE);
-                } 
+if (playerData.board[boardY]?.[x]) { 
+                    const pieceType = playerData.board[boardY][x];
+                    const drawX = x * BLOCK_SIZE;
+                    const drawY = y * BLOCK_SIZE;
+                    
+                    viewerCtx.globalAlpha = 1.0;
+                    viewerCtx.fillStyle = COLORS[pieceType] || '#FFF';
+                    viewerCtx.fillRect(drawX, drawY, BLOCK_SIZE, BLOCK_SIZE);
+                    
+                    if (isLineClear) {
+                        viewerCtx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                        viewerCtx.fillRect(drawX, drawY, BLOCK_SIZE, BLOCK_SIZE);
+                    }
+                    
+                    viewerCtx.strokeStyle = '#444';
+                    viewerCtx.lineWidth = 0.5;
+                    viewerCtx.strokeRect(drawX, drawY, BLOCK_SIZE, BLOCK_SIZE);
+                    viewerCtx.globalAlpha = 1.0;
+} 
             } 
         }
         
