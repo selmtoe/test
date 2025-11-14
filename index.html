@@ -2638,11 +2638,16 @@ lockPiece() {
         for (const b of shape) { const bx = Math.floor(this.player.x + b[0]), by = Math.floor(this.player.y + b[1]);
 if (by >= 0) this.board[by][bx] = this.player.pieceType; }
         
-        this.linesClearedLastLock = this.clearLines();
-
         if (gameState === 'PLAYING') {
             logCurrentGameState();
         }
+
+        this.linesClearedLastLock = this.clearLines();
+if (gameState === 'PLAYING') {
+            if (this.linesClearedLastLock > 0) {
+                logCurrentGameState();
+            }
+}
 
 const lines = this.linesClearedLastLock;
 const isPC = lines > 0 && this.board.every(row => row.every(cell => cell === null));
