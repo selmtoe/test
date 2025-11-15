@@ -236,6 +236,10 @@ flex-wrap: wrap;
     #viewerCanvas {
         background-color: transparent;
         border: none;
+    width: auto;
+        height: auto;
+        max-width: 100vw;
+        max-height: 100vh;
     }
     #viewer-controls {
         position: fixed;
@@ -1222,19 +1226,20 @@ viewerCanvas = document.getElementById('viewerCanvas');
     document.getElementById('viewer-container').style.display = 'flex';
     
 
-    viewerCtx.setTransform(1, 0, 0, 1, 0, 0);
+        viewerCtx.setTransform(1, 0, 0, 1, 0, 0);
     if (gameMode === '1P') {
         viewerCanvas.width = PLAYER_CANVAS_WIDTH * RESOLUTION_SCALE;
         viewerCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
-        viewerCanvas.style.width = PLAYER_CANVAS_WIDTH + 'px';
-        viewerCanvas.style.height = CANVAS_HEIGHT + 'px';
+      
+  
+        
     } else {
         const totalWidth = PLAYER_CANVAS_WIDTH * 2;
         viewerCanvas.width = totalWidth * RESOLUTION_SCALE; 
         viewerCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
-        viewerCanvas.style.width = totalWidth + 'px';
-        viewerCanvas.style.height = CANVAS_HEIGHT + 'px';
-    }
+        
+        
+}
     viewerCtx.scale(RESOLUTION_SCALE, RESOLUTION_SCALE);
 
     updatePageControls();
@@ -1284,18 +1289,20 @@ viewerCanvas = document.getElementById('viewerCanvas');
         document.getElementById('editor-container').style.display = 'none';
         document.getElementById('viewer-container').style.display = 'flex';
 
-        viewerCtx.setTransform(1, 0, 0, 1, 0, 0);
+                viewerCtx.setTransform(1, 0, 0, 1, 0, 0);
         if (gameMode === '1P') {
             viewerCanvas.width = PLAYER_CANVAS_WIDTH * RESOLUTION_SCALE;
             viewerCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
-            viewerCanvas.style.width = PLAYER_CANVAS_WIDTH + 'px';
-            viewerCanvas.style.height = CANVAS_HEIGHT + 'px';
+          
+  
+            
         } else {
             const totalWidth = PLAYER_CANVAS_WIDTH * 2;
             viewerCanvas.width = totalWidth * RESOLUTION_SCALE; 
             viewerCanvas.height = CANVAS_HEIGHT * RESOLUTION_SCALE;
-            viewerCanvas.style.width = totalWidth + 'px';
-            viewerCanvas.style.height = CANVAS_HEIGHT + 'px';
+            
+  
+          
         }
         viewerCtx.scale(RESOLUTION_SCALE, RESOLUTION_SCALE);
 
