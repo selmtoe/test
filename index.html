@@ -1649,16 +1649,17 @@ if (type === 'start') {
 
 };
 `;
+
+//現在は仮実装
 const aiWorkerScript_Simplified = `
-/* --- AI 6: Cold Clear (Simplified) for Web Worker [Continuous Thinking Ver.] --- */
+/* --- AI 6: Cold Clear (Simplified) for Web Worker --- */
 
 // 定数定義
 const WIDTH = 10;
 const BOARD_HEIGHT = 40;
-// ★変更: 制限を実質無限にして、stopが来るまで考え続けさせる
-const SEARCH_ITERATION_LIMIT = 999999999; 
+const SEARCH_ITERATION_LIMIT = 500000; // 1回の思考ステップでのノード制限（適宜調整）
 
-// ミノ定義 (変更なし)
+// ミノ定義
 const MINO_DEFS = {
     'I': [[[0,0], [-1,0], [1,0], [2,0]], [[1,0], [1,-1], [1,1], [1,2]], [[0,1], [-1,1], [1,1], [2,1]], [[0,0], [0,-1], [0,1], [0,2]]],
     'O': [[[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]]],
@@ -1668,6 +1669,7 @@ const MINO_DEFS = {
     'J': [[[0,0], [-1,0], [1,0], [-1,-1]], [[0,0], [0,-1], [0,1], [1,-1]], [[0,0], [1,0], [-1,0], [1,1]], [[0,0], [0,1], [0,-1], [-1,1]]],
     'L': [[[0,0], [1,0], [-1,0], [1,-1]], [[0,0], [0,1], [0,-1], [1,1]], [[0,0], [-1,0], [1,0], [-1,1]], [[0,0], [0,-1], [0,1], [-1,-1]]]
 };
+
 const SRS_OFFSETS_RAW = {
     common: {
         '0->1': [[0,0], [-1,0], [-1,1], [0,-2], [-1,-2]], '1->0': [[0,0], [1,0], [1,-1], [0,2], [1,2]],
@@ -1682,14 +1684,17 @@ const SRS_OFFSETS_RAW = {
         '3->0': [[0,0], [1,0], [-2,0], [1,-2], [-2,1]], '0->3': [[0,0], [-1,0], [2,0], [-1,2], [2,-1]],
     }
 };
+
 const SPAWN_X = 4;
 const SPAWN_Y = 19;
 const SPAWN_ROT = 0;
 
+// グローバルキャッシュ
 let lfgCache = new Map();
 let evaluationCache = new Map();
 
-// 重み定義 (変更なし)
+// --- Classes ---
+
 class StandardWeights {
     constructor() {
         this.back_to_back = 52;
@@ -1710,6 +1715,7 @@ class StandardWeights {
         this.well_depth = 57;
         this.max_well_depth = 17;
         this.well_column = [20, 23, 20, 50, 59, 21, 59, 10, -10, 24];
+        
         this.b2b_clear = 104;
         this.clear1 = -263;
         this.clear2 = -220;
@@ -1727,7 +1733,6 @@ class StandardWeights {
     }
 }
 
-// ボードクラス (変更なし)
 class TetrisBoard {
     constructor(baseBoard = null) {
         if (baseBoard) {
@@ -1736,15 +1741,25 @@ class TetrisBoard {
             this.rows = new Array(BOARD_HEIGHT).fill(0);
         }
     }
+
+    // シミュレータの2D文字配列からボードを生成する静的メソッド
     static fromSimulatorBoard(layout) {
         const board = new TetrisBoard();
+        const boardHeight = BOARD_HEIGHT;
         const layoutHeight = layout.length;
+        const width = WIDTH;
+
+        // シミュレータのlayout[0]は盤面の一番上(y=0)
         for (let y = 0; y < layoutHeight; y++) {
+            // AI内部では rows[0] が一番上、rows[39]が一番下として扱う
+            // シミュレータも [0] が上なのでそのままマッピング
             const internalY = y + (BOARD_HEIGHT - layoutHeight);
             if (internalY < 0) continue;
+
             let rowValue = 0;
             const row = layout[y];
-            for (let x = 0; x < WIDTH; x++) {
+            for (let x = 0; x < width; x++) {
+                // null以外ならブロックあり
                 if (row[x] !== null && row[x] !== 'null') {
                     rowValue |= (1 << x);
                 }
@@ -1753,13 +1768,16 @@ class TetrisBoard {
         }
         return board;
     }
+
     isFilled(row, col) {
         if (col < 0 || col >= WIDTH) return true;
         if (row < 0) return false; 
         if (row >= BOARD_HEIGHT) return true;
         return (this.rows[row] & (1 << col)) !== 0;
     }
+    
     isFilledXY(x, y) { return this.isFilled(y, x); }
+
     placeMino(placement) {
         const newBoard = new TetrisBoard(this);
         const shapeCoords = getMinoCoords(placement.pieceType, placement.rotation);
@@ -1772,6 +1790,7 @@ class TetrisBoard {
         }
         return newBoard;
     }
+
     clearLines() {
         let newBoard = new TetrisBoard(null);
         let linesCleared = 0;
@@ -1791,6 +1810,7 @@ class TetrisBoard {
         newBoard.rows = newRows;
         return { newBoard, linesCleared };
     }
+
     getColumnHeights() {
         const heights = new Array(WIDTH).fill(0);
         for (let c = 0; c < WIDTH; c++) {
@@ -1803,6 +1823,7 @@ class TetrisBoard {
         }
         return heights;
     }
+
     getBumpiness(wellColumn, heights) {
         let bumpiness_val = 0;
         let bumpiness_sq_val = 0;
@@ -1819,6 +1840,7 @@ class TetrisBoard {
         }
         return { bumpiness: bumpiness_val, bumpiness_sq: bumpiness_sq_val };
     }
+
     getCavitiesAndOverhangs(heights) {
         let cavities = 0;
         let overhangs = 0;
@@ -1848,6 +1870,7 @@ class TetrisBoard {
         }
         return { cavities, overhangs };
     }
+
     getCoveredCells(heights) {
         let covered = 0;
         let covered_sq = 0;
@@ -1865,6 +1888,7 @@ class TetrisBoard {
         }
         return { covered, covered_sq };
     }
+
     getWell(weights, heights) {
         let well_col = -1;
         let min_h = BOARD_HEIGHT + 1;
@@ -1888,6 +1912,7 @@ class TetrisBoard {
         depth = Math.min(depth, weights.max_well_depth);
         return { depth, well_col };
     }
+    
     check_sides(x, y_js) {
         for (let dx = 1; dx <= 9; ++dx) {
             if (x - dx < 0 || x + dx >= WIDTH) return false;
@@ -1895,6 +1920,7 @@ class TetrisBoard {
         }
         return true;
     }
+    
     check_top(x, y_js) {
         const y_limit_js = BOARD_HEIGHT - 1 - 25;
         for (let check_y_js = y_js - 1; check_y_js >= y_limit_js; --check_y_js) {
@@ -1903,6 +1929,7 @@ class TetrisBoard {
         }
         return true;
     }
+
     getTslotsAndRowTransitions(weights) {
         let t_slot_score = 0.0;
         let rowTransitions = 0; 
@@ -1929,26 +1956,28 @@ class TetrisBoard {
                         if (this.check_sides(x, y_js)) c++;
                         if (this.check_sides(x, y_js - 1)) c++;
                         t_slot_score += (c == 2) ? weights.tslot[2] : ((c == 1) ? weights.tslot[1] : weights.tslot[0]);
-                    }
+                     }
                 }
             }
         }
         return { t_slot_score, rowTransitions };
     }
+    
     isPerfectClear() { return this.rows[BOARD_HEIGHT - 1] === 0; }
 }
 
-// 配置クラス、ノードクラス (変更なし)
 class Placement {
     constructor(x, y, rotation, pieceType, isTspin = false, isMiniTspin = false) {
-        this.x = x; this.y = y; this.rotation = rotation; this.pieceType = pieceType;
+        this.x = x;
+        this.y = y; this.rotation = rotation; this.pieceType = pieceType;
         this.isTspin = isTspin; this.isMiniTspin = isMiniTspin;
     }
 }
 
 class Node {
     constructor(id, board, place, parentID, depth, comboCount = 0, b2b = false, holdPiece = null, holdUsedThisTurn = false) {
-        this.id = id; this.board = board; this.place = place; this.parentID = parentID; this.depth = depth;
+        this.id = id;
+        this.board = board; this.place = place; this.parentID = parentID; this.depth = depth;
         this.acc_eval = 0; this.transient_eval = 0;
         this.expanded = false; this.childrenIDs = [];
         this.comboCount = comboCount; this.b2b = b2b;
@@ -1957,9 +1986,10 @@ class Node {
     getTotalEval() { return this.acc_eval + this.transient_eval; }
 }
 
-// LFG (Legal Move Finder) (変更なし)
+// --- LFG (Legal Move Finder) Helpers ---
+
 const LFG_WIDTH = WIDTH; 
-const LFG_HEIGHT = BOARD_HEIGHT;
+const LFG_HEIGHT = BOARD_HEIGHT; 
 const LFG_FULL_WIDTH_MASK = (1 << LFG_WIDTH) - 1;
 function lfg_create() { return new Array(LFG_HEIGHT).fill(0); }
 function lfg_clone(board) { return [...board]; }
@@ -2106,12 +2136,12 @@ function findLegalMoves(gameBoard, minoType, spawnX, spawnY, spawnRot) {
     return { reachable, landed, landed_tspin };
 }
 
-// --- AIAgent (Continuous Logic) ---
+// --- AIAgent (Modified for Worker) ---
 
 class AIAgent {
     constructor() {
         this.weights = new StandardWeights();
-        this.nodeMap = {}; 
+        this.nodeMap = {}; // Object instead of array for string/mixed keys (or use Map if preferred)
         this.nodeIdCounter = 0;
         this.rootID = null;
         this.totalNodesInSearch = 0;
@@ -2129,15 +2159,12 @@ class AIAgent {
         evaluationCache.clear();
     }
 
-    // ★変更: ツリー再利用判定を強化し、デバッグ情報を返す
     initSearch(currentBoard, pieceQueue, currentHoldPiece, isB2B, combo) {
         let reuseTree = false;
         if (this.rootID !== null && this.nodeMap[this.rootID]) {
             const rootNode = this.nodeMap[this.rootID];
             const hashCurrent = this.getBoardHash(currentBoard);
             const hashRoot = this.getBoardHash(rootNode.board);
-            
-            // 盤面とホールドが一致していれば継続（剪定後の状態と一致しているはず）
             if (hashCurrent === hashRoot && rootNode.holdPiece === currentHoldPiece) {
                 reuseTree = true;
             }
@@ -2153,12 +2180,12 @@ class AIAgent {
             const { transient_eval } = this.evaluate(rootNode, { linesCleared: 0, isTspin: false, isMiniTspin: false, b2bActive: isB2B, combo: combo, holdUsed: false, wastedT: false, perfectClear: rootNode.board.isPerfectClear() });
             rootNode.transient_eval = transient_eval;
             this.clearCaches();
-            self.postMessage({ type: 'debug', message: 'Tree RESET' });
+            
+            self.postMessage({ type: 'debug', message: 'Tree RESET (New Search)' });
         } else {
-            self.postMessage({ type: 'debug', message: 'Tree INHERITED' });
+            self.postMessage({ type: 'debug', message: 'Tree REUSED (Continuing)' });
         }
         
-        // ルートの展開（まだ展開されていなければ）
         const rootNode = this.nodeMap[this.rootID];
         if (!rootNode.expanded && pieceQueue.length >= 2) {
             this.expand(this.rootID, pieceQueue[0], pieceQueue[1]);
@@ -2167,44 +2194,47 @@ class AIAgent {
         this.totalNodesInSearch = Object.keys(this.nodeMap).length;
     }
 
-    // 1ステップ探索
+    // 少しだけ探索を進める関数
     searchStep(iterations, pieceQueue) {
         if (!this.rootID || !this.nodeMap[this.rootID]) return;
+        
         let count = 0;
         while (count < iterations && this.totalNodesInSearch < SEARCH_ITERATION_LIMIT) {
             const selectedNode = this.select(this.rootID);
-            if (selectedNode.expanded) break;
+            if (selectedNode.expanded) break; // 展開済みなら終了(葉に到達できない場合など)
             
+            // 深さに応じたネクストを取得
+            // depth 0 -> pieceQueue[0] (root)
+            // depth 1 -> pieceQueue[1]
             const depth = selectedNode.depth;
             const pieceForExpand = pieceQueue[depth];
             const nextPieceForExpand = pieceQueue[depth + 1];
+            
             if (pieceForExpand && nextPieceForExpand) {
                 this.expand(selectedNode.id, pieceForExpand, nextPieceForExpand);
             } else {
-                break; 
+                break; // ネクストが足りない
             }
             count++;
         }
     }
     
     getBestMove() {
-        // 深さ1（直近の1手）での最善手を取得
         this.bestNodeIDAtDepth1 = this.findBestChildNodeID(this.rootID);
         if (this.bestNodeIDAtDepth1 === null) {
+            // 候補がない場合（詰みなど）、ルートの子があればそれを返す、なければnull
             const root = this.nodeMap[this.rootID];
             if (root && root.childrenIDs.length > 0) {
-                // 詰み回避などで評価値関係なくとにかく何か返す
-                return { move: this.nodeMap[root.childrenIDs[0]].place, nodeID: root.childrenIDs[0] };
+                return this.nodeMap[root.childrenIDs[0]].place;
             }
-            return { move: null, nodeID: null };
+            return null;
         }
-        return { move: this.nodeMap[this.bestNodeIDAtDepth1].place, nodeID: this.bestNodeIDAtDepth1 };
+        return this.nodeMap[this.bestNodeIDAtDepth1].place;
     }
     
-    // ★重要: 選ばれたノードを新しいルートにする（剪定）
-    pruneToBestNode(bestNodeID) {
-        if (bestNodeID) {
-            this.pruneAndReroot(bestNodeID);
+    advanceTreeToBestMove() {
+        if (this.bestNodeIDAtDepth1) {
+            this.pruneAndReroot(this.bestNodeIDAtDepth1);
         }
     }
 
@@ -2298,6 +2328,7 @@ class AIAgent {
             }
         }
         if (placementResult.wastedT) acc_eval += weights.wasted_t;
+
         const boardHash = this.getBoardHash(board);
         if (evaluationCache.has(boardHash)) {
             const transient_eval = evaluationCache.get(boardHash);
@@ -2426,8 +2457,7 @@ class AIAgent {
         const oldRootNode = this.nodeMap[chosenNodeID];
         if (!oldRootNode) {
             this.nodeMap = {};
-            this.nodeIdCounter = 0;
-            this.rootID = null; return;
+            this.nodeIdCounter = 0; this.rootID = null; return;
         }
         const new_nodeMap = {};
         const queue = [{ nodeID: chosenNodeID, newDepth: 0 }]; 
@@ -2436,9 +2466,6 @@ class AIAgent {
             const node = this.nodeMap[nodeID];
             if (!node) continue; 
             node.depth = newDepth;
-            // ルートになるノードは親をnullにする
-            if (newDepth === 0) node.parentID = null;
-            
             new_nodeMap[nodeID] = node;
             for (const childID of node.childrenIDs) {
                 if (this.nodeMap[childID] !== undefined) queue.push({ nodeID: childID, newDepth: newDepth + 1 });
@@ -2446,12 +2473,12 @@ class AIAgent {
         }
         this.nodeMap = new_nodeMap;
         this.rootID = chosenNodeID; 
-        this.totalNodesInSearch = Object.keys(this.nodeMap).length;
     }
 
     getLegalPlacements(board, pieceType) {
         const boardHash = this.getBoardHash(board);
         const cacheKey = pieceType + ':' + boardHash;
+
         if (lfgCache.has(cacheKey)) return lfgCache.get(cacheKey);
 
         const placements = [];
@@ -2472,6 +2499,7 @@ class AIAgent {
                 }
             }
         }
+        
         const result = { placements };
         lfgCache.set(cacheKey, result);
         return result;
@@ -2484,25 +2512,26 @@ let isThinking = false;
 let aiAgent = new AIAgent();
 let currentQueue = [];
 
-// ★変更: 思考ループは一度始まったら止まらないようにする
 function thinkingLoop() {
     if (!isThinking) return;
     
-    // 思考ステップを実行（制限なしで深く読む）
-    aiAgent.searchStep(200, currentQueue);
+    // 少しだけ探索を進める (100ノード分)
+    aiAgent.searchStep(100, currentQueue);
     
+    // 進捗報告
     self.postMessage({ type: 'nodeCount', count: aiAgent.totalNodesInSearch });
+    
+    // 次のサイクルへ
     setTimeout(thinkingLoop, 0);
 }
 
 self.onmessage = (e) => {
     const { type, boardString, nextString, holdPiece, canHold, isB2B, ren } = e.data;
-    
     if (type === 'start') {
-        // 盤面状態の更新（思考開始）
         try {
             const layout = JSON.parse(boardString);
             const board = TetrisBoard.fromSimulatorBoard(layout);
+            
             currentQueue = nextString.split('');
             
             let hold = null;
@@ -2512,7 +2541,6 @@ self.onmessage = (e) => {
                 hold = aiAgent.nodeMap[aiAgent.rootID].holdPiece;
             }
 
-            // ここで「継承かリセットか」を判定して初期化
             aiAgent.initSearch(board, currentQueue, hold, isB2B, ren);
 
             if (canHold !== undefined && aiAgent.rootID && aiAgent.nodeMap[aiAgent.rootID]) {
@@ -2528,9 +2556,8 @@ self.onmessage = (e) => {
         }
 
     } else if (type === 'stop') {
-        // ★変更: 思考を止めずに最善手を返し、剪定して継続する
-        
-        const { move: bestPlacement, nodeID: bestNodeID } = aiAgent.getBestMove();
+        isThinking = false;
+        const bestPlacement = aiAgent.getBestMove();
         
         if (bestPlacement) {
             // シミュレータへの返却
@@ -2544,24 +2571,11 @@ self.onmessage = (e) => {
                 y: bestPlacement.y,
                 rotation: bestPlacement.rotation,
             });
-
-            // ★重要: 選んだ手を正解ルートとして剪定し、次の思考へ備える
-            aiAgent.pruneToBestNode(bestNodeID);
-            
-            // キューを1つ進めておく（次のstartが来るまでの間の思考用）
-            // 注: 実際にホールドしたかどうか等はここだけでは完全には分からないが、
-            // 次のstartで整合性が取れなければリセットされるので問題ない
-            if (currentQueue.length > 0) {
-                 // 使ったミノがキューの先頭かホールドか…厳密にはnodeIDから辿れるが、
-                 // ここでは簡易的に、剪定されたルートのhold状況等はpruneToBestNodeで更新されている
-                 // currentQueueはあくまでWorker側の一時変数なので、次のstartで上書きされる
-            }
-
+            // 木を次の状態へ進める
+            aiAgent.advanceTreeToBestMove();
         } else {
             self.postMessage(null);
         }
-        
-        // isThinking = false; を削除（思考を継続させる）
     }
 };
 `;
