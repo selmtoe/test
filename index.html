@@ -3929,9 +3929,7 @@ const rX = PLAYFIELD_X_OFFSET + PLAYFIELD_WIDTH + PADDING + NEXT_AREA_WIDTH / 2;
 drawMessage(t) { const cX = PLAYFIELD_WIDTH / 2; const cY = CANVAS_HEIGHT / 2; ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(0, -0.5*BLOCK_SIZE, PLAYFIELD_WIDTH, CANVAS_HEIGHT); ctx.fillStyle = '#FFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `bold ${BLOCK_SIZE * 1.5}px "Orbitron"`; ctx.fillText(t, cX, cY); ctx.textBaseline = 'alphabetic'; }
 
 requestAiMove() {
-        this.isAiThinking = true;
-        
-        // デバッグ表示用の更新（既存のまま）
+        this.isAiThinking = true; 
         const debugPayload = {
             playerId: this.id,
             board: this.board,
@@ -3943,26 +3941,35 @@ requestAiMove() {
         };
         updateAiDebugDisplay(debugPayload);
 
-        // ★変更点: 文字列化せず、構造化されたデータをそのまま送る
-        // (Web Workerは配列やオブジェクトを複製して渡せるため安全です)
+        let boardString = '[\n';
+        for (let y = 0; y < this.board.length; y++) {
+            const row = this.board[y];
+            const rowString = row.map(cell => cell === null ? 'null' : `"${cell}"`).join(', ');
+            boardString += `  [${rowString}]`;
+            if (y < this.board.length - 1) {
+                boardString += ',\n';
+            }
+        }
+        boardString += '\n]';
+        let nextPiecesForWorker;
+        if (this.holdPiece) {
+            nextPiecesForWorker = [this.holdPiece, this.player.pieceType, ...this.nextQueue];
+        } else {
+            nextPiecesForWorker = [this.player.pieceType, ...this.nextQueue];
+        }
+        const nextString = nextPiecesForWorker.join('');
+        
         const aiWorkerStartPayload = {
             type: 'start',
-            // 盤面: 2次元配列をそのまま送る (null または 'I','T'等の文字列)
-            board: this.board,
-            // 現在のミノ
-            currentPiece: this.player.pieceType,
-            // ホールド (なければ null)
-            holdPiece: this.holdPiece,
-            // ネクストキュー (配列)
-            nextQueue: [...this.nextQueue],
-            // その他の状態
-            canHold: this.canHold,
+            boardString: boardString,
+            nextString: nextString,
             isB2B: this.isB2B,
             ren: this.ren + 1,
         };
-
+        
         if (this.aiWorker) {
             this.aiWorker.postMessage(aiWorkerStartPayload);
+            this.aiWorker.postMessage({ type: 'stop' });
         }
     }
 
