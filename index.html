@@ -2298,9 +2298,11 @@ class AIAgent {
         parentNode.expanded = true;
         
         let nodesAddedThisExpand = 0;
+        // Regular moves (No Hold)
         const { placements: placementsNoHold } = this.getLegalPlacements(parentNode.board, pieceToPlace);
         for (const placement of placementsNoHold) {
-            this.createAndAddChildNode(parentNode, placement, false, parentNode.holdPiece);
+            // 通常手は深さ+1
+            this.createAndAddChildNode(parentNode, placement, false, parentNode.holdPiece, 1);
             nodesAddedThisExpand++;
         }
 
@@ -2311,23 +2313,34 @@ class AIAgent {
 
         let pieceForHoldMove = null;
         let newHoldPiece = null;
+        let depthIncrement = 1; // デフォルトは深さ+1
+
         if (parentNode.holdPiece === null) {
+            // ホールドが空の場合:
+            // Currentをホールドへ -> Next(pieceForHoldMove)を操作
+            // つまり、キューを1つ余分に進める必要があるため、深さは+2となる
             pieceForHoldMove = nextPiece;
             newHoldPiece = pieceToPlace;
+            depthIncrement = 2; 
         } else {
+            // ホールドがある場合:
+            // CurrentとHoldを交換 -> Hold(pieceForHoldMove)を操作
+            // キューの進行は通常通りなので、深さは+1
             pieceForHoldMove = parentNode.holdPiece;
             newHoldPiece = pieceToPlace;
         }
 
         const { placements: placementsHold } = this.getLegalPlacements(parentNode.board, pieceForHoldMove);
         for (const placement of placementsHold) {
-            this.createAndAddChildNode(parentNode, placement, true, newHoldPiece);
+            // ホールド時の深さ増分(depthIncrement)を渡す
+            this.createAndAddChildNode(parentNode, placement, true, newHoldPiece, depthIncrement);
             nodesAddedThisExpand++;
         }
         this.totalNodesInSearch += nodesAddedThisExpand;
     }
 
-    createAndAddChildNode(parentNode, placement, holdUsed, newHoldPiece) {
+    // depthIncrement引数を追加
+    createAndAddChildNode(parentNode, placement, holdUsed, newHoldPiece, depthIncrement = 1) {
         const boardAfterPlace = parentNode.board.placeMino(placement);
         const { newBoard, linesCleared } = boardAfterPlace.clearLines();
 
@@ -2345,10 +2358,11 @@ class AIAgent {
             wastedT: (placement.pieceType === 'T' && (linesCleared === 0 || !(isTspin || isMiniTspin))),
             perfectClear: newBoard.isPerfectClear()
         };
-        
         // Create Node with Integer ID
         const newNodeID = this.makeID();
-        const newNode = new Node(newNodeID, newBoard, placement, parentNode.id, parentNode.depth + 1, combo, b2b_after_move, newHoldPiece, holdUsed);
+        
+        // 深さの計算を修正: parentNode.depth + depthIncrement
+        const newNode = new Node(newNodeID, newBoard, placement, parentNode.id, parentNode.depth + depthIncrement, combo, b2b_after_move, newHoldPiece, holdUsed);
         
         const { acc_eval, transient_eval } = this.evaluate(newNode, placementResult);
         newNode.acc_eval = parentNode.acc_eval + acc_eval;
@@ -2635,8 +2649,8 @@ let currentQueue = [];
 
 function thinkingLoop() {
     if (!isThinking) return;
-    aiAgent.searchStep(200, currentQueue); // 1回のステップ数を増やして呼び出しオーバーヘッド削減
-    self.postMessage({ type: 'nodeCount', count: aiAgent.totalNodesInSearch });
+    aiAgent.searchStep(200, currentQueue);
+    self.postMessage({ type: 'nodeCount', count: aiAgent.nodeIdCounter });
     setTimeout(thinkingLoop, 0);
 }
 
