@@ -1624,14 +1624,9 @@ if (type === 'start') {
         if (bestMove && bestMove.pieceType !== ' ') {
             let finalX;
             let finalY;
-            if (bestMove.pieceType === 'I') {
-                if (bestMove.rotation === 1) {
-                    finalX = bestMove.x - 1;
-                    finalY = 37 - bestMove.y;
-                } else {
-                    finalX = bestMove.x + 1;
-                    finalY = 39 - bestMove.y;
-                }
+            if (bestMove.pieceType === 'I' && bestMove.rotation === 1) {
+                finalX = bestMove.x - 2;
+                finalY = 37 - bestMove.y;
             } 
             else if (bestMove.pieceType === 'Z' && bestMove.rotation === 1) {
                 finalX = bestMove.x - 1;
@@ -1656,651 +1651,55 @@ if (type === 'start') {
 `;
 
 //現在は仮実装
-const aiWorkerScript_Simplified =  `
-/* Tetris AI v8.1 (Cold Clear Simplified) for Simulator */
-
-/* --- Constants --- */
-const WIDTH = 10;
-const BOARD_HEIGHT = 40;
-
-/* --- LFG Helpers (Bitwise Operations) --- */
-const LFG_HEIGHT = 40;
-const LFG_FULL_WIDTH_MASK = (1 << 10) - 1;
-
-function lfg_create() { return new Array(LFG_HEIGHT).fill(0); }
-function lfg_clone(b) { return [...b]; }
-function lfg_set(b, x, y) { if (y >= 0 && y < LFG_HEIGHT && x >= 0 && x < 10) b[y] |= (1 << x); }
-function lfg_get(b, x, y) { 
-    if (y < 0 || y >= LFG_HEIGHT || x < 0 || x >= 10) return false;
-    return (b[y] & (1 << x)) !== 0; 
-}
-function lfg_isEmpty(b) { for (let y = 0; y < LFG_HEIGHT; y++) if (b[y] !== 0) return false; return true; }
-function lfg_and(a, b) { const n = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) n[y] = a[y] & b[y]; return n; }
-function lfg_or(a, b) { const n = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) n[y] = a[y] | b[y]; return n; }
-function lfg_not(b) { const n = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) n[y] = (~b[y]) & LFG_FULL_WIDTH_MASK; return n; }
-function lfg_shiftLeft(b) { const n = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) n[y] = (b[y] >> 1); return n; }
-function lfg_shiftRight(b) { const n = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) n[y] = (b[y] << 1) & LFG_FULL_WIDTH_MASK; return n; }
-function lfg_shiftDown(b) { return [0, ...b.slice(0, LFG_HEIGHT - 1)]; }
-function lfg_shiftUp(b) { return [...b.slice(1), 0]; }
-function lfg_equals(a, b) { for(let i=0; i<LFG_HEIGHT; i++) if(a[i] !== b[i]) return false; return true; }
-function lfg_shift(board, dx, dy) {
-    let nb = lfg_clone(board);
-    if (dy > 0) for (let i = 0; i < dy; i++) nb = lfg_shiftDown(nb);
-    if (dy < 0) for (let i = 0; i < -dy; i++) nb = lfg_shiftUp(nb);
-    if (dx > 0) for (let i = 0; i < dx; i++) nb = lfg_shiftRight(nb);
-    if (dx < 0) for (let i = 0; i < -dx; i++) nb = lfg_shiftLeft(nb);
-    return nb;
-}
-
-/* --- Mino Definitions --- */
-const MINO_DEFS = {
-    "I": [[[0,0], [-1,0], [1,0], [2,0]], [[1,0], [1,-1], [1,1], [1,2]], [[0,1], [-1,1], [1,1], [2,1]], [[0,0], [0,-1], [0,1], [0,2]]],
-    "O": [[[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]]],
-    "T": [[[0,0], [-1,0], [1,0], [0,-1]], [[0,0], [0,-1], [1,0], [0,1]], [[0,0], [1,0], [-1,0], [0,1]], [[0,0], [0,1], [-1,0], [0,-1]]],
-    "S": [[[0,0], [-1,0], [0,-1], [1,-1]], [[0,0], [0,-1], [1,0], [1,1]], [[0,0], [1,0], [0,1], [-1,1]], [[0,0], [0,1], [-1,0], [-1,-1]]],
-    "Z": [[[0,0], [1,0], [0,-1], [-1,-1]], [[0,0], [0,1], [1,0], [1,-1]], [[0,0], [-1,0], [0,1], [1,1]], [[0,0], [0,-1], [-1,0], [-1,1]]],
-    "J": [[[0,0], [-1,0], [1,0], [-1,-1]], [[0,0], [0,-1], [0,1], [1,-1]], [[0,0], [1,0], [-1,0], [1,1]], [[0,0], [0,1], [0,-1], [-1,1]]],
-    "L": [[[0,0], [1,0], [-1,0], [1,-1]], [[0,0], [0,1], [0,-1], [1,1]], [[0,0], [-1,0], [1,0], [-1,1]], [[0,0], [0,-1], [0,1], [-1,-1]]]
-};
-
-const SRS_OFFSETS_RAW = {
-    common: {
-        "0->1": [[0,0], [-1,0], [-1,1], [0,-2], [-1,-2]], "1->0": [[0,0], [1,0], [1,-1], [0,2], [1,2]],
-        "1->2": [[0,0], [1,0], [1,-1], [0,2], [1,2]], "2->1": [[0,0], [-1,0], [-1,1], [0,-2], [-1,-2]],
-        "2->3": [[0,0], [1,0], [1,1], [0,-2], [1,-2]], "3->2": [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]],
-        "3->0": [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]], "0->3": [[0,0], [1,0], [1,1], [0,-2], [1,-2]]
-    },
-    I: {
-        "0->1": [[0,0], [-2,0], [1,0], [-2,-1], [1,2]], "1->0": [[0,0], [2,0], [-1,0], [2,1], [-1,-2]],
-        "1->2": [[0,0], [-1,0], [2,0], [-1,2], [2,-1]], "2->1": [[0,0], [1,0], [-2,0], [1,-2], [-2,1]],
-        "2->3": [[0,0], [2,0], [-1,0], [2,1], [-1,-2]], "3->2": [[0,0], [-2,0], [1,0], [-2,-1], [1,2]],
-        "3->0": [[0,0], [1,0], [-2,0], [1,-2], [-2,1]], "0->3": [[0,0], [-1,0], [2,0], [-1,2], [2,-1]]
-    }
-};
-
-function getMinoCoords(type, rot) { return MINO_DEFS[type][rot]; }
-
-function getSrsOffsets(type, r1, r2) {
-    const key = r1 + "->" + r2;
-    const source = (type === "I" || type === "O") ? SRS_OFFSETS_RAW.I : SRS_OFFSETS_RAW.common;
-    if (type === "O") return [[0,0]];
-    const offsets = source[key];
-    if (!offsets) return [[0,0]];
-    return offsets.map(o => [o[0], -o[1]]);
-}
-
-/* --- Weights --- */
-class StandardWeights {
-    constructor() {
-        this.back_to_back = 52;
-        this.bumpiness = -24;
-        this.bumpiness_sq = -7;
-        this.row_transitions = -5;
-        this.height = -39;
-        this.top_half = -150;
-        this.top_quarter = -511;
-        this.jeopardy = -11;
-        this.cavity_cells = -173;
-        this.cavity_cells_sq = -3;
-        this.overhang_cells = -34;
-        this.overhang_cells_sq = -1;
-        this.covered_cells = -17;
-        this.covered_cells_sq = -1;
-        this.tslot = [8, 148, 192, 407];
-        this.well_depth = 57;
-        this.max_well_depth = 17;
-        this.well_column = [20, 23, 20, 50, 59, 21, 59, 10, -10, 24];
-        this.b2b_clear = 104;
-        this.clear1 = -263;
-        this.clear2 = -220;
-        this.clear3 = -178;
-        this.clear4 = 270;
-        this.tspin1 = 1;
-        this.tspin2 = 290;
-        this.tspin3 = 482;
-        this.mini_tspin1 = -158;
-        this.mini_tspin2 = -93;
-        this.perfect_clear = 999;
-        this.combo_garbage = 150;
-        this.wasted_t = -152;
-        this.COMBO_GARBAGE = [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5];
-    }
-}
-
-/* --- Board Class --- */
-class TetrisBoard {
-    constructor(baseBoard = null) {
-        if (baseBoard) {
-            this.rows = [...baseBoard.rows];
-        } else {
-            this.rows = new Array(BOARD_HEIGHT).fill(0);
-        }
-    }
-
-    isFilled(row, col) {
-        if (col < 0 || col >= WIDTH) return true;
-        if (row < 0) return false;
-        if (row >= BOARD_HEIGHT) return true;
-        return (this.rows[row] & (1 << col)) !== 0;
-    }
-
-    placeMino(placement) {
-        const newBoard = new TetrisBoard(this);
-        const shapeCoords = getMinoCoords(placement.pieceType, placement.rotation);
-        for (const [dx, dy] of shapeCoords) {
-            const bx = placement.x + dx;
-            const by = placement.y + dy;
-            if (by >= 0 && by < BOARD_HEIGHT && bx >= 0 && bx < WIDTH) {
-                newBoard.rows[by] |= (1 << bx);
-            }
-        }
-        return newBoard;
-    }
-
-    clearLines() {
-        let newBoard = new TetrisBoard(null);
-        let linesCleared = 0;
-        let newRows = new Array(BOARD_HEIGHT).fill(0);
-        let nextNewRow = BOARD_HEIGHT - 1;
-        const fullLineMask = (1 << WIDTH) - 1;
-        for (let y = BOARD_HEIGHT - 1; y >= 0; y--) {
-            if (this.rows[y] === fullLineMask) {
-                linesCleared++;
-            } else {
-                if (nextNewRow >= 0) {
-                    newRows[nextNewRow] = this.rows[y];
-                    nextNewRow--;
-                }
-            }
-        }
-        newBoard.rows = newRows;
-        return { newBoard, linesCleared };
-    }
-
-    getColumnHeights() {
-        const heights = new Array(WIDTH).fill(0);
-        for (let c = 0; c < WIDTH; c++) {
-            for (let y = 0; y < BOARD_HEIGHT; y++) {
-                if ((this.rows[y] & (1 << c)) !== 0) {
-                    heights[c] = BOARD_HEIGHT - y;
-                    break;
-                }
-            }
-        }
-        return heights;
-    }
-    
-    isPerfectClear() { return this.rows[BOARD_HEIGHT - 1] === 0; }
-
-    getBumpiness(wellColumn, heights) {
-        let b = 0, b_sq = 0;
-        let prev_col = (wellColumn === 0) ? 1 : 0;
-        while (prev_col < WIDTH && prev_col === wellColumn) prev_col++;
-        if (prev_col >= WIDTH) return { bumpiness: 0, bumpiness_sq: 0 };
-        let current_h = heights[prev_col];
-        for (let i = prev_col + 1; i < WIDTH; i++) {
-            if (i === wellColumn) continue;
-            const dh = Math.abs(heights[i] - current_h);
-            b += dh; b_sq += dh * dh;
-            current_h = heights[i];
-        }
-        return { bumpiness: b, bumpiness_sq: b_sq };
-    }
-
-    getCavitiesAndOverhangs(heights) {
-        let cav = 0, over = 0;
-        const max_h = Math.max(0, ...heights);
-        if (max_h === 0) return { cavities: 0, overhangs: 0 };
-        for (let y_inv = 0; y_inv < max_h; ++y_inv) {
-            const y = BOARD_HEIGHT - 1 - y_inv;
-            for (let x = 0; x < WIDTH; ++x) {
-                if ((this.rows[y] & (1 << x)) !== 0 || y_inv >= heights[x]) continue;
-                let counted_as_over = false;
-                if (x > 1 && heights[x-1] <= y_inv && heights[x-2] <= (y_inv+1)) { over++; counted_as_over = true; }
-                if (!counted_as_over && x < WIDTH-2 && heights[x+1] <= y_inv && heights[x+2] <= (y_inv+1)) { over++; counted_as_over = true; }
-                if (!counted_as_over) cav++;
-            }
-        }
-        return { cavities: cav, overhangs: over };
-    }
-
-    getCoveredCells(heights) {
-        let cov = 0, cov_sq = 0;
-        for (let x = 0; x < WIDTH; ++x) {
-            if (heights[x] <= 1) continue;
-            for (let y_inv = heights[x] - 2; y_inv >= 0; --y_inv) {
-                const y = BOARD_HEIGHT - 1 - y_inv;
-                if ((this.rows[y] & (1 << x)) === 0) {
-                    const cells_above = heights[x] - (y_inv + 1);
-                    const counted = Math.min(6, cells_above);
-                    cov += counted; cov_sq += counted * counted;
-                }
-            }
-        }
-        return { covered: cov, covered_sq: cov_sq };
-    }
-
-    getWell(weights, heights) {
-        let well_col = -1;
-        let min_h = BOARD_HEIGHT + 1;
-        for (let c = 0; c < WIDTH; ++c) {
-            if (heights[c] < min_h) { min_h = heights[c]; well_col = c; }
-        }
-        let depth = 0;
-        if (well_col !== -1) {
-            for (let y_inv = heights[well_col]; y_inv < BOARD_HEIGHT; ++y_inv) {
-                const y = BOARD_HEIGHT - 1 - y_inv;
-                let is_well_row = true;
-                for (let x = 0; x < WIDTH; ++x) {
-                    if (x !== well_col && (this.rows[y] & (1 << x)) === 0) { is_well_row = false; break; }
-                }
-                if (is_well_row) depth++; else break;
-            }
-        }
-        depth = Math.min(depth, weights.max_well_depth);
-        return { depth, well_col };
-    }
-
-    getTslotsAndRowTransitions(weights) {
-        let score = 0;
-        let trans = 0;
-        for (let y = 0; y < BOARD_HEIGHT; ++y) {
-            const r = this.rows[y];
-            const d = (r | (1 << WIDTH)) ^ (1 | (r << 1));
-            let n = d;
-            while (n > 0) { n &= (n - 1); trans++; }
-            
-            for(let x=0; x<WIDTH; x++) {
-                const is_filled = (dx, dy) => {
-                    if (x+dx < 0 || x+dx >= WIDTH || y+dy < 0 || y+dy >= BOARD_HEIGHT) return true;
-                    return (this.rows[y+dy] & (1 << (x+dx))) !== 0;
-                };
-                // Simple T-Slot Check logic matching standard heuristics
-                if (!is_filled(0,0) && is_filled(-1,0) && is_filled(1,0) && is_filled(0,1)) {
-                     score += weights.tslot[1]; // simplified 
-                }
-            }
-        }
-        return { t_slot_score: score, rowTransitions: trans };
-    }
-}
-
-/* --- Logic Caches --- */
-let lfgCache = new Map();
-let evaluationCache = new Map();
-
-/* --- Legal Moves Logic --- */
-function applySrsRotation(sourceBits, targetPrecomputed, srsOffsets) {
-    let current = lfg_clone(sourceBits);
-    let result = lfg_create();
-    for (const [dx, dy] of srsOffsets) {
-        if (lfg_isEmpty(current)) break;
-        const shifted = lfg_shift(current, dx, dy);
-        const success = lfg_and(shifted, targetPrecomputed);
-        result = lfg_or(result, success);
-        const successOrig = lfg_shift(success, -dx, -dy);
-        current = lfg_and(current, lfg_not(successOrig));
-    }
-    return result;
-}
-
-function findLegalMoves(gameBoard, pieceType, spawnX, spawnY, spawnRot) {
-    const precomputed = [lfg_create(), lfg_create(), lfg_create(), lfg_create()];
-    for (let r = 0; r < 4; r++) {
-        const coords = getMinoCoords(pieceType, r);
-        for (let y = 0; y < BOARD_HEIGHT; y++) {
-            for (let x = 0; x < WIDTH; x++) {
-                let col = false;
-                for (const [dx, dy] of coords) {
-                    if (gameBoard.isFilled(y + dy, x + dx)) { col = true; break; }
-                }
-                if (!col) lfg_set(precomputed[r], x, y);
-            }
-        }
-    }
-
-    let reachable = [lfg_create(), lfg_create(), lfg_create(), lfg_create()];
-    if (lfg_get(precomputed[spawnRot], spawnX, spawnY)) lfg_set(reachable[spawnRot], spawnX, spawnY);
-
-    for(let iter=0; iter < 200; iter++) {
-        let changed = false;
-        let nextR = reachable.map(b => lfg_clone(b));
-        for(let r=0; r<4; r++) {
-            const rl = lfg_and(lfg_shiftLeft(reachable[r]), precomputed[r]);
-            const rr = lfg_and(lfg_shiftRight(reachable[r]), precomputed[r]);
-            const rd = lfg_and(lfg_shiftDown(reachable[r]), precomputed[r]);
-            nextR[r] = lfg_or(nextR[r], lfg_or(rl, lfg_or(rr, rd)));
-        }
-        for(let r=0; r<4; r++) {
-            if(lfg_isEmpty(reachable[r])) continue;
-            const rcw = (r + 1) % 4;
-            const rccw = (r + 3) % 4;
-            const scw = applySrsRotation(reachable[r], precomputed[rcw], getSrsOffsets(pieceType, r, rcw));
-            const sccw = applySrsRotation(reachable[r], precomputed[rccw], getSrsOffsets(pieceType, r, rccw));
-            nextR[rcw] = lfg_or(nextR[rcw], scw);
-            nextR[rccw] = lfg_or(nextR[rccw], sccw);
-        }
-        for(let r=0; r<4; r++) {
-            if(!lfg_equals(reachable[r], nextR[r])) { changed = true; break; }
-        }
-        reachable = nextR;
-        if(!changed) break;
-    }
-
-    const landed = [lfg_create(), lfg_create(), lfg_create(), lfg_create()];
-    for(let r=0; r<4; r++) {
-        const canDown = lfg_and(lfg_shiftDown(reachable[r]), precomputed[r]);
-        landed[r] = lfg_and(reachable[r], lfg_not(lfg_shiftUp(canDown)));
-    }
-    const landed_tspin = [lfg_create(), lfg_create(), lfg_create(), lfg_create()];
-
-    return { landed, landed_tspin };
-}
-
-class Placement {
-    constructor(x, y, r, t, spin=false, mini=false) {
-        this.x = x; this.y = y; this.rotation = r; this.pieceType = t;
-        this.isTspin = spin; this.isMiniTspin = mini;
-    }
-}
-
-class Node {
-    constructor(id, board, place, parentID, depth, combo=0, b2b=false, hold=null, holdUsed=false) {
-        this.id = id; this.board = board; this.place = place;
-        this.parentID = parentID; this.depth = depth;
-        this.acc_eval = 0; this.transient_eval = 0;
-        this.expanded = false; this.childrenIDs = [];
-        this.comboCount = combo; this.b2b = b2b;
-        this.holdPiece = hold; this.holdUsedThisTurn = holdUsed;
-    }
-    getTotalEval() { return this.acc_eval + this.transient_eval; }
-}
-
-class AIAgent {
-    constructor() {
-        this.weights = new StandardWeights();
-        this.nodeMap = {};
-        this.nodeIdCounter = 0;
-        this.rootID = null;
-        this.totalNodesInSearch = 0;
-    }
-
-    makeID() { return "n" + (this.nodeIdCounter++); }
-    
-    getBoardHash(board) { return board.rows.join(","); }
-    
-    clearCaches() {
-        lfgCache.clear();
-        evaluationCache.clear();
-    }
-
-    step(pieceQueue) {
-        if (!this.rootID || !this.nodeMap[this.rootID]) return;
-        const rootNode = this.nodeMap[this.rootID];
-        
-        let selectedNode = rootNode;
-        
-        // Select
-        while (selectedNode.expanded) {
-            if (selectedNode.childrenIDs.length === 0) break;
-            
-            const children = selectedNode.childrenIDs.map(id => this.nodeMap[id]).filter(n => n);
-            if(children.length === 0) break;
-
-            const evals = children.map(c => c.getTotalEval());
-            const minE = Math.min(...evals);
-            
-            let totalW = 0;
-            const weights = evals.map((e, i) => {
-                const rank = i + 1; 
-                const val = Math.pow(e - minE + 1, 2) + 10;
-                totalW += val;
-                return val;
-            });
-            
-            let r = Math.random() * totalW;
-            let nextNode = children[children.length - 1];
-            for(let i=0; i<weights.length; i++) {
-                r -= weights[i];
-                if(r <= 0) { nextNode = children[i]; break; }
-            }
-            selectedNode = nextNode;
-        }
-
-        // Expand
-        if (!selectedNode.expanded) {
-            const p1 = pieceQueue[selectedNode.depth];
-            const p2 = pieceQueue[selectedNode.depth + 1];
-            if (p1) {
-                this.expand(selectedNode.id, p1, p2);
-            }
-        }
-    }
-    
-    expand(nodeID, pieceToPlace, nextPiece) {
-        const parent = this.nodeMap[nodeID];
-        if (!parent || parent.expanded) return;
-        parent.expanded = true;
-
-        const addMoves = (piece, isHold, newHold) => {
-            const cacheKey = piece + ":" + this.getBoardHash(parent.board);
-            let placements;
-            if (lfgCache.has(cacheKey)) {
-                placements = lfgCache.get(cacheKey);
-            } else {
-                const { landed } = findLegalMoves(parent.board, piece, 4, 19, 0);
-                placements = [];
-                for(let r=0; r<4; r++) {
-                    if(lfg_isEmpty(landed[r])) continue;
-                    for(let y=0; y<BOARD_HEIGHT; y++) {
-                        for(let x=0; x<10; x++) {
-                            if(lfg_get(landed[r], x, y)) placements.push(new Placement(x, y, r, piece));
-                        }
-                    }
-                }
-                lfgCache.set(cacheKey, placements);
-            }
-
-            for(const pl of placements) {
-                const nextBoard = parent.board.placeMino(pl);
-                const { newBoard, linesCleared } = nextBoard.clearLines();
-                const combo = linesCleared > 0 ? parent.comboCount + 1 : 0;
-                const newNodeID = this.makeID();
-                const b2b = (linesCleared >= 4) ? true : (linesCleared > 0 ? false : parent.b2b);
-                
-                const child = new Node(newNodeID, newBoard, pl, parent.id, parent.depth+1, combo, b2b, newHold, isHold);
-                
-                const { acc, trans } = this.evaluate(child, linesCleared);
-                child.acc_eval = parent.acc_eval + acc;
-                child.transient_eval = trans;
-                
-                this.nodeMap[newNodeID] = child;
-                parent.childrenIDs.push(newNodeID);
-                this.totalNodesInSearch++;
-                
-                this.propagate(newNodeID);
-            }
-        };
-
-        addMoves(pieceToPlace, false, parent.holdPiece);
-
-        if (!parent.holdUsedThisTurn) {
-            let holdP = parent.holdPiece;
-            if (holdP === null) {
-                holdP = nextPiece; // Current becomes hold, Next becomes Current
-                addMoves(nextPiece, true, pieceToPlace);
-            } else {
-                addMoves(holdP, true, pieceToPlace);
-            }
-        }
-    }
-
-    evaluate(node, lines) {
-        let acc = 0;
-        const w = this.weights;
-        if (lines > 0) {
-            if (lines === 1) acc += w.clear1;
-            else if (lines === 2) acc += w.clear2;
-            else if (lines === 3) acc += w.clear3;
-            else if (lines === 4) acc += w.clear4;
-            if (node.comboCount > 0) acc += w.combo_garbage * (node.comboCount - 1);
-            if (node.b2b && lines === 4) acc += w.b2b_clear;
-        }
-        if (node.board.isPerfectClear()) acc += w.perfect_clear;
-
-        const hash = this.getBoardHash(node.board);
-        if (evaluationCache.has(hash)) return { acc, trans: evaluationCache.get(hash) };
-
-        let trans = 0;
-        const h = node.board.getColumnHeights();
-        const maxH = Math.max(...h);
-        trans += w.height * maxH;
-        const { bumpiness } = node.board.getBumpiness(-1, h);
-        trans += w.bumpiness * bumpiness;
-        const { cavities, overhangs } = node.board.getCavitiesAndOverhangs(h);
-        trans += w.cavity_cells * cavities;
-        trans += w.overhang_cells * overhangs;
-        const { depth } = node.board.getWell(w, h);
-        trans += w.well_depth * depth;
-        const { t_slot_score, rowTransitions } = node.board.getTslotsAndRowTransitions(w);
-        trans += t_slot_score + w.row_transitions * rowTransitions;
-
-        evaluationCache.set(hash, trans);
-        return { acc, trans };
-    }
-
-    propagate(nodeID) {
-        let curr = this.nodeMap[nodeID];
-        while(curr.parentID) {
-            const parent = this.nodeMap[curr.parentID];
-            let maxE = -Number.MAX_VALUE;
-            for(const cid of parent.childrenIDs) {
-                const c = this.nodeMap[cid];
-                if(c) maxE = Math.max(maxE, c.getTotalEval());
-            }
-            const diff = maxE - parent.acc_eval;
-            if (diff !== parent.transient_eval) {
-                parent.transient_eval = diff;
-                curr = parent;
-            } else {
-                break;
-            }
-        }
-    }
-    
-    getBestMove() {
-        if (!this.rootID || !this.nodeMap[this.rootID]) return null;
-        const root = this.nodeMap[this.rootID];
-        let bestNode = null;
-        let maxScore = -Number.MAX_VALUE;
-        for (const cid of root.childrenIDs) {
-            const c = this.nodeMap[cid];
-            const score = c.getTotalEval();
-            if (score > maxScore) {
-                maxScore = score;
-                bestNode = c;
-            }
-        }
-        return bestNode;
-    }
-
-    prune(newRootID) {
-        if (!this.nodeMap[newRootID]) {
-            this.nodeMap = {}; 
-            this.rootID = null;
-            return;
-        }
-        const newMap = {};
-        const q = [newRootID];
-        while(q.length) {
-            const id = q.shift();
-            const n = this.nodeMap[id];
-            if(n) {
-                n.depth = n.depth - this.nodeMap[newRootID].depth;
-                newMap[id] = n;
-                if (n.childrenIDs) q.push(...n.childrenIDs);
-            }
-        }
-        this.nodeMap = newMap;
-        this.rootID = newRootID;
-        this.nodeMap[this.rootID].parentID = null;
-    }
-}
-
-/* --- Worker Main --- */
-let aiAgent = new AIAgent();
+const aiWorkerScript_Simplified = `
 let isThinking = false;
-let currentQueue = [];
+let bestMoveCandidate = null;
 
+// 思考ループ（ハリボテ：実際には計算せず、無限ループしてるフリをする）
 function thinkingLoop() {
     if (!isThinking) return;
-    for(let i=0; i<50; i++) {
-        aiAgent.step(currentQueue);
-    }
-    self.postMessage({ type: "nodeCount", count: aiAgent.totalNodesInSearch });
+    
+    // ここに本来のAIロジックが入ります
+    // 今はハリボテなので、何もしないか、適当な負荷をかけるだけ
+    
+    // 探索回数などを通知（デバッグ用）
+    self.postMessage({ type: 'nodeCount', count: 0 });
+    
     setTimeout(thinkingLoop, 0);
-}
-
-function boardsEqual(b1, b2Rows) {
-    for(let i=0; i<BOARD_HEIGHT; i++) {
-        if(b1.rows[i] !== b2Rows[i]) return false;
-    }
-    return true;
 }
 
 self.onmessage = (e) => {
     const { type, boardString, nextString, isB2B, ren } = e.data;
-    
-    if (type === "start") {
-        const grid = JSON.parse(boardString);
-        const receivedBoard = new TetrisBoard();
-        for(let y=0; y<BOARD_HEIGHT; y++) {
-            let rowVal = 0;
-            for(let x=0; x<WIDTH; x++) {
-                if (grid[y][x] !== null) rowVal |= (1 << x);
-            }
-            receivedBoard.rows[y] = rowVal;
-        }
+
+    if (type === 'start') {
+        // 盤面やネクストを受け取る（既存AIと同じ形式）
+        // 初期位置などを計算するフリ
         
-        const nexts = nextString.split("");
-        currentQueue = nexts; 
+        // ★ハリボテ: とりあえず「動きなし（今の位置）」を最善手とする
+        // 実際にはここで盤面解析を行い、bestMoveCandidate を更新し続ける
+        bestMoveCandidate = {
+            rotation: 0, // 回転なし
+            x: 4,        // 中央あたり（適当）
+            y: 20        // 適当な高さ
+        };
 
-        let matched = false;
-        if (aiAgent.rootID && aiAgent.nodeMap[aiAgent.rootID]) {
-            const root = aiAgent.nodeMap[aiAgent.rootID];
-            if (boardsEqual(root.board, receivedBoard)) {
-                matched = true;
-            }
+        if (!isThinking) {
+            isThinking = true;
+            thinkingLoop();
         }
 
-        if (!matched) {
-            aiAgent = new AIAgent();
-            aiAgent.clearCaches();
-            const rootID = aiAgent.makeID();
-            // Simulator assumes hold is handled via 'nextString' sequence in first element if hold exists, 
-            // but strict node creation requires state. We assume hold is in nextString[0] if hold existed.
-            // However, 'nextString' from simulator is constructed as [hold, current, next...] OR [current, next...]
-            // Cold Clear simplified logic in 'step' handles queue index blindly.
-            const rootNode = new Node(rootID, receivedBoard, null, null, 0, ren, isB2B, null, false);
-            aiAgent.nodeMap[rootID] = rootNode;
-            aiAgent.rootID = rootID;
-        }
-
-        isThinking = true;
-        thinkingLoop();
-
-    } else if (type === "stop") {
+    } else if (type === 'stop') {
+        // 思考停止命令が来たら、その時点での最善手を返す
         isThinking = false;
-        const bestNode = aiAgent.getBestMove();
-        if (bestNode) {
-            const p = bestNode.place;
+        
+        if (bestMoveCandidate) {
+            // そのまま返す (座標変換はここではしない)
             self.postMessage({
-                piece: p.pieceType,
-                x: p.x,
-                y: p.y, 
-                rotation: p.rotation
+                piece: 'T', // 仮
+                x: bestMoveCandidate.x,
+                y: bestMoveCandidate.y,
+                rotation: bestMoveCandidate.rotation,
             });
-            aiAgent.prune(bestNode.id);
         } else {
             self.postMessage(null);
         }
@@ -4014,6 +3413,10 @@ async executeAiMove(move) {
         const startState = { x: this.player.x, y: this.player.y, r: this.player.rotation };
         const targetState = { x: move.x, y: move.y, r: move.rotation };
         const minoType = this.player.pieceType;
+        if (minoType === 'I') {
+            targetState.x += 1;
+            startState.x += 1;
+        }
         const pathfinderBoard = this.board.map(row => row.map(cell => (cell === null ? 0 : 1)));
         const path = this.findShortestPath_forAI(startState, targetState, minoType, pathfinderBoard);
 
