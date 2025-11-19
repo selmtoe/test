@@ -1651,102 +1651,137 @@ if (type === 'start') {
 `;
 
 const aiWorkerScript_Simplified = `
-// Import the emscripten generated glue code (This assumes tetris_ai.js content is bundled or loaded)
-// Since we are inside a worker string blob, we need to import scripts.
-// For this example, we assume 'tetris_ai.js' and 'tetris_ai.wasm' are hosted at the same path.
-importScripts('tetris_ai.js'); 
+// --- AI 6: Cold Clear (C++ Wasm Wrapper) ---
 
-let aiInstance = null;
+// ai.js と ai.wasm がサーバー上の同じ場所にあると仮定します。
+// ローカルテストの場合は、適切なパスを指定するか、ai.jsの内容をここに直接貼り付けることも検討してください。
+importScripts('ai.js');
+
+let aiModule = null;
 let isThinking = false;
-let currentQueue = [];
+let boardBuffer = null;
+let queueBuffer = null;
 
-// Wasm initialization
-createTetrisAI().then(instance => {
-    aiInstance = instance;
-    aiInstance.initAgent();
-    self.postMessage({ type: 'debug', message: 'WASM Loaded & Agent Initialized' });
+// Initialize Wasm Module
+createAIModule().then(module => {
+    aiModule = module;
+    aiModule._initAgent();
+    console.log("Wasm AI Module Initialized");
+    
+    // 盤面データ転送用のバッファを確保 (40 rows * 4 bytes/int)
+    boardBuffer = aiModule._malloc(40 * 4);
 });
 
 function thinkingLoop() {
-    if (!isThinking || !aiInstance) return;
+    if (!isThinking || !aiModule) return;
     
-    // Wasm側の探索ステップを実行
-    // string渡しはオーバーヘッドになるため、本来はメモリビューを使うが
-    // ここでは簡略化のためbind経由で渡す
-    aiInstance.searchStep(200, currentQueue.join(''));
-    
-    const count = aiInstance.getNodeCount();
-    self.postMessage({ type: 'nodeCount', count: count });
-    setTimeout(thinkingLoop, 0);
+    // ステップ実行はC++側で行われるため、ここではループ待機は不要ですが、
+    // 既存のアーキテクチャに合わせて非同期的に結果を待つ構造にします。
+    // ただし、この実装では "computeMove" が一括計算するため、ループは実質1回です。
 }
 
 self.onmessage = (e) => {
+    if (!aiModule) {
+        console.warn("AI Module not ready yet.");
+        return;
+    }
+
     const { type, boardString, nextString, holdPiece, canHold, isB2B, ren } = e.data;
 
     if (type === 'start') {
-        if (!aiInstance) {
-            console.error("Wasm not initialized yet");
-            return;
-        }
-
         try {
-            // JS側でボード配列をパースしてフラットなUint32Arrayに変換
+            // 1. Board Parse
             const layout = JSON.parse(boardString);
-            const boardHeight = 40;
-            const width = 10;
-            const rows = new Uint32Array(boardHeight).fill(0);
+            const BOARD_HEIGHT = 40;
+            const WIDTH = 10;
+            
+            // JS配列をC++メモリ(Int32Array)に書き込む
+            // layoutは上から下の順 (index 0 is top)。TetrisBoardはindex 0 is topでOK。
+            // ただし、元のJSロジックではTetrisBoardはint32配列で、ビットボード形式。
+            
+            const tempBoard = new Int32Array(BOARD_HEIGHT).fill(0);
             const layoutHeight = layout.length;
             
             for (let y = 0; y < layoutHeight; y++) {
-                const internalY = y + (boardHeight - layoutHeight);
+                const internalY = y + (BOARD_HEIGHT - layoutHeight);
                 if (internalY < 0) continue;
                 let rowValue = 0;
                 const row = layout[y];
-                for (let x = 0; x < width; x++) {
+                for (let x = 0; x < WIDTH; x++) {
                     if (row[x] !== null && row[x] !== 'null') {
                         rowValue |= (1 << x);
                     }
                 }
-                rows[internalY] = rowValue;
+                tempBoard[internalY] = rowValue;
             }
 
-            currentQueue = nextString.split('');
-            const holdStr = holdPiece ? holdPiece : "";
-            
-            // Wasmへデータを渡して探索初期化
-            aiInstance.initSearch(rows, currentQueue.join(''), holdStr, isB2B, ren, canHold !== false);
+            // Heapへコピー
+            aiModule.HEAP32.set(tempBoard, boardBuffer >> 2);
 
-            if (!isThinking) {
-                isThinking = true;
-                thinkingLoop();
+            // 2. Queue String
+            const queueStr = nextString;
+            const queueLen = lengthBytesUTF8(queueStr) + 1;
+            if (queueBuffer) aiModule._free(queueBuffer);
+            queueBuffer = aiModule._malloc(queueLen);
+            stringToUTF8(queueStr, queueBuffer, queueLen);
+
+            // 3. Hold
+            let holdChar = 32; // space
+            if (holdPiece && holdPiece.length === 1) {
+                holdChar = holdPiece.charCodeAt(0);
             }
-        } catch (err) {
-            console.error("AI Worker Error (start):", err);
-        }
-
-    } else if (type === 'stop') {
-        if (aiInstance) {
-            const bestMove = aiInstance.getBestMove();
             
-            if (bestMove) {
-                let finalX = bestMove.x;
-                if (bestMove.pieceType === 'I') {
-                     // JS版の謎のオフセット補正を再現
+            // 4. Params
+            const combo = ren;
+            const b2b = isB2B;
+            const iterations = 20000; // 探索回数 (C++なので多めに)
+
+            // 5. Run AI
+            const startTime = performance.now();
+            const resultEncoded = aiModule._computeMove(
+                boardBuffer, 
+                queueBuffer, 
+                holdChar, 
+                b2b, 
+                combo, 
+                iterations
+            );
+            
+            // 6. Decode Result
+            if (resultEncoded !== -1) {
+                const x = resultEncoded & 0xFF;
+                const y = (resultEncoded >> 8) & 0xFF;
+                const rot = (resultEncoded >> 16) & 0xFF;
+                const pieceChar = String.fromCharCode((resultEncoded >> 24) & 0xFF);
+                
+                // Iミノの補正 (JS版AIと座標系を合わせる)
+                let finalX = x;
+                if (pieceChar === 'I') {
                     finalX -= 1;
                 }
+
+                // ノード数取得
+                const nodeCount = aiModule._getNodeCount();
+                self.postMessage({ type: 'nodeCount', count: nodeCount });
+
                 self.postMessage({
-                    piece: bestMove.pieceType,
+                    piece: pieceChar,
                     x: finalX,
-                    y: bestMove.y,
-                    rotation: bestMove.rotation,
+                    y: y,
+                    rotation: rot
                 });
-                aiInstance.advanceTree();
-                if (currentQueue.length > 0) currentQueue.shift();
             } else {
                 self.postMessage(null);
             }
+
+        } catch (err) {
+            console.error("AI Worker Error:", err);
         }
+
+    } else if (type === 'stop') {
         isThinking = false;
+        // C++版は同期実行で即座に結果を返すため、明示的な中断ロジックは不要ですが、
+        // 次のメッセージを無視するフラグ管理等は可能です。
     }
 };
 `;
