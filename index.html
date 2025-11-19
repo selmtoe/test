@@ -2526,37 +2526,26 @@ function thinkingLoop() {
 }
 
 self.onmessage = (e) => {
-    const { type, boardString, nextString, isB2B, ren } = e.data;
-
+    const { type, boardString, nextString, holdPiece, canHold, isB2B, ren } = e.data;
     if (type === 'start') {
         try {
             const layout = JSON.parse(boardString);
             const board = TetrisBoard.fromSimulatorBoard(layout);
             
-            // nextString は "TISZ..." のような文字列
             currentQueue = nextString.split('');
-            // 最初の1文字は現在操作中のピース、2文字目以降がNEXTキュー
-            // シミュレータからの入力によっては currentQueue[0] が現在ピース
-            // holdPiece は nextString には含まれないため、別途送られてくる必要があるが、
-            // 簡易版シミュレータの仕様では nextString のみを送っている模様。
-            // 念のため currentQueue[0] を現在ピース、currentQueue[1]以降をNEXTとする。
-            // ※ホールドは現在情報として送られていないので、内部で追跡するしかないが、
-            //  シミュレータの仕様上毎回リセットされる可能性があるため、
-            //  ホールド情報は厳密には不正確になる可能性がある。
-            //  (AI 6のロジックではholdPiece引数が必要)
-            
-            // ダミー実装に合わせて hold は null スタート、あるいは前回のを保持？
-            // ここでは簡易的に null (または前回の探索結果の保持) とするが、
-            // 今回は安全策として毎回 null (ホールドなし) で初期化するか、
-            // AI内部で保持しているホールド情報を利用する。
-            // AIAgent.initSearch で整合性チェックを行う。
             
             let hold = null;
-            if (aiAgent.rootID && aiAgent.nodeMap[aiAgent.rootID]) {
+            if (holdPiece !== undefined) {
+                hold = holdPiece;
+            } else if (aiAgent.rootID && aiAgent.nodeMap[aiAgent.rootID]) {
                 hold = aiAgent.nodeMap[aiAgent.rootID].holdPiece;
             }
 
             aiAgent.initSearch(board, currentQueue, hold, isB2B, ren);
+
+            if (canHold !== undefined && aiAgent.rootID && aiAgent.nodeMap[aiAgent.rootID]) {
+                aiAgent.nodeMap[aiAgent.rootID].holdUsedThisTurn = !canHold;
+            }
 
             if (!isThinking) {
                 isThinking = true;
