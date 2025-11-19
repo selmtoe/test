@@ -1624,9 +1624,14 @@ if (type === 'start') {
         if (bestMove && bestMove.pieceType !== ' ') {
             let finalX;
             let finalY;
-            if (bestMove.pieceType === 'I' && bestMove.rotation === 1) {
-                finalX = bestMove.x - 2;
-                finalY = 37 - bestMove.y;
+            if (bestMove.pieceType === 'I') {
+                if (bestMove.rotation === 1) {
+                    finalX = bestMove.x - 1;
+                    finalY = 37 - bestMove.y;
+                } else {
+                    finalX = bestMove.x + 1;
+                    finalY = 39 - bestMove.y;
+                }
             } 
             else if (bestMove.pieceType === 'Z' && bestMove.rotation === 1) {
                 finalX = bestMove.x - 1;
