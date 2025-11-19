@@ -1652,12 +1652,12 @@ if (type === 'start') {
 
 //現在は仮実装
 const aiWorkerScript_Simplified = `
-/* --- AI 6: Cold Clear (Simplified) for Web Worker --- */
+/* --- AI Logic: Cold Clear Simplified (Ported & Optimized) --- */
 
 // 定数定義
 const WIDTH = 10;
 const BOARD_HEIGHT = 40;
-const SEARCH_ITERATION_LIMIT = 5000; // 1回の思考ステップでのノード制限（適宜調整）
+const SEARCH_ITERATION_LIMIT = 3000; // 1フレームあたりの探索ノード数制限
 
 // ミノ定義
 const MINO_DEFS = {
@@ -1689,7 +1689,7 @@ const SPAWN_X = 4;
 const SPAWN_Y = 19;
 const SPAWN_ROT = 0;
 
-// グローバルキャッシュ
+// Worker内グローバル変数
 let lfgCache = new Map();
 let evaluationCache = new Map();
 
@@ -1742,29 +1742,22 @@ class TetrisBoard {
         }
     }
 
-    // シミュレータの2D文字配列からボードを生成する静的メソッド
-    static fromSimulatorBoard(layout) {
+    // メインスレッドから送られてきた2次元配列をビットボードに変換
+    static fromRawData(rawBoard) {
         const board = new TetrisBoard();
-        const boardHeight = BOARD_HEIGHT;
-        const layoutHeight = layout.length;
-        const width = WIDTH;
-
-        // シミュレータのlayout[0]は盤面の一番上(y=0)
-        for (let y = 0; y < layoutHeight; y++) {
-            // AI内部では rows[0] が一番上、rows[39]が一番下として扱う
-            // シミュレータも [0] が上なのでそのままマッピング
-            const internalY = y + (BOARD_HEIGHT - layoutHeight);
-            if (internalY < 0) continue;
-
+        // rawBoardは [y=0(top), ..., y=39(bottom)] の形式と仮定
+        // シミュレータの形式は y=0 が天井(盤面上部)、y=39が底
+        for (let y = 0; y < BOARD_HEIGHT; y++) {
             let rowValue = 0;
-            const row = layout[y];
-            for (let x = 0; x < width; x++) {
-                // null以外ならブロックあり
-                if (row[x] !== null && row[x] !== 'null') {
+            const srcRow = rawBoard[y];
+            if (!srcRow) continue;
+            for (let x = 0; x < WIDTH; x++) {
+                // nullでなければブロックあり
+                if (srcRow[x] !== null) {
                     rowValue |= (1 << x);
                 }
             }
-            board.rows[internalY] = rowValue;
+            board.rows[y] = rowValue;
         }
         return board;
     }
@@ -2136,12 +2129,12 @@ function findLegalMoves(gameBoard, minoType, spawnX, spawnY, spawnRot) {
     return { reachable, landed, landed_tspin };
 }
 
-// --- AIAgent (Modified for Worker) ---
+// --- AIAgent ---
 
 class AIAgent {
     constructor() {
         this.weights = new StandardWeights();
-        this.nodeMap = {}; // Object instead of array for string/mixed keys (or use Map if preferred)
+        this.nodeMap = {};
         this.nodeIdCounter = 0;
         this.rootID = null;
         this.totalNodesInSearch = 0;
@@ -2161,13 +2154,15 @@ class AIAgent {
 
     // 探索の初期化：既存の木と比較して継続かリセットかを判断
     initSearch(currentBoard, pieceQueue, currentHoldPiece, isB2B, combo) {
-        // ルートノードが存在し、かつ盤面状態が一致しているか確認
         let reuseTree = false;
+        
+        // ルートノードが存在し、かつ盤面とホールドが完全に一致しているか確認
         if (this.rootID !== null && this.nodeMap[this.rootID]) {
             const rootNode = this.nodeMap[this.rootID];
             const hashCurrent = this.getBoardHash(currentBoard);
             const hashRoot = this.getBoardHash(rootNode.board);
-            // ホールドの整合性もチェック
+            
+            // 盤面ハッシュとホールドピースが一致すれば探索木を再利用
             if (hashCurrent === hashRoot && rootNode.holdPiece === currentHoldPiece) {
                 reuseTree = true;
             }
@@ -2178,15 +2173,24 @@ class AIAgent {
             this.nodeMap = {};
             this.nodeIdCounter = 0;
             this.rootID = this.makeID();
+            // ルートノード作成
             const rootNode = new Node(this.rootID, currentBoard, null, null, 0, combo, isB2B, currentHoldPiece, false);
             this.nodeMap[this.rootID] = rootNode;
-            const { transient_eval } = this.evaluate(rootNode, { linesCleared: 0, isTspin: false, isMiniTspin: false, b2bActive: isB2B, combo: combo, holdUsed: false, wastedT: false, perfectClear: rootNode.board.isPerfectClear() });
+            
+            // ルートの評価（暫定値）
+            const { transient_eval } = this.evaluate(rootNode, { 
+                linesCleared: 0, isTspin: false, isMiniTspin: false, 
+                b2bActive: isB2B, combo: combo, holdUsed: false, wastedT: false, 
+                perfectClear: rootNode.board.isPerfectClear() 
+            });
             rootNode.transient_eval = transient_eval;
+            
             this.clearCaches(); // 盤面が変わったのでキャッシュクリア
         }
         
-        // ルートの展開
+        // ルートの展開（まだ展開されていなければ）
         const rootNode = this.nodeMap[this.rootID];
+        // pieceQueue[0] = 現在のピース, pieceQueue[1] = NEXT1
         if (!rootNode.expanded && pieceQueue.length >= 2) {
             this.expand(this.rootID, pieceQueue[0], pieceQueue[1]);
         }
@@ -2201,11 +2205,11 @@ class AIAgent {
         let count = 0;
         while (count < iterations && this.totalNodesInSearch < SEARCH_ITERATION_LIMIT) {
             const selectedNode = this.select(this.rootID);
-            if (selectedNode.expanded) break; // 展開済みなら終了(葉に到達できない場合など)
+            if (selectedNode.expanded) break; // 展開済みならこれ以上掘れない（または葉）
             
             // 深さに応じたネクストを取得
-            // depth 0 -> pieceQueue[0] (root)
-            // depth 1 -> pieceQueue[1]
+            // depth 0 -> pieceQueue[0] (rootのピース)
+            // depth 1 -> pieceQueue[1] (NEXT1)
             const depth = selectedNode.depth;
             const pieceForExpand = pieceQueue[depth];
             const nextPieceForExpand = pieceQueue[depth + 1];
@@ -2213,7 +2217,8 @@ class AIAgent {
             if (pieceForExpand && nextPieceForExpand) {
                 this.expand(selectedNode.id, pieceForExpand, nextPieceForExpand);
             } else {
-                break; // ネクストが足りない
+                // ネクストが尽きたら終了
+                break; 
             }
             count++;
         }
@@ -2232,6 +2237,7 @@ class AIAgent {
         return this.nodeMap[this.bestNodeIDAtDepth1].place;
     }
     
+    // 決定した手に従って探索木のルートを付け替える（Pruning）
     advanceTreeToBestMove() {
         if (this.bestNodeIDAtDepth1) {
             this.pruneAndReroot(this.bestNodeIDAtDepth1);
@@ -2244,23 +2250,28 @@ class AIAgent {
         parentNode.expanded = true;
         
         let nodesAddedThisExpand = 0;
+        // ホールドしない場合の展開
         const { placements: placementsNoHold } = this.getLegalPlacements(parentNode.board, pieceToPlace);
         for (const placement of placementsNoHold) {
             this.createAndAddChildNode(parentNode, placement, false, parentNode.holdPiece);
             nodesAddedThisExpand++;
         }
 
+        // 既にこのターンでホールドを使用している場合は、さらにホールドはできない
         if (parentNode.holdUsedThisTurn) {
             this.totalNodesInSearch += nodesAddedThisExpand;
             return; 
         }
 
+        // ホールドする場合の展開
         let pieceForHoldMove = null;
         let newHoldPiece = null;
         if (parentNode.holdPiece === null) {
+            // ホールドが空の場合：現在のピースをホールドし、NEXT1を使用
             pieceForHoldMove = nextPiece;
             newHoldPiece = pieceToPlace;
         } else {
+            // ホールドがある場合：ホールドと交換
             pieceForHoldMove = parentNode.holdPiece;
             newHoldPiece = pieceToPlace;
         }
@@ -2506,7 +2517,7 @@ class AIAgent {
     }
 }
 
-// --- Worker Logic ---
+// --- Worker Loop ---
 
 let isThinking = false;
 let aiAgent = new AIAgent();
@@ -2515,48 +2526,32 @@ let currentQueue = [];
 function thinkingLoop() {
     if (!isThinking) return;
     
-    // 少しだけ探索を進める (100ノード分)
+    // 100ノード分だけ探索を進める
     aiAgent.searchStep(100, currentQueue);
     
-    // 進捗報告
+    // 現在の探索ノード数を報告（デバッグ用）
     self.postMessage({ type: 'nodeCount', count: aiAgent.totalNodesInSearch });
     
-    // 次のサイクルへ
+    // イベントループをブロックしないよう setTimeout で次へ
     setTimeout(thinkingLoop, 0);
 }
 
 self.onmessage = (e) => {
-    const { type, boardString, nextString, isB2B, ren } = e.data;
+    const { type } = e.data;
 
     if (type === 'start') {
+        // メインスレッドからオブジェクトで受け取る
+        const { board, currentPiece, holdPiece, nextQueue, isB2B, ren } = e.data;
+        
         try {
-            const layout = JSON.parse(boardString);
-            const board = TetrisBoard.fromSimulatorBoard(layout);
+            const tetrisBoard = TetrisBoard.fromRawData(board);
             
-            // nextString は "TISZ..." のような文字列
-            currentQueue = nextString.split('');
-            // 最初の1文字は現在操作中のピース、2文字目以降がNEXTキュー
-            // シミュレータからの入力によっては currentQueue[0] が現在ピース
-            // holdPiece は nextString には含まれないため、別途送られてくる必要があるが、
-            // 簡易版シミュレータの仕様では nextString のみを送っている模様。
-            // 念のため currentQueue[0] を現在ピース、currentQueue[1]以降をNEXTとする。
-            // ※ホールドは現在情報として送られていないので、内部で追跡するしかないが、
-            //  シミュレータの仕様上毎回リセットされる可能性があるため、
-            //  ホールド情報は厳密には不正確になる可能性がある。
-            //  (AI 6のロジックではholdPiece引数が必要)
+            // AI内部用のキューを作成: [Current, Next1, Next2, ...]
+            // メインスレッドから currentPiece が送られてくるため、それを先頭にする
+            currentQueue = [currentPiece, ...nextQueue];
             
-            // ダミー実装に合わせて hold は null スタート、あるいは前回のを保持？
-            // ここでは簡易的に null (または前回の探索結果の保持) とするが、
-            // 今回は安全策として毎回 null (ホールドなし) で初期化するか、
-            // AI内部で保持しているホールド情報を利用する。
-            // AIAgent.initSearch で整合性チェックを行う。
-            
-            let hold = null;
-            if (aiAgent.rootID && aiAgent.nodeMap[aiAgent.rootID]) {
-                hold = aiAgent.nodeMap[aiAgent.rootID].holdPiece;
-            }
-
-            aiAgent.initSearch(board, currentQueue, hold, isB2B, ren);
+            // 探索初期化 (盤面ハッシュが一致すれば木を再利用するロジックは initSearch 内)
+            aiAgent.initSearch(tetrisBoard, currentQueue, holdPiece, isB2B, ren);
 
             if (!isThinking) {
                 isThinking = true;
@@ -2571,7 +2566,7 @@ self.onmessage = (e) => {
         const bestPlacement = aiAgent.getBestMove();
         
         if (bestPlacement) {
-            // シミュレータへの返却
+            // 結果を返す
             self.postMessage({
                 piece: bestPlacement.pieceType,
                 x: bestPlacement.x,
@@ -2579,7 +2574,7 @@ self.onmessage = (e) => {
                 rotation: bestPlacement.rotation,
             });
             
-            // 木を次の状態へ進める
+            // 決定した手に合わせて探索木をルート変更 (Pruning)
             aiAgent.advanceTreeToBestMove();
         } else {
             self.postMessage(null);
@@ -3149,7 +3144,7 @@ class Player {
 
             const blob = new Blob([scriptToLoad], { type: 'application/javascript' });
             this.aiWorker = new Worker(URL.createObjectURL(blob));
-        
+       
             this.aiWorker.onmessage = (e) => {
                 if (e.data && e.data.type === 'debug') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
@@ -3157,13 +3152,39 @@ class Player {
                         debugDisplay.textContent = e.data.message;
                     }
                 } else if (e.data && e.data.type === 'nodeCount') {
-                    const debugDisplay = document.getElementById('ai-tree-debug-display');
-                    if (debugDisplay) {
-                        
+                    // ノード数のデバッグ表示などが必要ならここに記述
+                } else if (gameState === 'PLAYING' && this.isAiThinking) {
+                    // AIから手が返ってきた場合
+                    const bestMove = e.data;
+
+                    if (bestMove) {
+                        // ★変更点: 旧AI (default) の場合のみ座標変換を行う
+                        if (this.aiType === 'default') {
+                             let finalX = bestMove.x;
+                             let finalY = bestMove.y; // デフォルト値
+
+                             // 旧AI特有の座標補正ロジック
+                             if (bestMove.pieceType === 'I' && bestMove.rotation === 1) {
+                                 finalX = bestMove.x - 2;
+                                 finalY = 37 - bestMove.y;
+                             } 
+                             else if (bestMove.pieceType === 'Z' && bestMove.rotation === 1) {
+                                 finalX = bestMove.x - 1;
+                                 finalY = 39 - bestMove.y;
+                             } 
+                             else {
+                                 finalX = bestMove.x;
+                                 finalY = 39 - bestMove.y;
+                             }
+                             
+                             // 補正後の値をセット
+                             bestMove.x = finalX;
+                             bestMove.y = finalY;
+                        } 
+                        // 新AI (simplified) は補正不要。AIが正しい座標を返すと信頼する。
                     }
-} else if (gameState === 'PLAYING' && this.isAiThinking) {
                     
-                    this.executeAiMove(e.data);
+                    this.executeAiMove(bestMove);
                 }
             };
         }
