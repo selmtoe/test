@@ -2312,8 +2312,8 @@ class AIAgent {
         let pieceForHoldMove = null;
         let newHoldPiece = null;
         if (parentNode.holdPiece === null) {
-            this.totalNodesInSearch += nodesAddedThisExpand;
-            return;
+            pieceForHoldMove = nextPiece;
+            newHoldPiece = pieceToPlace;
         } else {
             pieceForHoldMove = parentNode.holdPiece;
             newHoldPiece = pieceToPlace;
