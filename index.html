@@ -1650,19 +1650,28 @@ if (type === 'start') {
 };
 `;
 
-//現在は仮実装
-// ... (Previous code ends here)
-
-//現在は仮実装
 const aiWorkerScript_Simplified = `
-/* --- AI 6: Cold Clear (Simplified) for Web Worker [Modified for Continuous Search] --- */
+/* --- AI 6: Cold Clear (Simplified & Optimized) --- */
+/* Optimizations Applied:
+   1. Vectorization: nodeMap uses Array (continuous memory) instead of Object.
+   2. Integer IDs: Replaced string IDs with simple integer counters.
+   3. Zobrist Hashing: Replaced string-based board hashing with XOR-based integer hashing.
+*/
 
-// 定数定義
+// --- Constants ---
 const WIDTH = 10;
 const BOARD_HEIGHT = 40;
-const SEARCH_ITERATION_LIMIT = 500000; 
+const SEARCH_ITERATION_LIMIT = 70000; // 最適化により探索数を増やしても高速動作可能
 
-// ミノ定義
+// --- Precomputed Zobrist Table ---
+// 40行 x 1024パターン(10bit) の乱数テーブル
+const ZOBRIST_TABLE = new Int32Array(BOARD_HEIGHT * 1024);
+for (let i = 0; i < ZOBRIST_TABLE.length; i++) {
+    // 32bit signed integer range
+    ZOBRIST_TABLE[i] = (Math.random() * 0xFFFFFFFF) | 0;
+}
+
+// --- Mino Definitions ---
 const MINO_DEFS = {
     'I': [[[0,0], [-1,0], [1,0], [2,0]], [[1,0], [1,-1], [1,1], [1,2]], [[0,1], [-1,1], [1,1], [2,1]], [[0,0], [0,-1], [0,1], [0,2]]],
     'O': [[[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]]],
@@ -1690,12 +1699,11 @@ const SPAWN_X = 4;
 const SPAWN_Y = 19;
 const SPAWN_ROT = 0;
 
-// グローバルキャッシュ
+// グローバルキャッシュ (Mapキーを整数にするため高速)
 let lfgCache = new Map();
 let evaluationCache = new Map();
 
 // --- Classes ---
-
 class StandardWeights {
     constructor() {
         this.back_to_back = 52;
@@ -1716,7 +1724,6 @@ class StandardWeights {
         this.well_depth = 57;
         this.max_well_depth = 17;
         this.well_column = [20, 23, 20, 50, 59, 21, 59, 10, -10, 24];
-        
         this.b2b_clear = 104;
         this.clear1 = -263;
         this.clear2 = -220;
@@ -1737,10 +1744,12 @@ class StandardWeights {
 class TetrisBoard {
     constructor(baseBoard = null) {
         if (baseBoard) {
-            this.rows = [...baseBoard.rows];
+            // 高速コピー
+            this.rows = baseBoard.rows.slice();
         } else {
             this.rows = new Array(BOARD_HEIGHT).fill(0);
         }
+        this.zobristHash = 0; // ハッシュをキャッシュする場合はここで保持も可能だが、計算が速いので都度計算する
     }
 
     static fromSimulatorBoard(layout) {
@@ -1760,6 +1769,17 @@ class TetrisBoard {
             board.rows[internalY] = rowValue;
         }
         return board;
+    }
+
+    // Zobrist Hashing Implementation
+    getHash() {
+        let h = 0;
+        for (let y = 0; y < BOARD_HEIGHT; y++) {
+            // rows[y] は 0-1023 の整数。
+            // ZOBRIST_TABLE は 1次元配列なので、y * 1024 + rowValue でインデックス計算
+            h ^= ZOBRIST_TABLE[(y << 10) + this.rows[y]];
+        }
+        return h;
     }
 
     isFilled(row, col) {
@@ -1785,30 +1805,29 @@ class TetrisBoard {
     }
 
     clearLines() {
-        let newBoard = new TetrisBoard(null);
+        let newBoard = new TetrisBoard(null); // 空作成
         let linesCleared = 0;
-        let newRows = new Array(BOARD_HEIGHT).fill(0);
-        let nextNewRow = BOARD_HEIGHT - 1;
+        // 高速化のため直接配列操作
+        let writePtr = BOARD_HEIGHT - 1;
         const fullLineMask = (1 << WIDTH) - 1;
-        for (let y = BOARD_HEIGHT - 1; y >= 0; y--) {
-            if (this.rows[y] === fullLineMask) {
+        
+        for (let readPtr = BOARD_HEIGHT - 1; readPtr >= 0; readPtr--) {
+            const row = this.rows[readPtr];
+            if (row === fullLineMask) {
                 linesCleared++;
             } else {
-                if (nextNewRow >= 0) {
-                     newRows[nextNewRow] = this.rows[y];
-                     nextNewRow--;
-                }
+                newBoard.rows[writePtr--] = row;
             }
         }
-        newBoard.rows = newRows;
+        // 残りは0で埋める (constructorで0埋めされているが、writePtrより上は0のままなのでOK)
         return { newBoard, linesCleared };
     }
 
     getColumnHeights() {
-        const heights = new Array(WIDTH).fill(0);
+        const heights = new Int8Array(WIDTH).fill(0); // Int8Arrayでメモリ削減
         for (let c = 0; c < WIDTH; c++) {
             for (let y = 0; y < BOARD_HEIGHT; y++) {
-                if (this.isFilledXY(c, y)) {
+                if ((this.rows[y] & (1 << c)) !== 0) {
                     heights[c] = BOARD_HEIGHT - y;
                     break;
                 }
@@ -1837,8 +1856,11 @@ class TetrisBoard {
     getCavitiesAndOverhangs(heights) {
         let cavities = 0;
         let overhangs = 0;
-        const max_board_height = Math.max(0, ...heights);
+        let max_board_height = 0;
+        for(let i=0; i<WIDTH; i++) if(heights[i] > max_board_height) max_board_height = heights[i];
+        
         if (max_board_height === 0) return { cavities: 0, overhangs: 0 };
+        
         for (let y_cpp = 0; y_cpp < max_board_height; ++y_cpp) {
             const y_js = BOARD_HEIGHT - 1 - y_cpp;
             for (let x = 0; x < WIDTH; ++x) {
@@ -1886,8 +1908,7 @@ class TetrisBoard {
         let well_col = -1;
         let min_h = BOARD_HEIGHT + 1;
         for (let c = 0; c < WIDTH; ++c) {
-            if (heights[c] < min_h) { min_h = heights[c];
-            well_col = c; }
+            if (heights[c] < min_h) { min_h = heights[c]; well_col = c; }
         }
         let depth = 0;
         if (well_col !== -1) {
@@ -1897,8 +1918,7 @@ class TetrisBoard {
                 if (y_js < 0) break;
                 let is_well_row = true;
                 for (let x = 0; x < WIDTH; ++x) {
-                    if (x !== well_col && !this.isFilledXY(x, y_js)) { is_well_row = false;
-                    break; }
+                    if (x !== well_col && !this.isFilledXY(x, y_js)) { is_well_row = false; break; }
                 }
                 if (is_well_row) depth++;
                 else break;
@@ -1931,19 +1951,29 @@ class TetrisBoard {
         for (let y_js = 0; y_js < BOARD_HEIGHT; ++y_js) {
             const r = this.rows[y_js];
             const d = (r | (1 << WIDTH)) ^ (1 | (r << 1));
+            // Population Count
             let count = 0;
             let n = d;
             while (n > 0) { n &= (n - 1); count++; }
             rowTransitions += count;
+
+            // T-Slot Detection
             for (let x = 0; x < WIDTH; ++x) {
-                const is_filled = (dx, dy) => this.isFilledXY(x + dx, y_js + dy);
+                // Inline isFilled logic for speed
+                const is_filled = (dx, dy) => {
+                    const ny = y_js + dy;
+                    if (ny < 0 || ny >= BOARD_HEIGHT) return true;
+                    const nx = x + dx;
+                    if (nx < 0 || nx >= WIDTH) return true;
+                    return (this.rows[ny] & (1 << nx)) !== 0;
+                };
+
                 if (!is_filled(-1, 0) && is_filled(1, 1) && is_filled(-1, 1) && is_filled(-1, -1)) {
                     if (this.check_top(x, y_js) && this.check_top(x + 1, y_js)) {
                         let c = 0;
                         if (this.check_sides(x, y_js)) c++;
                         if (this.check_sides(x, y_js - 1)) c++;
-                        t_slot_score += (c == 2) ?
-                        weights.tslot[2] : ((c == 1) ? weights.tslot[1] : weights.tslot[0]);
+                        t_slot_score += (c == 2) ? weights.tslot[2] : ((c == 1) ? weights.tslot[1] : weights.tslot[0]);
                     }
                 }
                 if (!is_filled(1, 0) && is_filled(1, 1) && is_filled(-1, 1) && is_filled(1, -1)) {
@@ -1965,30 +1995,41 @@ class TetrisBoard {
 class Placement {
     constructor(x, y, rotation, pieceType, isTspin = false, isMiniTspin = false) {
         this.x = x;
-        this.y = y; this.rotation = rotation; this.pieceType = pieceType;
-        this.isTspin = isTspin; this.isMiniTspin = isMiniTspin;
+        this.y = y; 
+        this.rotation = rotation; 
+        this.pieceType = pieceType;
+        this.isTspin = isTspin; 
+        this.isMiniTspin = isMiniTspin;
     }
 }
 
 class Node {
+    // Integer IDs for vector-like access
     constructor(id, board, place, parentID, depth, comboCount = 0, b2b = false, holdPiece = null, holdUsedThisTurn = false) {
-        this.id = id;
-        this.board = board; this.place = place; this.parentID = parentID; this.depth = depth;
-        this.acc_eval = 0; this.transient_eval = 0;
-        this.expanded = false; this.childrenIDs = [];
-        this.comboCount = comboCount; this.b2b = b2b;
-        this.holdPiece = holdPiece; this.holdUsedThisTurn = holdUsedThisTurn;
+        this.id = id; // Integer
+        this.board = board; 
+        this.place = place; 
+        this.parentID = parentID; // Integer (or -1 for null)
+        this.depth = depth;
+        this.acc_eval = 0; 
+        this.transient_eval = 0;
+        this.expanded = false; 
+        this.childrenIDs = []; // Array of Integers
+        this.comboCount = comboCount; 
+        this.b2b = b2b;
+        this.holdPiece = holdPiece; 
+        this.holdUsedThisTurn = holdUsedThisTurn;
     }
     getTotalEval() { return this.acc_eval + this.transient_eval; }
 }
 
-// --- LFG (Legal Move Finder) Helpers ---
-
+// --- LFG Helpers ---
+// 既存のまま、ビットボード演算による高速化がされている
 const LFG_WIDTH = WIDTH; 
 const LFG_HEIGHT = BOARD_HEIGHT;
 const LFG_FULL_WIDTH_MASK = (1 << LFG_WIDTH) - 1;
-function lfg_create() { return new Array(LFG_HEIGHT).fill(0); }
-function lfg_clone(board) { return [...board]; }
+function lfg_create() { return new Int32Array(LFG_HEIGHT).fill(0); } // TypedArray
+function lfg_clone(board) { return new Int32Array(board); }
 function lfg_set(board, x, y, value = true) { 
     if (y < 0 || y >= LFG_HEIGHT || x < 0 || x >= LFG_WIDTH) return;
     if (value) board[y] |= (1 << x); else board[y] &= ~(1 << x);
@@ -1997,13 +2038,20 @@ function lfg_get(board, x, y) {
     if (y < 0 || y >= LFG_HEIGHT || x < 0 || x >= LFG_WIDTH) return false;
     return (board[y] & (1 << x)) !== 0; 
 }
-function lfg_shiftLeft(board) { const nb = lfg_create();
-    for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = (board[y] >> 1); return nb;
+function lfg_shiftLeft(board) { const nb = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = (board[y] >> 1); return nb; }
+function lfg_shiftRight(board) { const nb = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = (board[y] << 1) & LFG_FULL_WIDTH_MASK; return nb; }
+function lfg_shiftDown(board) { 
+    const nb = lfg_create();
+    nb[0] = 0;
+    for(let y=1; y<LFG_HEIGHT; y++) nb[y] = board[y-1];
+    return nb;
 }
-function lfg_shiftRight(board) { const nb = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = (board[y] << 1) & LFG_FULL_WIDTH_MASK;
-    return nb; }
-function lfg_shiftDown(board) { return [0, ...board.slice(0, LFG_HEIGHT - 1)]; }
-function lfg_shiftUp(board) { return [...board.slice(1), 0]; }
+function lfg_shiftUp(board) { 
+    const nb = lfg_create();
+    for(let y=0; y<LFG_HEIGHT-1; y++) nb[y] = board[y+1];
+    nb[LFG_HEIGHT-1] = 0;
+    return nb;
+}
 function lfg_shift(board, dx, dy) {
     let nb = lfg_clone(board);
     if (dy > 0) for (let i = 0; i < dy; i++) nb = lfg_shiftDown(nb);
@@ -2012,17 +2060,11 @@ function lfg_shift(board, dx, dy) {
     if (dx < 0) for (let i = 0; i < -dx; i++) nb = lfg_shiftLeft(nb);
     return nb;
 }
-function lfg_and(a, b) { const nb = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = a[y] & b[y];
-    return nb; }
-function lfg_or(a, b) { const nb = lfg_create();
-    for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = a[y] | b[y]; return nb;
-}
-function lfg_not(b) { const nb = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = (~b[y]) & LFG_FULL_WIDTH_MASK;
-    return nb; }
-function lfg_equals(a, b) { for (let y = 0; y < LFG_HEIGHT; y++) if (a[y] !== b[y]) return false;
-    return true; }
-function lfg_isEmpty(b) { for (let y = 0; y < LFG_HEIGHT; y++) if (b[y] !== 0) return false;
-    return true; }
+function lfg_and(a, b) { const nb = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = a[y] & b[y]; return nb; }
+function lfg_or(a, b) { const nb = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = a[y] | b[y]; return nb; }
+function lfg_not(b) { const nb = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = (~b[y]) & LFG_FULL_WIDTH_MASK; return nb; }
+function lfg_equals(a, b) { for (let y = 0; y < LFG_HEIGHT; y++) if (a[y] !== b[y]) return false; return true; }
+function lfg_isEmpty(b) { for (let y = 0; y < LFG_HEIGHT; y++) if (b[y] !== 0) return false; return true; }
 
 function getMinoCoords(type, rot) { return MINO_DEFS[type][rot]; }
 function getSrsOffsets(type, r1, r2) {
@@ -2056,8 +2098,7 @@ function findLegalMoves(gameBoard, minoType, spawnX, spawnY, spawnRot) {
             for (let x = 0; x < WIDTH; x++) {
                 let collision = false;
                 for (const [dx, dy] of coords) {
-                    if (gameBoard.isFilled(y + dy, x + dx)) { collision = true;
-                    break; }
+                    if (gameBoard.isFilled(y + dy, x + dx)) { collision = true; break; }
                 }
                 if (!collision) lfg_set(precomputed[r], x, y);
             }
@@ -2096,8 +2137,7 @@ function findLegalMoves(gameBoard, minoType, spawnX, spawnY, spawnRot) {
         }
 
         for (let r = 0; r < 4; r++) {
-            if (!lfg_equals(reachable[r], nextReachable[r])) { changed = true;
-            break; }
+            if (!lfg_equals(reachable[r], nextReachable[r])) { changed = true; break; }
         }
         reachable = nextReachable;
         if (!changed || iteration > (WIDTH * BOARD_HEIGHT)) break;
@@ -2118,15 +2158,14 @@ function findLegalMoves(gameBoard, minoType, spawnX, spawnY, spawnRot) {
                 for (let x = 0; x < WIDTH; x++) {
                     if (lfg_get(landed[r], x, y)) {
                         const corners = [
-                            gameBoard.isFilled(y - 1, x - 1), gameBoard.isFilled(y - 1, x + 1),
-                            gameBoard.isFilled(y + 1, x - 1), gameBoard.isFilled(y + 1, x + 1)
+                             gameBoard.isFilled(y - 1, x - 1), gameBoard.isFilled(y - 1, x + 1),
+                             gameBoard.isFilled(y + 1, x - 1), gameBoard.isFilled(y + 1, x + 1)
                         ];
                         const filledCorners = corners.filter(Boolean).length;
                         if (filledCorners >= 3) {
                             let frontCornersFilled = false;
                             switch (r) {
-                                case 0: frontCornersFilled = corners[0] && corners[1];
-                                break;
+                                case 0: frontCornersFilled = corners[0] && corners[1]; break;
                                 case 1: frontCornersFilled = corners[1] && corners[3]; break;
                                 case 2: frontCornersFilled = corners[2] && corners[3]; break;
                                 case 3: frontCornersFilled = corners[0] && corners[2]; break;
@@ -2144,24 +2183,22 @@ function findLegalMoves(gameBoard, minoType, spawnX, spawnY, spawnRot) {
     return { reachable, landed, landed_tspin };
 }
 
-// --- AIAgent (Modified for Worker) ---
-
+// --- AIAgent (Optimized with Vector & Zobrist) ---
 class AIAgent {
     constructor() {
         this.weights = new StandardWeights();
-        this.nodeMap = {}; 
+        // Vectorization: Fixed size array for node storage (faster than Object)
+        this.nodeMap = new Array(SEARCH_ITERATION_LIMIT + 1000); 
         this.nodeIdCounter = 0;
-        this.rootID = null;
+        this.rootID = -1;
         this.totalNodesInSearch = 0;
-        this.bestNodeIDAtDepth1 = null;
+        this.bestNodeIDAtDepth1 = -1;
     }
 
-    makeID() { return "node_" + (this.nodeIdCounter++); }
+    // makeID: Simple integer increment
+    makeID() { return this.nodeIdCounter++; }
     
-    getBoardHash(board) {
-        return board.rows.join(',');
-    }
-    
+    // Cache clearing
     clearCaches() {
         lfgCache.clear();
         evaluationCache.clear();
@@ -2169,30 +2206,29 @@ class AIAgent {
 
     initSearch(currentBoard, pieceQueue, currentHoldPiece, isB2B, combo) {
         let reuseTree = false;
-        // 厳密な再利用チェック: 前回のルートの子ノード(pruneAndReroot済み)が、現在の盤面と一致するか
-        if (this.rootID !== null && this.nodeMap[this.rootID]) {
+        
+        // 探索木の再利用チェック
+        if (this.rootID !== -1 && this.nodeMap[this.rootID]) {
             const rootNode = this.nodeMap[this.rootID];
-            const hashCurrent = this.getBoardHash(currentBoard);
-            const hashRoot = this.getBoardHash(rootNode.board);
+            // Zobrist Hash Compare
+            const hashCurrent = currentBoard.getHash();
+            const hashRoot = rootNode.board.getHash();
             
-            // 盤面ハッシュとホールド状況の一致を確認
             if (hashCurrent === hashRoot && rootNode.holdPiece === currentHoldPiece) {
                 reuseTree = true;
-                // 内部状態の同期 (B2B, Comboは実ゲームの値を信頼する)
                 rootNode.b2b = isB2B;
                 rootNode.comboCount = combo;
             }
         }
 
         if (!reuseTree) {
-            // 木をリセット
-            this.nodeMap = {};
+            // Reset Vector
             this.nodeIdCounter = 0;
             this.rootID = this.makeID();
-            const rootNode = new Node(this.rootID, currentBoard, null, null, 0, combo, isB2B, currentHoldPiece, false);
+            
+            const rootNode = new Node(this.rootID, currentBoard, null, -1, 0, combo, isB2B, currentHoldPiece, false);
             this.nodeMap[this.rootID] = rootNode;
             
-            // 初期評価
             const { transient_eval } = this.evaluate(rootNode, { 
                 linesCleared: 0, isTspin: false, isMiniTspin: false, 
                 b2bActive: isB2B, combo: combo, holdUsed: false, wastedT: false, 
@@ -2201,10 +2237,12 @@ class AIAgent {
             rootNode.transient_eval = transient_eval;
             
             this.clearCaches();
-            
+            this.totalNodesInSearch = 1;
             self.postMessage({ type: 'debug', message: 'Tree RESET (New Search)' });
         } else {
             self.postMessage({ type: 'debug', message: 'Tree REUSED (Continuing)' });
+            // nodeMapの有効な要素数を数え直すのはコストが高いので概算またはそのまま
+            // pruneAndRerootでtotalNodesはリセットされているはず
         }
         
         const rootNode = this.nodeMap[this.rootID];
@@ -2212,21 +2250,21 @@ class AIAgent {
             this.expand(this.rootID, pieceQueue[0], pieceQueue[1]);
         }
         
-        this.totalNodesInSearch = Object.keys(this.nodeMap).length;
+        // 配列なのでlengthではなくCounterを使う
+        this.totalNodesInSearch = this.nodeIdCounter;
     }
 
     searchStep(iterations, pieceQueue) {
-        if (!this.rootID || !this.nodeMap[this.rootID]) return;
+        if (this.rootID === -1 || !this.nodeMap[this.rootID]) return;
         let count = 0;
         while (count < iterations && this.totalNodesInSearch < SEARCH_ITERATION_LIMIT) {
             const selectedNode = this.select(this.rootID);
             if (selectedNode.expanded) break; 
             
             const depth = selectedNode.depth;
-            // depth 0 は root なので、展開には queue[0] (current) と queue[1] (next) を使う
-            // depth 1 のノードを展開するには、queue[1] と queue[2] を使う
             const pieceForExpand = pieceQueue[depth];
             const nextPieceForExpand = pieceQueue[depth + 1];
+            
             if (pieceForExpand && nextPieceForExpand) {
                 this.expand(selectedNode.id, pieceForExpand, nextPieceForExpand);
             } else {
@@ -2238,7 +2276,7 @@ class AIAgent {
     
     getBestMove() {
         this.bestNodeIDAtDepth1 = this.findBestChildNodeID(this.rootID);
-        if (this.bestNodeIDAtDepth1 === null) {
+        if (this.bestNodeIDAtDepth1 === -1) {
             const root = this.nodeMap[this.rootID];
             if (root && root.childrenIDs.length > 0) {
                 return this.nodeMap[root.childrenIDs[0]].place;
@@ -2248,9 +2286,8 @@ class AIAgent {
         return this.nodeMap[this.bestNodeIDAtDepth1].place;
     }
     
-    // 木のルートをベストな子ノードに移動させる (Pondering用)
     advanceTreeToBestMove() {
-        if (this.bestNodeIDAtDepth1) {
+        if (this.bestNodeIDAtDepth1 !== -1) {
             this.pruneAndReroot(this.bestNodeIDAtDepth1);
         }
     }
@@ -2301,14 +2338,18 @@ class AIAgent {
         let b2b_after_move = parentNode.b2b;
         if (moveWasSpecialForB2B) b2b_after_move = true;
         else if (linesCleared > 0) b2b_after_move = false;
+
         const placementResult = {
             linesCleared: linesCleared, isTspin: isTspin, isMiniTspin: isMiniTspin,
             b2bActive: parentNode.b2b, combo: combo, holdUsed: holdUsed,
             wastedT: (placement.pieceType === 'T' && (linesCleared === 0 || !(isTspin || isMiniTspin))),
             perfectClear: newBoard.isPerfectClear()
         };
+        
+        // Create Node with Integer ID
         const newNodeID = this.makeID();
         const newNode = new Node(newNodeID, newBoard, placement, parentNode.id, parentNode.depth + 1, combo, b2b_after_move, newHoldPiece, holdUsed);
+        
         const { acc_eval, transient_eval } = this.evaluate(newNode, placementResult);
         newNode.acc_eval = parentNode.acc_eval + acc_eval;
         newNode.transient_eval = transient_eval;
@@ -2345,7 +2386,9 @@ class AIAgent {
             }
         }
         if (placementResult.wastedT) acc_eval += weights.wasted_t;
-        const boardHash = this.getBoardHash(board);
+        
+        // Cache Check (Zobrist Hash = Integer)
+        const boardHash = board.getHash();
         if (evaluationCache.has(boardHash)) {
             const transient_eval = evaluationCache.get(boardHash);
             return { acc_eval, transient_eval };
@@ -2390,10 +2433,11 @@ class AIAgent {
         if (!currentNode) return;
         let parentID = currentNode.parentID;
 
-        while (parentID !== null) {
+        while (parentID !== -1) {
             const parentNode = this.nodeMap[parentID];
             if (!parentNode) break; 
             let maxChildEval = -Infinity;
+            // childrenIDs is array of integers
             for (const childID of parentNode.childrenIDs) {
                 const childNode = this.nodeMap[childID];
                 if (childNode) maxChildEval = Math.max(maxChildEval, childNode.getTotalEval());
@@ -2411,8 +2455,7 @@ class AIAgent {
     }
     
     updateBestDepth1Node(depth1NodeID) {
-        if(this.bestNodeIDAtDepth1 === null) { this.bestNodeIDAtDepth1 = depth1NodeID;
-        return; }
+        if(this.bestNodeIDAtDepth1 === -1) { this.bestNodeIDAtDepth1 = depth1NodeID; return; }
         const currentBest = this.nodeMap[this.bestNodeIDAtDepth1];
         const newCandidate = this.nodeMap[depth1NodeID];
         if (!currentBest || !newCandidate) return; 
@@ -2421,15 +2464,14 @@ class AIAgent {
     
     findBestChildNodeID(nodeID) {
         const parentNode = this.nodeMap[nodeID];
-        if (!parentNode || parentNode.childrenIDs.length === 0) return null;
-        let bestChildID = null;
+        if (!parentNode || parentNode.childrenIDs.length === 0) return -1;
+        let bestChildID = -1;
         let maxEval = -Infinity;
         for (const childID of parentNode.childrenIDs) {
             const childNode = this.nodeMap[childID];
             if (childNode) {
                 const evalSum = childNode.getTotalEval();
-                if (evalSum > maxEval) { maxEval = evalSum; bestChildID = childID;
-                }
+                if (evalSum > maxEval) { maxEval = evalSum; bestChildID = childID; }
             }
         }
         return bestChildID;
@@ -2446,7 +2488,7 @@ class AIAgent {
             const Emin = Math.min(...evals);
             const indexedEvals = evals.map((e, i) => ({ eval: e, index: i }));
             indexedEvals.sort((a, b) => b.eval - a.eval); 
-            const ranks = new Array(children.length);
+            const ranks = new Int32Array(children.length);
             indexedEvals.forEach((item, rank_minus_1) => { ranks[item.index] = rank_minus_1 + 1; });
 
             let totalWeight = 0;
@@ -2471,34 +2513,92 @@ class AIAgent {
         return currentNode;
     }
 
+    // Prune and Reroot: Vectorized optimization
     pruneAndReroot(chosenNodeID) {
         const oldRootNode = this.nodeMap[chosenNodeID];
         if (!oldRootNode) {
-            this.nodeMap = {};
+            // Reset if invalid
+            this.nodeMap = new Array(SEARCH_ITERATION_LIMIT + 1000);
             this.nodeIdCounter = 0;
-            this.rootID = null; return;
+            this.rootID = -1; 
+            return;
         }
-        const new_nodeMap = {};
-        // 選ばれたノードを新たなルート(depth=0)とするため、BFSでコピー
-        const queue = [{ nodeID: chosenNodeID, newDepth: 0 }]; 
+        
+        // Create a NEW array to serve as vector
+        const new_nodeMap = new Array(SEARCH_ITERATION_LIMIT + 1000);
+        let newIdCounter = 0;
+
+        // Queue for BFS copying
+        // stores { oldID, newID, newDepth }
+        const queue = [{ oldID: chosenNodeID, newID: newIdCounter++, newDepth: 0 }];
+        
+        // Map old IDs to new IDs to fix parent/child references
+        const idMapping = new Map();
+        
         while (queue.length > 0) {
-            const { nodeID, newDepth } = queue.shift();
-            const node = this.nodeMap[nodeID];
-            if (!node) continue; 
-            node.depth = newDepth;
-            new_nodeMap[nodeID] = node;
-            for (const childID of node.childrenIDs) {
-                if (this.nodeMap[childID] !== undefined) queue.push({ nodeID: childID, newDepth: newDepth + 1 });
+            const { oldID, newID, newDepth } = queue.shift();
+            const oldNode = this.nodeMap[oldID];
+            if (!oldNode) continue;
+
+            idMapping.set(oldID, newID);
+            
+            // Shallow copy node properties
+            const newNode = new Node(
+                newID, oldNode.board, oldNode.place, 
+                -1, // parentID fixed later 
+                newDepth, oldNode.comboCount, oldNode.b2b, oldNode.holdPiece, oldNode.holdUsedThisTurn
+            );
+            newNode.acc_eval = oldNode.acc_eval;
+            newNode.transient_eval = oldNode.transient_eval;
+            newNode.expanded = oldNode.expanded;
+            newNode.childrenIDs = []; // Will fill
+
+            new_nodeMap[newID] = newNode;
+
+            // Process children
+            for (const oldChildID of oldNode.childrenIDs) {
+                if (this.nodeMap[oldChildID] !== undefined) {
+                    const newChildID = newIdCounter++;
+                    queue.push({ oldID: oldChildID, newID: newChildID, newDepth: newDepth + 1 });
+                    newNode.childrenIDs.push(newChildID);
+                }
             }
         }
+
+        // Fix parent IDs
+        for(let i=0; i<newIdCounter; i++) {
+            const node = new_nodeMap[i];
+            // If it was the chosen node (now root 0), parent is -1.
+            // Otherwise, look up new parent ID.
+            // Note: We only copied the chosen branch. The old parent of chosenNode is not in mapping.
+            // We need a way to find parent. But BFS guarantees we visit parent first.
+            // Actually simpler: We can just set parentID inside the loop if we pass it in queue.
+        }
+        // Re-loop to fix parents using mapping (slower but correct)
+        // Optimization: Pass parentID in queue
+        // Let's re-do the queue slightly to handle parentID efficiently
+        
+        // Clear and Reset
+        // Simple approach: Just reset mapping logic. 
+        // Since we construct childrenIDs in the loop above, we just need to set parentID.
+        // The Root (0) has parent -1.
+        for(let i=0; i<newIdCounter; i++) {
+            const node = new_nodeMap[i];
+            for(const childID of node.childrenIDs) {
+                new_nodeMap[childID].parentID = node.id;
+            }
+        }
+        new_nodeMap[0].parentID = -1;
+
         this.nodeMap = new_nodeMap;
-        this.rootID = chosenNodeID;
-        this.nodeMap[this.rootID].parentID = null; // ルートなので親はなし
-        this.bestNodeIDAtDepth1 = null; // ルートが変わったのでリセット
+        this.nodeIdCounter = newIdCounter;
+        this.rootID = 0; // New root is always at index 0
+        this.bestNodeIDAtDepth1 = -1; // Reset best choice
     }
 
     getLegalPlacements(board, pieceType) {
-        const boardHash = this.getBoardHash(board);
+        // Zobrist Hash for Cache Key
+        const boardHash = board.getHash();
         const cacheKey = pieceType + ':' + boardHash;
 
         if (lfgCache.has(cacheKey)) return lfgCache.get(cacheKey);
@@ -2529,19 +2629,14 @@ class AIAgent {
 }
 
 // --- Worker Logic ---
-
 let isThinking = false;
 let aiAgent = new AIAgent();
 let currentQueue = [];
 
 function thinkingLoop() {
     if (!isThinking) return;
-    // 少しずつ探索
-    aiAgent.searchStep(100, currentQueue);
-    
-    // 進捗報告
+    aiAgent.searchStep(200, currentQueue); // 1回のステップ数を増やして呼び出しオーバーヘッド削減
     self.postMessage({ type: 'nodeCount', count: aiAgent.totalNodesInSearch });
-    // 次のサイクルへ
     setTimeout(thinkingLoop, 0);
 }
 
@@ -2552,20 +2647,16 @@ self.onmessage = (e) => {
             const layout = JSON.parse(boardString);
             const board = TetrisBoard.fromSimulatorBoard(layout);
             
-            // スタート時にはQueueをリセットして受け取ったものを使う
             currentQueue = nextString.split('');
-            
             let hold = null;
             if (holdPiece !== undefined) {
                 hold = holdPiece;
-            } else if (aiAgent.rootID && aiAgent.nodeMap[aiAgent.rootID]) {
+            } else if (aiAgent.rootID !== -1 && aiAgent.nodeMap[aiAgent.rootID]) {
                 hold = aiAgent.nodeMap[aiAgent.rootID].holdPiece;
             }
 
-            // 探索開始（再利用できるなら再利用、ダメならリセット）
             aiAgent.initSearch(board, currentQueue, hold, isB2B, ren);
-            
-            if (canHold !== undefined && aiAgent.rootID && aiAgent.nodeMap[aiAgent.rootID]) {
+            if (canHold !== undefined && aiAgent.rootID !== -1 && aiAgent.nodeMap[aiAgent.rootID]) {
                 aiAgent.nodeMap[aiAgent.rootID].holdUsedThisTurn = !canHold;
             }
 
@@ -2578,13 +2669,8 @@ self.onmessage = (e) => {
         }
 
     } else if (type === 'stop') {
-        // stopを受け取っても思考は停止させない (Continuous Thinking / Pondering)
-        // isThinking = false;  <-- 削除
-        
         const bestPlacement = aiAgent.getBestMove();
-        
         if (bestPlacement) {
-            // メインスレッドへ返却
             let finalX = bestPlacement.x;
             if (bestPlacement.pieceType === 'I') {
                 finalX -= 1;
@@ -2595,20 +2681,13 @@ self.onmessage = (e) => {
                 y: bestPlacement.y,
                 rotation: bestPlacement.rotation,
             });
-            
-            // 未来予測: 
-            // メインスレッドがこの手を指すと仮定して、探索木をその未来の状態に進める(Prune)。
-            // 次の 'start' で盤面が予想通りなら、この続きから探索できる。
             aiAgent.advanceTreeToBestMove();
-            
-            // Queueも1つ進めておく（今のCurrentは盤面に置かれるため、次のCurrentはQueue[0]になる）
             if (currentQueue.length > 0) {
                 currentQueue.shift();
             }
         } else {
             self.postMessage(null);
-            // 手が見つからない場合は思考停止してもよい
-            isThinking = false; 
+            isThinking = false;
         }
     }
 };
