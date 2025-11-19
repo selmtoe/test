@@ -1650,6 +1650,63 @@ if (type === 'start') {
 };
 `;
 
+//現在は仮実装
+const aiWorkerScript_Simplified = `
+let isThinking = false;
+let bestMoveCandidate = null;
+
+// 思考ループ（ハリボテ：実際には計算せず、無限ループしてるフリをする）
+function thinkingLoop() {
+    if (!isThinking) return;
+    
+    // ここに本来のAIロジックが入ります
+    // 今はハリボテなので、何もしないか、適当な負荷をかけるだけ
+    
+    // 探索回数などを通知（デバッグ用）
+    self.postMessage({ type: 'nodeCount', count: 0 });
+    
+    setTimeout(thinkingLoop, 0);
+}
+
+self.onmessage = (e) => {
+    const { type, boardString, nextString, isB2B, ren } = e.data;
+
+    if (type === 'start') {
+        // 盤面やネクストを受け取る（既存AIと同じ形式）
+        // 初期位置などを計算するフリ
+        
+        // ★ハリボテ: とりあえず「動きなし（今の位置）」を最善手とする
+        // 実際にはここで盤面解析を行い、bestMoveCandidate を更新し続ける
+        bestMoveCandidate = {
+            rotation: 0, // 回転なし
+            x: 4,        // 中央あたり（適当）
+            y: 20        // 適当な高さ
+        };
+
+        if (!isThinking) {
+            isThinking = true;
+            thinkingLoop();
+        }
+
+    } else if (type === 'stop') {
+        // 思考停止命令が来たら、その時点での最善手を返す
+        isThinking = false;
+        
+        if (bestMoveCandidate) {
+            // そのまま返す (座標変換はここではしない)
+            self.postMessage({
+                piece: 'T', // 仮
+                x: bestMoveCandidate.x,
+                y: bestMoveCandidate.y,
+                rotation: bestMoveCandidate.rotation,
+            });
+        } else {
+            self.postMessage(null);
+        }
+    }
+};
+`;
+
 const virtualController = (() => {
 
     let container, canvas, ctx, editControls;
@@ -2194,12 +2251,24 @@ function* createMinoGenerator(customQueue) {
 
 class Player {
     constructor(id, offsetX, keyBindings, padIndex, isAi = false) {
-        this.id = id; this.offsetX = offsetX; this.keyBindings = keyBindings; this.padIndex = padIndex;
+        this.id = id;
+        this.offsetX = offsetX; this.keyBindings = keyBindings; this.padIndex = padIndex;
         this.isAi = isAi;
         this.isAiThinking = false;
         this.aiWorker = null;
+        
+        this.aiType = gameSettings.aiType || 'simplified'; 
+
         if (this.isAi) {
-            this.aiWorker = new Worker(URL.createObjectURL(aiWorkerBlob));
+            // AIタイプによって読み込むスクリプトを変える
+            let scriptToLoad = aiWorkerScript_Simplified;
+            if (this.aiType === 'default') {
+                scriptToLoad = aiWorkerScript;//strongly simplified
+            }
+
+            const blob = new Blob([scriptToLoad], { type: 'application/javascript' });
+            this.aiWorker = new Worker(URL.createObjectURL(blob));
+        
             this.aiWorker.onmessage = (e) => {
                 if (e.data && e.data.type === 'debug') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
@@ -4213,7 +4282,6 @@ function populateKeyConfigTab(playerId) {
 
 
 function populateAiSettingsTab() {
-
     const list = document.getElementById('ai-settings-list');
     list.innerHTML = '';
 
@@ -4221,14 +4289,31 @@ function populateAiSettingsTab() {
     itemType.className = 'setting-item';
     const labelType = document.createElement('span');
     labelType.textContent = 'AIの種類';
+    
     const selectType = document.createElement('select');
+    selectType.id = 'ai-type-select';
     selectType.style.minWidth = '150px';
     selectType.style.backgroundColor = 'var(--primary-color)';
     selectType.style.color = 'var(--font-color)';
     selectType.style.border = '1px solid var(--border-color)';
     selectType.style.padding = '5px';
     selectType.style.borderRadius = '4px';
-    selectType.innerHTML = '<option value="default">Cold Clear (Strongly Simplified)</option>';
+
+    selectType.innerHTML = `
+        <option value="simplified" selected>Cold Clear (Simplified)</option>
+        <option value="default">Cold Clear (Strongly Simplified)</option>
+    `;
+
+    selectType.onchange = (e) => {
+        gameSettings.aiType = e.target.value;
+    };
+    
+    if (gameSettings.aiType) {
+        selectType.value = gameSettings.aiType;
+    } else {
+        gameSettings.aiType = 'simplified';
+    }
+
     itemType.append(labelType, selectType);
     list.appendChild(itemType);
 
