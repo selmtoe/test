@@ -2572,13 +2572,16 @@ self.onmessage = (e) => {
         
         if (bestPlacement) {
             // シミュレータへの返却
+            let finalX = bestPlacement.x;
+            if (bestPlacement.pieceType === 'I') {
+                finalX -= 1;
+            }
             self.postMessage({
                 piece: bestPlacement.pieceType,
-                x: bestPlacement.x,
+                x: finalX,
                 y: bestPlacement.y,
                 rotation: bestPlacement.rotation,
             });
-            
             // 木を次の状態へ進める
             aiAgent.advanceTreeToBestMove();
         } else {
