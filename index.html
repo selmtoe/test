@@ -2159,15 +2159,12 @@ class AIAgent {
         evaluationCache.clear();
     }
 
-    // 探索の初期化：既存の木と比較して継続かリセットかを判断
     initSearch(currentBoard, pieceQueue, currentHoldPiece, isB2B, combo) {
-        // ルートノードが存在し、かつ盤面状態が一致しているか確認
         let reuseTree = false;
         if (this.rootID !== null && this.nodeMap[this.rootID]) {
             const rootNode = this.nodeMap[this.rootID];
             const hashCurrent = this.getBoardHash(currentBoard);
             const hashRoot = this.getBoardHash(rootNode.board);
-            // ホールドの整合性もチェック
             if (hashCurrent === hashRoot && rootNode.holdPiece === currentHoldPiece) {
                 reuseTree = true;
             }
@@ -2182,10 +2179,13 @@ class AIAgent {
             this.nodeMap[this.rootID] = rootNode;
             const { transient_eval } = this.evaluate(rootNode, { linesCleared: 0, isTspin: false, isMiniTspin: false, b2bActive: isB2B, combo: combo, holdUsed: false, wastedT: false, perfectClear: rootNode.board.isPerfectClear() });
             rootNode.transient_eval = transient_eval;
-            this.clearCaches(); // 盤面が変わったのでキャッシュクリア
+            this.clearCaches();
+            
+            self.postMessage({ type: 'debug', message: 'Tree RESET (New Search)' });
+        } else {
+            self.postMessage({ type: 'debug', message: 'Tree REUSED (Continuing)' });
         }
         
-        // ルートの展開
         const rootNode = this.nodeMap[this.rootID];
         if (!rootNode.expanded && pieceQueue.length >= 2) {
             this.expand(this.rootID, pieceQueue[0], pieceQueue[1]);
@@ -3141,20 +3141,28 @@ class Player {
 
             const blob = new Blob([scriptToLoad], { type: 'application/javascript' });
             this.aiWorker = new Worker(URL.createObjectURL(blob));
-        
+
             this.aiWorker.onmessage = (e) => {
                 if (e.data && e.data.type === 'debug') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
                     if (debugDisplay) {
-                        debugDisplay.textContent = e.data.message;
+                        debugDisplay.dataset.status = e.data.message;
+                        const count = debugDisplay.dataset.count || 0;
+                        
+                        debugDisplay.style.display = 'block';
+                        debugDisplay.innerHTML = `Status: <span style="color: ${e.data.message.includes('RESET') ? '#ff4444' : '#44ff44'}">${e.data.message}</span><br>Nodes: ${count}`;
                     }
                 } else if (e.data && e.data.type === 'nodeCount') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
                     if (debugDisplay) {
+                        debugDisplay.dataset.count = e.data.count;
+                        const status = debugDisplay.dataset.status || 'Waiting...';
                         
+                        debugDisplay.style.display = 'block';
+                        const color = status.includes('RESET') ? '#ff4444' : (status.includes('REUSED') ? '#44ff44' : 'white');
+                        debugDisplay.innerHTML = `Status: <span style="color: ${color}">${status}</span><br>Nodes: ${e.data.count}`;
                     }
-} else if (gameState === 'PLAYING' && this.isAiThinking) {
-                    
+                } else if (gameState === 'PLAYING' && this.isAiThinking) {
                     this.executeAiMove(e.data);
                 }
             };
