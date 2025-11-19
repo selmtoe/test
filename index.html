@@ -3954,22 +3954,35 @@ requestAiMove() {
             }
         }
         boardString += '\n]';
-        let nextPiecesForWorker;
-        if (this.holdPiece) {
-            nextPiecesForWorker = [this.holdPiece, this.player.pieceType, ...this.nextQueue];
+        let aiWorkerStartPayload;
+        if (this.aiType === 'default') {
+            let nextPiecesForWorker;
+            if (this.holdPiece) {
+                nextPiecesForWorker = [this.holdPiece, this.player.pieceType, ...this.nextQueue];
+            } else {
+                nextPiecesForWorker = [this.player.pieceType, ...this.nextQueue];
+            }
+            const nextString = nextPiecesForWorker.join('');
+            aiWorkerStartPayload = {
+                type: 'start',
+                boardString: boardString,
+                nextString: nextString,
+                isB2B: this.isB2B,
+                ren: this.ren + 1,
+            };
         } else {
-            nextPiecesForWorker = [this.player.pieceType, ...this.nextQueue];
+            const nextPiecesForWorker = [this.player.pieceType, ...this.nextQueue];
+            const nextString = nextPiecesForWorker.join('');
+            aiWorkerStartPayload = {
+                type: 'start',
+                boardString: boardString,
+                nextString: nextString,
+                holdPiece: this.holdPiece,
+                canHold: this.canHold,
+                isB2B: this.isB2B,
+                ren: this.ren + 1,
+            };
         }
-        const nextString = nextPiecesForWorker.join('');
-        
-        const aiWorkerStartPayload = {
-            type: 'start',
-            boardString: boardString,
-            nextString: nextString,
-            isB2B: this.isB2B,
-            ren: this.ren + 1,
-        };
-        
         if (this.aiWorker) {
             this.aiWorker.postMessage(aiWorkerStartPayload);
             this.aiWorker.postMessage({ type: 'stop' });
