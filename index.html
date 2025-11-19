@@ -2021,7 +2021,7 @@ function lfg_isEmpty(b) { for (let y = 0; y < LFG_HEIGHT; y++) if (b[y] !== 0) r
 
 function getMinoCoords(type, rot) { return MINO_DEFS[type][rot]; }
 function getSrsOffsets(type, r1, r2) {
-    const key = `${r1}->${r2}`;
+    const key = r1 + "->" + r2;
     const source = (type === 'I' || type === 'O') ? SRS_OFFSETS_RAW.I : SRS_OFFSETS_RAW.common;
     if (type === 'O') return [[0,0]];
     const offsets = source[key];
