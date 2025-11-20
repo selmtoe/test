@@ -1219,27 +1219,31 @@ class Player {
                 if (e.data && e.data.type === 'debug') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
                     if (debugDisplay) {
-                        debugDisplay.dataset.status = e.data.message;
-                        const count = debugDisplay.dataset.count || 0;
-                        
                         debugDisplay.style.display = 'block';
-                        debugDisplay.innerHTML = `Status: <span style="color: ${e.data.message.includes('RESET') ? '#ff4444' : '#44ff44'}">${e.data.message}</span><br>Nodes: ${count}`;
+                        
+                        // --- 修正箇所: ログを追記形式に変更 ---
+                        // 既存の内容を取得
+                        const timestamp = new Date().toLocaleTimeString();
+                        const newMessage = `<div style="border-bottom: 1px solid #555; margin-bottom: 2px;">[${timestamp}] ${e.data.message}</div>`;
+                        
+                        // ログが多すぎたら古いものを消す（メモリ対策）
+                        if (debugDisplay.innerHTML.length > 5000) {
+                            debugDisplay.innerHTML = debugDisplay.innerHTML.substring(0, 2000);
+                        }
+                        
+                        // 先頭に追加（新しいものが上に来るように）
+                        debugDisplay.innerHTML = newMessage + debugDisplay.innerHTML;
+                        // ------------------------------------
                     }
+                    console.log("[MainThread received]", e.data.message);
                 } else if (e.data && e.data.type === 'nodeCount') {
-                    const debugDisplay = document.getElementById('ai-tree-debug-display');
-                    if (debugDisplay) {
-                        debugDisplay.dataset.count = e.data.count;
-                        const status = debugDisplay.dataset.status || 'Waiting...';
-                        
-                        debugDisplay.style.display = 'block';
-                        const color = status.includes('RESET') ? '#ff4444' : (status.includes('REUSED') ? '#44ff44' : 'white');
-                        debugDisplay.innerHTML = `Status: <span style="color: ${color}">${status}</span><br>Nodes: ${e.data.count}`;
-                    }
+                    // ノード数カウントの表示は別の場所にやるか、ログに埋もれないようにする
+                    // 今回はエラー調査優先なので一旦ログには出さないでおくか、
+                    // 別のDOM要素を作るのがベストですが、まずはエラーログ優先。
                 } else if (gameState === 'PLAYING' && this.isAiThinking) {
                     this.executeAiMove(e.data);
                 }
             };
-        }
         
         this.isDrawingOnBoard = false;
         this.drawnBlocks = new Map();
