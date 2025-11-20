@@ -1651,19 +1651,31 @@ if (type === 'start') {
 `;
 
 const aiWorkerScript_Simplified = `
-/* --- AI 6: Cold Clear (Wasm Wrapper) --- */
+/* --- AI 6: Cold Clear (Wasm Wrapper - Debug Mode) --- */
+
+// エラーハンドリング用ヘルパー
+function logError(msg) {
+    console.error("[Worker Error]", msg);
+    self.postMessage({ type: 'debug', message: 'ERROR: ' + msg });
+}
+
+self.postMessage({ type: 'debug', message: 'Worker Started. Initializing...' });
 
 // 1. メインスレッドから注入された WASM_BASE_URL を受け取る
 if (typeof WASM_BASE_URL === 'undefined') {
     var WASM_BASE_URL = '';
-    console.warn('WASM_BASE_URL is undefined. Wasm loading might fail.');
+    logError('WASM_BASE_URL is undefined. Inject logic in Player class might be broken.');
+} else {
+    self.postMessage({ type: 'debug', message: 'Base URL: ' + WASM_BASE_URL });
 }
 
-// 2. グルーコード(ai_core.js)を読み込む (絶対パスを使用)
+// 2. グルーコード(ai_core.js)を読み込む
+const glueCodePath = WASM_BASE_URL + 'ai_core.js';
 try {
-    importScripts(WASM_BASE_URL + 'ai_core.js');
+    importScripts(glueCodePath);
+    self.postMessage({ type: 'debug', message: 'importScripts success: ' + glueCodePath });
 } catch (e) {
-    console.error("Failed to load ai_core.js:", e);
+    logError('Failed to import ai_core.js at ' + glueCodePath + '. Error: ' + e.message);
 }
 
 let aiModule = null;
@@ -1672,68 +1684,75 @@ let isThinking = false;
 let currentQueue = [];
 
 // 3. Wasmモジュールの設定
-// .wasmファイルを正しい場所(ベースURL配下)から探すように指示
 const moduleConfig = {
     locateFile: function(path) {
-        return WASM_BASE_URL + path;
+        const fullPath = WASM_BASE_URL + path;
+        self.postMessage({ type: 'debug', message: 'Looking for Wasm at: ' + fullPath });
+        return fullPath;
+    },
+    print: function(text) {
+        self.postMessage({ type: 'debug', message: '[Wasm Stdout]: ' + text });
+    },
+    printErr: function(text) {
+        self.postMessage({ type: 'debug', message: '[Wasm Stderr]: ' + text });
     }
 };
 
 // 4. 初期化
 if (typeof createAIModule === 'function') {
+    self.postMessage({ type: 'debug', message: 'createAIModule found. Initializing...' });
     createAIModule(moduleConfig).then(module => {
         aiModule = module;
-        aiAgent = new aiModule.AIAgent();
-        self.postMessage({ type: 'debug', message: 'Wasm AI Loaded & Ready' });
+        try {
+            aiAgent = new aiModule.AIAgent();
+            self.postMessage({ type: 'debug', message: 'SUCCESS: Wasm AI Agent instantiated.' });
+        } catch(e) {
+            logError('Failed to create AIAgent instance: ' + e.message);
+        }
     }).catch(err => {
-        console.error("Wasm Init Error:", err);
+        logError('Wasm Module Initialization Failed: ' + err);
     });
 } else {
-    console.error("Error: createAIModule is not defined. Check ai_core.js path.");
+    logError('createAIModule is NOT defined. ai_core.js was not loaded correctly.');
 }
 
 // --- Search Loop ---
 function thinkingLoop() {
     if (!isThinking || !aiAgent) return;
     
-    // 文字列結合してC++へ渡す
-    const queueStr = currentQueue.join('');
-    
-    // 探索実行 (ノード数制限はC++側で制御またはここ指定)
-    aiAgent.searchStep(200, queueStr);
-    
-    const count = aiAgent.getNodeCount();
-    self.postMessage({ type: 'nodeCount', count: count });
-    
-    setTimeout(thinkingLoop, 0);
+    try {
+        const queueStr = currentQueue.join('');
+        aiAgent.searchStep(200, queueStr); // ここで落ちる可能性もある
+        const count = aiAgent.getNodeCount();
+        self.postMessage({ type: 'nodeCount', count: count });
+        setTimeout(thinkingLoop, 0);
+    } catch(e) {
+        logError('Error in thinkingLoop: ' + e.message);
+        isThinking = false;
+    }
 }
 
 // --- Message Handler ---
 self.onmessage = (e) => {
     const { type, boardString, nextString, holdPiece, canHold, isB2B, ren } = e.data;
 
-    if (!aiAgent) {
-        if (type === 'start') console.warn("AI is still loading...");
-        return;
-    }
-
     if (type === 'start') {
+        if (!aiAgent) {
+            self.postMessage({ type: 'debug', message: 'Warning: Received start command but AI is not ready.' });
+            return;
+        }
+
         try {
             const layout = JSON.parse(boardString);
-            // JS配列 -> C++ TetrisBoard
             const cppBoard = aiModule.TetrisBoard.fromJS(layout);
-            
             currentQueue = nextString.split('');
             
-            // ホールドの文字コード化
             let holdChar = 0;
             if (holdPiece && holdPiece !== 'null' && holdPiece.length === 1) {
                 holdChar = holdPiece.charCodeAt(0);
             }
-
             const canHoldBool = (canHold !== undefined) ? canHold : true;
 
-            // C++側初期化
             aiAgent.initSearch(cppBoard, nextString, holdChar, !!isB2B, ren || 0, canHoldBool);
 
             if (!isThinking) {
@@ -1741,27 +1760,27 @@ self.onmessage = (e) => {
                 thinkingLoop();
             }
         } catch (err) {
-            console.error("AI Worker Start Error:", err);
+            logError('AI Start Error: ' + err.message);
         }
 
     } else if (type === 'stop') {
         if (aiAgent) {
-            const bestPlacement = aiAgent.getBestMove();
-            
-            if (bestPlacement) {
-                self.postMessage({
-                    piece: bestPlacement.piece,
-                    x: bestPlacement.x,
-                    y: bestPlacement.y,
-                    rotation: bestPlacement.rotation,
-                });
-                
-                aiAgent.advanceTree();
-                if (currentQueue.length > 0) {
-                    currentQueue.shift();
+            try {
+                const bestPlacement = aiAgent.getBestMove();
+                if (bestPlacement) {
+                    self.postMessage({
+                        piece: bestPlacement.piece,
+                        x: bestPlacement.x,
+                        y: bestPlacement.y,
+                        rotation: bestPlacement.rotation,
+                    });
+                    aiAgent.advanceTree();
+                    if (currentQueue.length > 0) currentQueue.shift();
+                } else {
+                    self.postMessage(null);
                 }
-            } else {
-                self.postMessage(null);
+            } catch(e) {
+                logError('Error getting best move: ' + e.message);
             }
         }
         isThinking = false;
@@ -2322,41 +2341,69 @@ class Player {
         this.aiType = gameSettings.aiType || 'simplified'; 
 
 
+// Player クラスの constructor 内の一部を書き換え
+
         if (this.isAi) {
             // AIタイプによって読み込むスクリプトを変える
             let scriptToLoad = aiWorkerScript_Simplified;
             if (this.aiType === 'default') {
-                scriptToLoad = aiWorkerScript; // defaultは純粋JS版なのでそのまま
+                scriptToLoad = aiWorkerScript;
             } else {
-                // --- 修正箇所ここから ---
-                // Wasm版(Simplified)の場合、現在のディレクトリパスを注入する
+                // Wasm版の場合、パスを注入
                 const baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1);
                 scriptToLoad = `const WASM_BASE_URL = "${baseUrl}";\n` + scriptToLoad;
-                // --- 修正箇所ここまで ---
+                console.log("AI Base URL set to:", baseUrl); // デバッグ用ログ
             }
 
             const blob = new Blob([scriptToLoad], { type: 'application/javascript' });
             this.aiWorker = new Worker(URL.createObjectURL(blob));
+
+            // ★★★ 追加: ワーカー自体の起動エラーをキャッチする ★★★
+            this.aiWorker.onerror = (e) => {
+                const msg = `[Worker Error Main Thread]: Line ${e.lineno} in ${e.filename}: ${e.message}`;
+                console.error(msg);
+                // 画面にも強制的に出す
+                const debugDisplay = document.getElementById('ai-tree-debug-display');
+                if (debugDisplay) {
+                    debugDisplay.style.display = 'block';
+                    debugDisplay.innerHTML += `<br><span style="color:red; font-weight:bold;">${msg}</span>`;
+                }
+                alert("AI Worker Crashed! Check console/debug display.\n" + e.message);
+            };
+
             this.aiWorker.onmessage = (e) => {
                 if (e.data && e.data.type === 'debug') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
+                    // コンソールにも出す
+                    console.log("[AI Debug]:", e.data.message);
+
                     if (debugDisplay) {
-                        debugDisplay.dataset.status = e.data.message;
                         const count = debugDisplay.dataset.count || 0;
-                        
                         debugDisplay.style.display = 'block';
-                        debugDisplay.innerHTML = `Status: <span style="color: ${e.data.message.includes('RESET') ? '#ff4444' : '#44ff44'}">${e.data.message}</span><br>Nodes: ${count}`;
+                        
+                        // エラーメッセージなら赤くする
+                        const isError = e.data.message.includes('ERROR') || e.data.message.includes('Failed');
+                        const color = isError ? '#ff4444' : '#44ff44';
+                        
+                        // 既存の内容に追記する形に変更（履歴が見えるように）
+                        // 長くなりすぎないように最新5行くらいを表示するイメージでも良いが、まずは全部出す
+                        debugDisplay.innerHTML = `Last Msg: <span style="color: ${color}">${e.data.message}</span><br>Nodes: ${count}`;
+                        
+                        if (isError) {
+                            // エラー時はアラートも出す（確実に見るため）
+                            // alert(e.data.message); 
+                        }
                     }
                 } else if (e.data && e.data.type === 'nodeCount') {
-                    const debugDisplay = document.getElementById('ai-tree-debug-display');
-                    if (debugDisplay) {
+                    // ... (既存のnodeCount処理) ...
+                     const debugDisplay = document.getElementById('ai-tree-debug-display');
+                     if (debugDisplay) {
                         debugDisplay.dataset.count = e.data.count;
-                        const status = debugDisplay.dataset.status || 'Waiting...';
-                        
-                        debugDisplay.style.display = 'block';
-                        const color = status.includes('RESET') ? '#ff4444' : (status.includes('REUSED') ? '#44ff44' : 'white');
-                        debugDisplay.innerHTML = `Status: <span style="color: ${color}">${status}</span><br>Nodes: ${e.data.count}`;
-                    }
+                        // 既存のメッセージを維持しつつカウントだけ更新したいが、簡易的にこうする
+                        const currentHTML = debugDisplay.innerHTML;
+                        // ノード数表示部分だけ置換するか、再描画
+                        debugDisplay.innerHTML = currentHTML.replace(/Nodes: \d+/, `Nodes: ${e.data.count}`);
+                     }
                 } else if (gameState === 'PLAYING' && this.isAiThinking) {
                     this.executeAiMove(e.data);
                 }
