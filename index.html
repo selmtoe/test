@@ -4081,14 +4081,24 @@ requestAiMove() {
                 ren: this.ren + 1,
             };
         } else {
-            const nextPiecesForWorker = [this.player.pieceType, ...this.nextQueue];
-            const nextString = nextPiecesForWorker.join('');
+            let nextString;
+            let holdPieceToSend = this.holdPiece;
+
+            if (!holdPieceToSend) {
+                holdPieceToSend = this.player.pieceType;
+                nextString = this.nextQueue.join('');
+            } else {
+                const nextPiecesForWorker = [this.player.pieceType, ...this.nextQueue];
+                nextString = nextPiecesForWorker.join('');
+            }
+
             aiWorkerStartPayload = {
                 type: 'start',
                 boardString: boardString,
                 nextString: nextString,
-                holdPiece: this.holdPiece,
+                holdPiece: holdPieceToSend,
                 canHold: this.canHold,
+         
                 isB2B: this.isB2B,
                 ren: this.ren + 1,
             };
