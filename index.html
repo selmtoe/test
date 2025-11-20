@@ -498,16 +498,16 @@ const aiWorkerScript = `
 
 `;
 
-/* --- AI 6: C++ Wasm Version (Fixed Timing Issue) --- */
 const aiWorkerScript_Simplified = `
 // --- デバッグ用ヘルパー ---
 function debugLog(msg) {
-    console.log('[AI Worker] ' + msg);
+    // 必要に応じてコメントアウトしてください
+    // console.log('[AI Worker] ' + msg);
     self.postMessage({ type: 'debug', message: msg });
 }
 
 debugLog('Worker started.');
-// ... (importScriptsなどの部分はそのまま) ...
+
 try {
     importScripts(self.wasmScriptUrl); 
 } catch (e) {
@@ -518,8 +518,9 @@ let Module = null;
 let isThinking = false;
 let currentQueueStr = "";
 
-// ★追加: 初期化前に来たstartメッセージを保存しておく変数
+// ★待機用変数
 let pendingStartData = null;
+let pendingStop = false; // Stop命令も待機させるフラグ
 
 const wasmModuleConfig = {
     locateFile: function(path, prefix) {
@@ -535,11 +536,18 @@ if (typeof createTetrisAIModule !== 'undefined') {
             Module.initAgent();
             debugLog('Wasm Module Initialized.');
 
-            // ★修正: もし待たせていたスタート命令があれば、ここで実行開始する
+            // ★修正: 待機していたStartを実行
             if (pendingStartData) {
-                debugLog('Executing pending START command...');
+                debugLog('Executing pending START...');
                 handleStart(pendingStartData);
-                pendingStartData = null; // クリア
+                pendingStartData = null;
+            }
+
+            // ★修正: 待機していたStopを実行
+            if (pendingStop) {
+                debugLog('Executing pending STOP...');
+                handleStop();
+                pendingStop = false;
             }
 
         } catch(e) {
@@ -548,22 +556,29 @@ if (typeof createTetrisAIModule !== 'undefined') {
     });
 }
 
-// --- ボード変換関数などはそのまま ---
+// --- ボード変換関数 ---
 function convertBoard(boardLayout) {
-    // ... (変更なし) ...
-    const height = 40; const width = 10; const rows = new Int32Array(height).fill(0);
+    const height = 40; 
+    const width = 10;  
+    const rows = new Int32Array(height).fill(0);
+    
     const layoutHeight = boardLayout.length;
     for (let y = 0; y < layoutHeight; y++) {
         const internalY = y + (height - layoutHeight);
         if (internalY < 0) continue;
-        let rowValue = 0; const row = boardLayout[y];
+        
+        let rowValue = 0;
+        const row = boardLayout[y];
         for (let x = 0; x < width; x++) {
-            if (row[x] !== null && row[x] !== 'null') rowValue |= (1 << x);
+            if (row[x] !== null && row[x] !== 'null') {
+                rowValue |= (1 << x);
+            }
         }
         rows[internalY] = rowValue;
     }
     return rows;
 }
+
 const MINO_MAP = {'I':0, 'O':1, 'T':2, 'S':3, 'Z':4, 'J':5, 'L':6};
 
 function thinkingLoop() {
@@ -571,16 +586,20 @@ function thinkingLoop() {
     if (!Module) return;
     
     try {
-        Module.searchStep(300, currentQueueStr); 
+        // 1回の処理単位を少し重くして、通信頻度を下げる
+        Module.searchStep(500, currentQueueStr); 
     } catch(e) {
         debugLog('CRITICAL ERROR in thinkingLoop: ' + e);
         isThinking = false;
         return;
     }
+    
+    // 次のループへ
     setTimeout(thinkingLoop, 0);
 }
 
-// ★共通化したスタート処理関数
+// --- 処理の共通化 ---
+
 function handleStart(data) {
     const { boardString, nextString, holdPiece, isB2B, ren } = data;
     try {
@@ -599,6 +618,7 @@ function handleStart(data) {
         
         if (!isThinking) {
             isThinking = true;
+            // 初回は即時実行して、少しでも計算を進める
             thinkingLoop();
         }
     } catch (err) {
@@ -606,41 +626,60 @@ function handleStart(data) {
     }
 }
 
+function handleStop() {
+    isThinking = false;
+    if (!Module) return;
+
+    try {
+        const result = Module.getBestMove(); 
+        
+        if (result) {
+            let finalX = result.x;
+            // JS版の座標系補正
+            if (result.piece === 'I') {
+                finalX -= 1;
+            }
+            
+            self.postMessage({
+                piece: result.piece,
+                x: finalX,
+                y: result.y,
+                rotation: result.rotation,
+            });
+            
+            if (currentQueueStr.length > 0) {
+                currentQueueStr = currentQueueStr.substring(1);
+            }
+        } else {
+            // まだ有効な手が見つかっていない場合
+            self.postMessage(null);
+        }
+    } catch(err) {
+        debugLog('ERROR inside stop handler: ' + err);
+        self.postMessage(null);
+    }
+}
+
 self.onmessage = (e) => {
     const { type } = e.data;
 
-    // まだWasmの準備ができていない場合
+    // Wasm準備中の場合、命令をキューに保存
     if (!Module) {
         if (type === 'start') {
-             debugLog('Wasm not ready. Queuing START command.');
-             // ★データを保存して待機
+             debugLog('Wasm not ready. Queuing START.');
              pendingStartData = e.data;
+        } else if (type === 'stop') {
+             debugLog('Wasm not ready. Queuing STOP.');
+             pendingStop = true;
         }
         return;
     }
 
+    // 準備完了していれば即実行
     if (type === 'start') {
-        // 準備ができているなら即実行
         handleStart(e.data);
-
     } else if (type === 'stop') {
-        isThinking = false;
-        try {
-            const result = Module.getBestMove(); 
-            if (result) {
-                let finalX = result.x;
-                if (result.piece === 'I') finalX -= 1;
-                self.postMessage({
-                    piece: result.piece, x: finalX, y: result.y, rotation: result.rotation,
-                });
-                if (currentQueueStr.length > 0) currentQueueStr = currentQueueStr.substring(1);
-            } else {
-                self.postMessage(null);
-            }
-        } catch(err) {
-            debugLog('ERROR inside stop handler: ' + err);
-            self.postMessage(null);
-        }
+        handleStop();
     }
 };
 `;
