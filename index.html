@@ -613,25 +613,23 @@ function handleStart(data) {
     }
 }
 
-function handleRequestMove() {
-    // isThinking = false; // 削除: 思考を止めない（Pondering）
+function handleStop() {
+    isThinking = false;
     if (!Module) return;
     try {
-        const result = Module.getBestMove();
+        const result = Module.getBestMove(); 
         if (result) {
             let finalX = result.x;
             if (result.piece === 'I') finalX -= 1;
             self.postMessage({
                 piece: result.piece, x: finalX, y: result.y, rotation: result.rotation,
             });
-            // currentQueueStrの更新はinitSearch(handleStart)での同期に任せるか、
-            // 厳密にやるならここでも更新するが、startで同期されるためこのままで良し
             if (currentQueueStr.length > 0) currentQueueStr = currentQueueStr.substring(1);
         } else {
             self.postMessage(null);
         }
     } catch(err) {
-        errorLog('Request Move Error: ' + err);
+        errorLog('Stop Error: ' + err);
         self.postMessage(null);
     }
 }
@@ -640,12 +638,11 @@ self.onmessage = (e) => {
     const { type } = e.data;
     if (!Module) {
         if (type === 'start') pendingStartData = e.data;
-        // pendingStopなどは不要になるが、初期化待ち対策として残すなら以下のように変更
-        else if (type === 'request_move') pendingStop = true; 
+        else if (type === 'stop') pendingStop = true;
         return;
     }
     if (type === 'start') handleStart(e.data);
-    else if (type === 'request_move') handleRequestMove();
+    else if (type === 'stop') handleStop();
 };
 `;
 
@@ -1305,7 +1302,6 @@ this.gravityTimer = gameSettings.gravity; this.lockTimer = 0;
         this.customUIText = null;
         this.elapsedTimeText = '0:00.000';
         this.lastGarbageHoleX = -1;
-        this.moveRequested = false; // 追加
         this.spawnNewPiece();
     }
 
@@ -2076,15 +2072,7 @@ requestAiMove() {
         }
         if (this.aiWorker) {
             this.aiWorker.postMessage(aiWorkerStartPayload);
-            // 削除: this.aiWorker.postMessage({ type: 'stop' }); 
-            // ここでは盤面状態を渡して探索を開始(または継続)させるだけにする
-        }
-    }
-    
-    // 新規追加: 明示的に手を要求するメソッド
-    requestBestMove() {
-        if (this.aiWorker) {
-            this.aiWorker.postMessage({ type: 'request_move' });
+            this.aiWorker.postMessage({ type: 'stop' });
         }
     }
 
@@ -2465,8 +2453,7 @@ async executeAiMove(move) {
         this.player.y = move.y;
         
         this.lockPiece();
-        this.isAiThinking = false; // これにより次のupdateでrequestAiMove(盤面同期)が呼ばれる
-        this.moveRequested = false;
+this.isAiThinking = false;
     }
 
     win() {
