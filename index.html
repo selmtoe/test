@@ -1651,7 +1651,7 @@ if (type === 'start') {
 `;
 
 const aiWorkerScript_Simplified = `
-/* --- AI 6: Cold Clear (Wasm Wrapper - Debug Mode) --- */
+/* --- AI 6: Cold Clear (Wasm Wrapper - Debug Mode / Fixed) --- */
 
 // エラーハンドリング用ヘルパー
 function logError(msg) {
@@ -1661,16 +1661,22 @@ function logError(msg) {
 
 self.postMessage({ type: 'debug', message: 'Worker Started. Initializing...' });
 
-// 1. メインスレッドから注入された WASM_BASE_URL を受け取る
-if (typeof WASM_BASE_URL === 'undefined') {
-    var WASM_BASE_URL = '';
-    logError('WASM_BASE_URL is undefined. Inject logic in Player class might be broken.');
+// 1. メインスレッドから注入された WASM_BASE_URL を安全に取得
+// 注意: Playerクラスで const WASM_BASE_URL = ... が注入されているため、
+// ここで var/let/const で同名の変数を宣言するとエラーになります。
+// そのため、別の変数名 (validBaseUrl) に代入して使います。
+
+let validBaseUrl = '';
+
+if (typeof WASM_BASE_URL !== 'undefined') {
+    validBaseUrl = WASM_BASE_URL;
+    self.postMessage({ type: 'debug', message: 'Base URL found: ' + validBaseUrl });
 } else {
-    self.postMessage({ type: 'debug', message: 'Base URL: ' + WASM_BASE_URL });
+    logError('WASM_BASE_URL is undefined. Using empty string (might fail on blob).');
 }
 
 // 2. グルーコード(ai_core.js)を読み込む
-const glueCodePath = WASM_BASE_URL + 'ai_core.js';
+const glueCodePath = validBaseUrl + 'ai_core.js';
 try {
     importScripts(glueCodePath);
     self.postMessage({ type: 'debug', message: 'importScripts success: ' + glueCodePath });
@@ -1686,7 +1692,8 @@ let currentQueue = [];
 // 3. Wasmモジュールの設定
 const moduleConfig = {
     locateFile: function(path) {
-        const fullPath = WASM_BASE_URL + path;
+        // validBaseUrl を使用する
+        const fullPath = validBaseUrl + path;
         self.postMessage({ type: 'debug', message: 'Looking for Wasm at: ' + fullPath });
         return fullPath;
     },
@@ -1722,7 +1729,7 @@ function thinkingLoop() {
     
     try {
         const queueStr = currentQueue.join('');
-        aiAgent.searchStep(200, queueStr); // ここで落ちる可能性もある
+        aiAgent.searchStep(200, queueStr);
         const count = aiAgent.getNodeCount();
         self.postMessage({ type: 'nodeCount', count: count });
         setTimeout(thinkingLoop, 0);
@@ -1787,6 +1794,7 @@ self.onmessage = (e) => {
     }
 };
 `;
+
 
 const virtualController = (() => {
 
