@@ -497,13 +497,15 @@ const aiWorkerScript = `
 
 `;
 
-/* --- AI 6: C++ Wasm Version (Sync Fixed) --- */
+/* --- AI 6: C++ Wasm Version (Pondering Enabled / Full Code) --- */
 const aiWorkerScript_Simplified = `
 // --- デバッグ用ヘルパー ---
 function debugLog(msg) {
+    // 画面への通知を停止（必要なら console.log を有効化）
     // console.log('[AI Worker] ' + msg); 
 }
 
+// エラー時のみ通知するためのヘルパー
 function errorLog(msg) {
     console.error('[AI Worker Error] ' + msg);
 }
@@ -517,8 +519,13 @@ try {
 let Module = null;
 let isThinking = false;
 let currentQueueStr = "";
-let pendingStartData = null;
-let loopCount = 0; // 通信間引き用カウンタ
+
+// メッセージキューイング用変数
+// 思考ループの合間に次の初期化処理を挟むために使用します
+let nextStartData = null;
+
+// 停止要求があった場合のフラグ（強制終了用だが、基本はPonderingさせるため使いません）
+// let pendingStop = false; 
 
 const wasmModuleConfig = {
     locateFile: function(path, prefix) {
@@ -527,14 +534,21 @@ const wasmModuleConfig = {
     }
 };
 
+// --- Module初期化 ---
 if (typeof createTetrisAIModule !== 'undefined') {
     createTetrisAIModule(wasmModuleConfig).then(instance => {
         Module = instance;
         try {
             Module.initAgent();
-            if (pendingStartData) {
-                handleStart(pendingStartData);
-                pendingStartData = null;
+            
+            // 初期化完了時に待機していたデータがあれば処理開始
+            if (nextStartData) {
+                performStart(nextStartData);
+                nextStartData = null;
+                if (!isThinking) {
+                    isThinking = true;
+                    thinkingLoop();
+                }
             }
         } catch(e) {
             errorLog('Init Error: ' + e);
@@ -542,6 +556,7 @@ if (typeof createTetrisAIModule !== 'undefined') {
     });
 }
 
+// --- 盤面変換ヘルパー ---
 function convertBoard(boardLayout) {
     const height = 40; 
     const width = 10;
@@ -564,21 +579,21 @@ function convertBoard(boardLayout) {
 
 const MINO_MAP = {'I':0, 'O':1, 'T':2, 'S':3, 'Z':4, 'J':5, 'L':6};
 
+// --- 思考ループ (Pondering対応版) ---
 function thinkingLoop() {
-    if (!isThinking || !Module) return;
+    if (!isThinking) return;
+    if (!Module) return;
 
     try {
-        // 1回のステップ数を減らして応答性を確保 (前回30000 -> 今回5000)
-        if (currentQueueStr.length > 0) {
-            Module.searchStep(5000, currentQueueStr);
+        // 新しいゲーム開始/盤面更新リクエストが来ている場合、ここで安全に切り替える
+        if (nextStartData) {
+            performStart(nextStartData);
+            nextStartData = null;
         }
-        
-        // ノード数の更新を毎回送ると重いので、10回に1回程度にする
-        loopCount++;
-        if (loopCount % 10 === 0) {
-             // C++側で postNodeCount が呼ばれる仕掛けだが、
-             // 必要ならここで明示的に送ることも検討（現状はC++依存でOK）
-        }
+
+        // 探索ステップ実行
+        // 1回の実行単位を少し小さく(5000など)することで、メッセージ受信のレスポンスを維持しつつ考え続ける
+        Module.searchStep(5000, currentQueueStr); 
 
     } catch(e) {
         errorLog('Thinking Error: ' + e);
@@ -586,79 +601,74 @@ function thinkingLoop() {
         return;
     }
     
-    // 次のループ予約。MessageChannelなどを使うとより早いが、
-    // 同期ズレを防ぐため setTimeout(..., 0) でイベントループを回させる
+    // イベントループをブロックしないように setTimeout で回す
     setTimeout(thinkingLoop, 0);
 }
 
-function handleStart(data) {
+// --- 実際の初期化処理（C++側呼び出し） ---
+function performStart(data) {
     const { boardString, nextString, holdPiece, isB2B, ren } = data;
     try {
         const layout = JSON.parse(boardString);
         const boardRows = convertBoard(layout);
-        
-        // 新しいキュー情報で更新
         currentQueueStr = nextString;
-        
         let holdId = -1;
         if (holdPiece && MINO_MAP[holdPiece] !== undefined) {
             holdId = MINO_MAP[holdPiece];
         }
         
-        // 思考停止してから初期化（安全策）
-        isThinking = false;
-        
+        // C++側: 盤面ハッシュが一致すれば探索ツリーを再利用(Reuse)し、
+        // 一致しなければリセットして新規探索を開始する
         Module.initSearch(boardRows, currentQueueStr, holdId, !!isB2B, ren || 0);
-        
-        // 思考開始
-        isThinking = true;
-        thinkingLoop();
         
     } catch (err) {
         errorLog('Start Error: ' + err.message);
     }
 }
 
+// --- メッセージハンドラ: start ---
+function handleStart(data) {
+    // いきなり実行せず、思考ループの切れ目で実行するように予約する
+    // これにより、探索中のメモリアクセス衝突などを防ぐ
+    nextStartData = data;
+    
+    // まだループが回っていなければ回す
+    if (!isThinking) {
+        isThinking = true;
+        thinkingLoop();
+    }
+}
+
+// --- メッセージハンドラ: stop (最善手取得) ---
 function handleStop() {
-    // まず思考フラグを折ってループを止める準備
-    // (ただし現在回っているthinkingLoopは止まらないので、結果送信は即座に行う)
-    const wasThinking = isThinking;
-    isThinking = false; 
-    
+    // 【重要】ここで isThinking = false にしない！
+    // ループを止めずに「Pondering（相手のターンやアニメーション中の先読み）」を継続させる
+
     if (!Module) return;
-    
     try {
+        // 現時点での最善手を取得
+        // C++側では getBestMove 内で pruneAndReroot が呼ばれ、
+        // 選んだ手の先へルートが移動する
         const result = Module.getBestMove();
-        
+
         if (result) {
             let finalX = result.x;
-            if (result.piece === 'I') finalX -= 1;
-            
-            // ★ 結果をメインスレッドに送信（これが最優先）
+            if (result.piece === 'I') finalX -= 1; // Iミノの座標補正
+
+            // メインスレッドへ結果を送信
             self.postMessage({
                 piece: result.piece, x: finalX, y: result.y, rotation: result.rotation,
             });
 
-            // --- Pondering (先読み) の準備 ---
-            // C++側では getBestMove() 内で pruneAndReroot が走っているので
-            // ルートは「1手進んだ状態」になっている。
-            
-            // キューを1つ進める
+            // 【Pondering処理】
+            // AIは「自分が指した手」が通った前提で次の手を考えたい。
+            // そのため、現在のネクストキュー文字列から、今使った先頭のミノを削除して更新する。
             if (currentQueueStr.length > 0) {
                 currentQueueStr = currentQueueStr.substring(1);
             }
-            
-            // 再び思考再開（ポンダリング）
-            // 少し遅延させて、メインスレッドへのメッセージ送信を優先させる
-            setTimeout(() => {
-                // まだ次のStart命令が来ていなければ再開
-                if (!isThinking) {
-                    isThinking = true;
-                    thinkingLoop();
-                }
-            }, 10);
-            
+
         } else {
+            // 手が見つからない場合
             self.postMessage(null);
         }
     } catch(err) {
@@ -670,16 +680,15 @@ function handleStop() {
 self.onmessage = (e) => {
     const { type } = e.data;
     
+    // モジュール読み込み前の処理
     if (!Module) {
-        if (type === 'start') pendingStartData = e.data;
+        if (type === 'start') nextStartData = e.data;
+        // stop等は無視
         return;
     }
     
-    if (type === 'start') {
-        handleStart(e.data);
-    } else if (type === 'stop') {
-        handleStop();
-    }
+    if (type === 'start') handleStart(e.data);
+    else if (type === 'stop') handleStop();
 };
 `;
 
