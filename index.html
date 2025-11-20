@@ -498,29 +498,33 @@ const aiWorkerScript = `
 
 `;
 
+/* --- AI 6: C++ Wasm Version (Clean & Node Count Mode) --- */
 const aiWorkerScript_Simplified = `
 // --- デバッグ用ヘルパー ---
 function debugLog(msg) {
-    // 必要に応じてコメントアウトしてください
-    // console.log('[AI Worker] ' + msg);
-    self.postMessage({ type: 'debug', message: msg });
+    // 画面への通知を停止（コンソールには残します）
+    // console.log('[AI Worker] ' + msg); 
 }
 
-debugLog('Worker started.');
+// エラー時のみ通知するためのヘルパー
+function errorLog(msg) {
+    console.error('[AI Worker Error] ' + msg);
+    // エラーだけは画面に出したい場合はコメントアウトを外してください
+    // self.postMessage({ type: 'debug', message: 'ERROR: ' + msg });
+}
 
 try {
     importScripts(self.wasmScriptUrl); 
 } catch (e) {
-    debugLog('CRITICAL ERROR: ' + e);
+    errorLog('Failed to import scripts: ' + e);
 }
 
 let Module = null;
 let isThinking = false;
 let currentQueueStr = "";
 
-// ★待機用変数
 let pendingStartData = null;
-let pendingStop = false; // Stop命令も待機させるフラグ
+let pendingStop = false;
 
 const wasmModuleConfig = {
     locateFile: function(path, prefix) {
@@ -534,39 +538,28 @@ if (typeof createTetrisAIModule !== 'undefined') {
         Module = instance;
         try {
             Module.initAgent();
-            debugLog('Wasm Module Initialized.');
-
-            // ★修正: 待機していたStartを実行
             if (pendingStartData) {
-                debugLog('Executing pending START...');
                 handleStart(pendingStartData);
                 pendingStartData = null;
             }
-
-            // ★修正: 待機していたStopを実行
             if (pendingStop) {
-                debugLog('Executing pending STOP...');
                 handleStop();
                 pendingStop = false;
             }
-
         } catch(e) {
-            debugLog('ERROR calling initAgent: ' + e);
+            errorLog('Init Error: ' + e);
         }
     });
 }
 
-// --- ボード変換関数 ---
 function convertBoard(boardLayout) {
     const height = 40; 
     const width = 10;  
     const rows = new Int32Array(height).fill(0);
-    
     const layoutHeight = boardLayout.length;
     for (let y = 0; y < layoutHeight; y++) {
         const internalY = y + (height - layoutHeight);
         if (internalY < 0) continue;
-        
         let rowValue = 0;
         const row = boardLayout[y];
         for (let x = 0; x < width; x++) {
@@ -586,26 +579,22 @@ function thinkingLoop() {
     if (!Module) return;
     
     try {
-        // 1回の処理単位を少し重くして、通信頻度を下げる
+        // ここでC++側が postNodeCount を呼んでくれます
         Module.searchStep(500, currentQueueStr); 
     } catch(e) {
-        debugLog('CRITICAL ERROR in thinkingLoop: ' + e);
+        errorLog('Thinking Error: ' + e);
         isThinking = false;
         return;
     }
     
-    // 次のループへ
     setTimeout(thinkingLoop, 0);
 }
-
-// --- 処理の共通化 ---
 
 function handleStart(data) {
     const { boardString, nextString, holdPiece, isB2B, ren } = data;
     try {
         const layout = JSON.parse(boardString);
         const boardRows = convertBoard(layout);
-        
         currentQueueStr = nextString;
         
         let holdId = -1;
@@ -613,74 +602,47 @@ function handleStart(data) {
             holdId = MINO_MAP[holdPiece];
         }
         
-        // C++側の初期化
         Module.initSearch(boardRows, currentQueueStr, holdId, !!isB2B, ren || 0);
         
         if (!isThinking) {
             isThinking = true;
-            // 初回は即時実行して、少しでも計算を進める
             thinkingLoop();
         }
     } catch (err) {
-        debugLog('ERROR inside start handler: ' + err.message);
+        errorLog('Start Error: ' + err.message);
     }
 }
 
 function handleStop() {
     isThinking = false;
     if (!Module) return;
-
     try {
         const result = Module.getBestMove(); 
-        
         if (result) {
             let finalX = result.x;
-            // JS版の座標系補正
-            if (result.piece === 'I') {
-                finalX -= 1;
-            }
-            
+            if (result.piece === 'I') finalX -= 1;
             self.postMessage({
-                piece: result.piece,
-                x: finalX,
-                y: result.y,
-                rotation: result.rotation,
+                piece: result.piece, x: finalX, y: result.y, rotation: result.rotation,
             });
-            
-            if (currentQueueStr.length > 0) {
-                currentQueueStr = currentQueueStr.substring(1);
-            }
+            if (currentQueueStr.length > 0) currentQueueStr = currentQueueStr.substring(1);
         } else {
-            // まだ有効な手が見つかっていない場合
             self.postMessage(null);
         }
     } catch(err) {
-        debugLog('ERROR inside stop handler: ' + err);
+        errorLog('Stop Error: ' + err);
         self.postMessage(null);
     }
 }
 
 self.onmessage = (e) => {
     const { type } = e.data;
-
-    // Wasm準備中の場合、命令をキューに保存
     if (!Module) {
-        if (type === 'start') {
-             debugLog('Wasm not ready. Queuing START.');
-             pendingStartData = e.data;
-        } else if (type === 'stop') {
-             debugLog('Wasm not ready. Queuing STOP.');
-             pendingStop = true;
-        }
+        if (type === 'start') pendingStartData = e.data;
+        else if (type === 'stop') pendingStop = true;
         return;
     }
-
-    // 準備完了していれば即実行
-    if (type === 'start') {
-        handleStart(e.data);
-    } else if (type === 'stop') {
-        handleStop();
-    }
+    if (type === 'start') handleStart(e.data);
+    else if (type === 'stop') handleStop();
 };
 `;
 
@@ -1263,36 +1225,23 @@ constructor(id, offsetX, keyBindings, padIndex, isAi = false) {
                 this.aiWorker = new Worker(URL.createObjectURL(blob));
             }
 
-            // --------------------------------------
-
-            // 共通のメッセージハンドラ
             this.aiWorker.onmessage = (e) => {
-                if (e.data && e.data.type === 'debug') {
-                    // デバッグログ表示 (Wasm版のエラー確認用)
+                if (e.data && e.data.type === 'nodeCount') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
                     if (debugDisplay) {
                         debugDisplay.style.display = 'block';
-                        const timestamp = new Date().toLocaleTimeString();
-                        const newMessage = `<div style="border-bottom: 1px solid #555; margin-bottom: 2px;">[${timestamp}] ${e.data.message}</div>`;
-                        
-                        // ログが増えすぎないように制限
-                        if (debugDisplay.innerHTML.length > 5000) {
-                            debugDisplay.innerHTML = debugDisplay.innerHTML.substring(0, 2000);
-                        }
-                        debugDisplay.innerHTML = newMessage + debugDisplay.innerHTML;
+                        // ログのように追記せず、数値を更新するだけにする
+                        // 見やすいようにスタイルも少し調整（お好みで）
+                        debugDisplay.style.fontFamily = '"Orbitron", monospace';
+                        debugDisplay.style.fontSize = '14px';
+                        debugDisplay.innerHTML = `AI Nodes: <span style="color: #00ff00;">${e.data.count.toLocaleString()}</span>`;
                     }
-                    console.log("[AI Worker]", e.data.message);
-
-                } else if (e.data && e.data.type === 'nodeCount') {
-                    // 探索ノード数の更新 (元のロジック準拠)
-                    const debugDisplay = document.getElementById('ai-tree-debug-display');
-                    if (debugDisplay) {
-                        debugDisplay.dataset.count = e.data.count;
-                        // ログで画面が埋まらないよう、nodeCountだけの時はHTML更新を控えるか、
-                        // 必要ならステータス行だけ更新する処理をここに入れても良いです
-                    }
-
-                } else if (gameState === 'PLAYING' && this.isAiThinking) {
+                } 
+                // ★変更点: 'debug' メッセージは（Worker側で送らないようにしたけど）念のため無視、またはコンソールへ
+                else if (e.data && e.data.type === 'debug') {
+                    console.log("[AI Log]", e.data.message);
+                } 
+                else if (gameState === 'PLAYING' && this.isAiThinking) {
                     // 思考結果を受け取って移動を実行
                     this.executeAiMove(e.data);
                 }
