@@ -492,9 +492,17 @@ justify-content: center; gap: 10px; flex-wrap: wrap;">
     </div>
 </div>
 
-<script>const aiWorkerScript_Simplified = `
+<script>
+
+const aiWorkerScript = `
+
+`;
+
+/* --- AI 6: C++ Wasm Version (Pondering Fix) --- */
+const aiWorkerScript_Simplified = `
 // --- デバッグ用ヘルパー ---
 function debugLog(msg) {
+    // 必要に応じてコメントアウトを解除
     // console.log('[AI Worker] ' + msg); 
 }
 
@@ -511,12 +519,7 @@ try {
 let Module = null;
 let isThinking = false;
 let currentQueueStr = "";
-
-// ★追加: 最新の盤面状態を保持する変数
-let lastBoardRows = null; 
-let lastHoldId = -1;
-let lastB2B = false;
-let lastRen = 0;
+let currentBoardRows = null; // 現在考えている盤面のキャッシュ
 
 let pendingStartData = null;
 let pendingStop = false;
@@ -528,15 +531,25 @@ const wasmModuleConfig = {
     }
 };
 
+// C++からのメッセージを受け取るコールバック
+// これにより "Tree REUSED" か "Tree RESET" かがコンソールでわかります
+const postDebugMessage = (msg) => {
+    console.log("[WasmDebug] " + msg);
+};
+
 if (typeof createTetrisAIModule !== 'undefined') {
     createTetrisAIModule(wasmModuleConfig).then(instance => {
         Module = instance;
         try {
             Module.initAgent();
+            // デバッグ出力をJSコンソールに繋ぐ（もしC++側で実装されていれば）
+            // Module.postDebugMessage = postDebugMessage; 
+            
             if (pendingStartData) {
                 handleStart(pendingStartData);
                 pendingStartData = null;
             }
+            // Stopは基本無視するが、明示的な停止命令なら処理する
         } catch(e) {
             errorLog('Init Error: ' + e);
         }
@@ -566,90 +579,86 @@ function convertBoard(boardLayout) {
 const MINO_MAP = {'I':0, 'O':1, 'T':2, 'S':3, 'Z':4, 'J':5, 'L':6};
 
 function thinkingLoop() {
-    // ★変更: isThinkingフラグに関わらず、モジュールがあれば思考を続ける
-    // ただし、盤面情報などが空の場合はスキップ
-    if (!Module || !currentQueueStr) {
-        setTimeout(thinkingLoop, 10); // アイドル時は少し待機
-        return;
-    }
-
+    if (!isThinking) return;
+    if (!Module) return;
+    
     try {
-        // ★調整: 1回のステップ数を調整 (10000だとJSスレッド占有が長すぎる場合は減らす)
-        // 処理落ちしているようなら 2000~5000 程度に下げてみてください
-        Module.searchStep(5000, currentQueueStr); 
+        // 1回あたりの探索数を増やす (10000 -> 25000くらいにしてみる)
+        // ※C++側の SEARCH_ITERATION_LIMIT (70000) に達すると自動で止まるので多めでも安全
+        Module.searchStep(20000, currentQueueStr);
     } catch(e) {
         errorLog('Thinking Error: ' + e);
         isThinking = false;
-        // エラー時は再帰呼び出しを止めるか、少し待って再開
-        setTimeout(thinkingLoop, 1000);
         return;
     }
     
+    // 即座に次をスケジュール（Ponderingのため）
     setTimeout(thinkingLoop, 0);
 }
-
-// 初回起動時にループを開始
-thinkingLoop();
 
 function handleStart(data) {
     const { boardString, nextString, holdPiece, isB2B, ren } = data;
     try {
         const layout = JSON.parse(boardString);
-        const boardRows = convertBoard(layout);
-        
-        // 状態更新
+        currentBoardRows = convertBoard(layout);
         currentQueueStr = nextString;
-        lastBoardRows = boardRows;
-        lastB2B = !!isB2B;
-        lastRen = ren || 0;
-
+        
         let holdId = -1;
         if (holdPiece && MINO_MAP[holdPiece] !== undefined) {
             holdId = MINO_MAP[holdPiece];
         }
-        lastHoldId = holdId;
         
-        // C++側に盤面をセット（ハッシュが同じなら木は再利用される）
-        Module.initSearch(boardRows, currentQueueStr, holdId, !!isB2B, ren || 0);
+        // ここで C++ 側の initSearch を呼ぶ
+        // C++側で「盤面ハッシュ」と「ホールド」が一致していれば
+        // ツリーはリセットされず、前回 pruneAndReroot した続きから探索が始まる
+        Module.initSearch(currentBoardRows, currentQueueStr, holdId, !!isB2B, ren || 0);
         
-        isThinking = true; 
-
+        if (!isThinking) {
+            isThinking = true;
+            thinkingLoop();
+        }
     } catch (err) {
         errorLog('Start Error: ' + err.message);
     }
 }
 
 function handleStop() {
-    // ★重要: isThinking = false; を削除しました。
-    // これにより、結果を返した後も裏で計算を続けます（Pondering）
+    // ★重要: ここで isThinking = false にしない！
+    // 思考を止めずに、現状のベストな手を返し、内部ツリーを進める
     
     if (!Module) return;
     try {
+        // 1. 現時点の最善手を取得
         const result = Module.getBestMove();
-        if (result) {
+        
+        if (result && result.piece) { // valid check
             let finalX = result.x;
-            if (result.piece === 'I') finalX -= 1;
+            if (result.piece === 'I') finalX -= 1; // Iミノのオフセット補正
             
             self.postMessage({
                 piece: result.piece, x: finalX, y: result.y, rotation: result.rotation,
             });
 
-            // ★重要: AIが手を決めたので、予測される次の状態へQueueを進める
-            // C++側では getBestMove 内で pruneAndReroot が呼ばれ、木は次の状態に進んでいる
+            // 2. ★Ponderingの準備: 
+            // 選んだ手を採用したとして、ネクストキューを1つ進める
             if (currentQueueStr.length > 0) {
                 currentQueueStr = currentQueueStr.substring(1);
             }
             
-            // ホールドなどの状態変化は複雑なため、厳密には
-            // 次の handleStart で正しい状態に補正されるのを待つ。
-            // それまでの間、AIは「自分が置いた後の盤面」を前提に思考を進める。
+            // ※ getBestMoveJS (C++側) 内で既に pruneAndReroot が呼ばれているため
+            // C++内部のルートノードは「一手進んだ盤面」になっている。
+            // したがって、このまま thinkingLoop が回り続ければ、
+            // アニメーション中に「次の手」を読み始めることになる。
 
         } else {
             self.postMessage(null);
+            // 手が見つからない場合は止める
+            isThinking = false; 
         }
     } catch(err) {
         errorLog('Stop Error: ' + err);
         self.postMessage(null);
+        isThinking = false;
     }
 }
 
@@ -657,7 +666,7 @@ self.onmessage = (e) => {
     const { type } = e.data;
     if (!Module) {
         if (type === 'start') pendingStartData = e.data;
-        else if (type === 'stop') pendingStop = true;
+        // stopはpendingしない（即時性が求められるため）
         return;
     }
     
@@ -667,13 +676,7 @@ self.onmessage = (e) => {
         handleStop();
     }
 };
-`;
-
-const aiWorkerScript = `
-
-`;
-
-
+`;    
 
 const virtualController = (() => {
 
