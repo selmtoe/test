@@ -497,11 +497,11 @@ const aiWorkerScript = `
 
 `;
 
-/* --- AI 6: C++ Wasm Version (Pondering Enabled / Full Code) --- */
+/* --- AI 6: C++ Wasm Version (Pondering Enabled / Sync-Start Fixed) --- */
 const aiWorkerScript_Simplified = `
 // --- デバッグ用ヘルパー ---
 function debugLog(msg) {
-    // 画面への通知を停止（必要なら console.log を有効化）
+    // 必要に応じて有効化してください
     // console.log('[AI Worker] ' + msg); 
 }
 
@@ -520,13 +520,6 @@ let Module = null;
 let isThinking = false;
 let currentQueueStr = "";
 
-// メッセージキューイング用変数
-// 思考ループの合間に次の初期化処理を挟むために使用します
-let nextStartData = null;
-
-// 停止要求があった場合のフラグ（強制終了用だが、基本はPonderingさせるため使いません）
-// let pendingStop = false; 
-
 const wasmModuleConfig = {
     locateFile: function(path, prefix) {
         if (path.endsWith('.wasm')) return self.wasmBinaryUrl;
@@ -540,16 +533,7 @@ if (typeof createTetrisAIModule !== 'undefined') {
         Module = instance;
         try {
             Module.initAgent();
-            
-            // 初期化完了時に待機していたデータがあれば処理開始
-            if (nextStartData) {
-                performStart(nextStartData);
-                nextStartData = null;
-                if (!isThinking) {
-                    isThinking = true;
-                    thinkingLoop();
-                }
-            }
+            debugLog('Module Initialized');
         } catch(e) {
             errorLog('Init Error: ' + e);
         }
@@ -581,32 +565,28 @@ const MINO_MAP = {'I':0, 'O':1, 'T':2, 'S':3, 'Z':4, 'J':5, 'L':6};
 
 // --- 思考ループ (Pondering対応版) ---
 function thinkingLoop() {
-    if (!isThinking) return;
-    if (!Module) return;
+    // 停止フラグが立っている、またはモジュール未ロードなら終了
+    if (!isThinking || !Module) return;
 
     try {
-        // 新しいゲーム開始/盤面更新リクエストが来ている場合、ここで安全に切り替える
-        if (nextStartData) {
-            performStart(nextStartData);
-            nextStartData = null;
-        }
-
         // 探索ステップ実行
-        // 1回の実行単位を少し小さく(5000など)することで、メッセージ受信のレスポンスを維持しつつ考え続ける
-        Module.searchStep(5000, currentQueueStr); 
-
+        // Pondering中はここでひたすら先読みを行う
+        // 1回あたりのステップ数は応答性に影響するため適度な値(例: 2000-5000)にする
+        Module.searchStep(3000, currentQueueStr); 
     } catch(e) {
         errorLog('Thinking Error: ' + e);
         isThinking = false;
         return;
     }
     
-    // イベントループをブロックしないように setTimeout で回す
+    // 次のループをスケジュール（メインスレッドからのメッセージ割り込みを許可）
     setTimeout(thinkingLoop, 0);
 }
 
 // --- 実際の初期化処理（C++側呼び出し） ---
 function performStart(data) {
+    if (!Module) return;
+    
     const { boardString, nextString, holdPiece, isB2B, ren } = data;
     try {
         const layout = JSON.parse(boardString);
@@ -617,8 +597,10 @@ function performStart(data) {
             holdId = MINO_MAP[holdPiece];
         }
         
-        // C++側: 盤面ハッシュが一致すれば探索ツリーを再利用(Reuse)し、
-        // 一致しなければリセットして新規探索を開始する
+        // C++側: 
+        // 既存の探索ツリーのルートと盤面が一致していれば、探索状態を維持(Reuse)します。
+        // 一致しなければリセットして新規探索を開始します。
+        // これにより、Ponderingの成果が無駄になりません。
         Module.initSearch(boardRows, currentQueueStr, holdId, !!isB2B, ren || 0);
         
     } catch (err) {
@@ -628,11 +610,13 @@ function performStart(data) {
 
 // --- メッセージハンドラ: start ---
 function handleStart(data) {
-    // いきなり実行せず、思考ループの切れ目で実行するように予約する
-    // これにより、探索中のメモリアクセス衝突などを防ぐ
-    nextStartData = data;
+    // 【修正ポイント】
+    // ここで後回し(setTimeoutやフラグ立て)にせず、**即座に**初期化を実行します。
+    // メインスレッドは start 直後に stop を送ってくるため、
+    // ここで同期的に準備を完了させておかないと、次の handleStop で「準備未完了」になります。
+    performStart(data);
     
-    // まだループが回っていなければ回す
+    // 思考フラグをオンにし、ループが回っていなければ回す
     if (!isThinking) {
         isThinking = true;
         thinkingLoop();
@@ -641,14 +625,15 @@ function handleStart(data) {
 
 // --- メッセージハンドラ: stop (最善手取得) ---
 function handleStop() {
-    // 【重要】ここで isThinking = false にしない！
-    // ループを止めずに「Pondering（相手のターンやアニメーション中の先読み）」を継続させる
+    if (!Module) {
+        self.postMessage(null);
+        return;
+    }
 
-    if (!Module) return;
     try {
         // 現時点での最善手を取得
         // C++側では getBestMove 内で pruneAndReroot が呼ばれ、
-        // 選んだ手の先へルートが移動する
+        // 選んだ手の先へルートノードが移動します（これがPonderingの起点になります）
         const result = Module.getBestMove();
 
         if (result) {
@@ -661,31 +646,31 @@ function handleStop() {
             });
 
             // 【Pondering処理】
-            // AIは「自分が指した手」が通った前提で次の手を考えたい。
-            // そのため、現在のネクストキュー文字列から、今使った先頭のミノを削除して更新する。
+            // この後、AIは「自分が指した手が成立した後の世界」で考え続けます。
+            // そのため、キューの先頭（今使ったミノ）を削除した状態で探索を継続させます。
             if (currentQueueStr.length > 0) {
                 currentQueueStr = currentQueueStr.substring(1);
             }
 
         } else {
-            // 手が見つからない場合
+            // 手が見つからない場合（ほぼあり得ないが念のため）
             self.postMessage(null);
         }
     } catch(err) {
         errorLog('Stop Error: ' + err);
         self.postMessage(null);
     }
+    
+    // 【重要】 isThinking = false にしません。
+    // これにより、次の start が来るまでのアイドル時間も thinkingLoop が回り続け、
+    // 次の手を先読み(Pondering)し続けます。
 }
 
 self.onmessage = (e) => {
     const { type } = e.data;
     
-    // モジュール読み込み前の処理
-    if (!Module) {
-        if (type === 'start') nextStartData = e.data;
-        // stop等は無視
-        return;
-    }
+    // モジュール読み込み前は無視（あるいはキューイングしても良いが、頻度は低いので簡略化）
+    if (!Module) return;
     
     if (type === 'start') handleStart(e.data);
     else if (type === 'stop') handleStop();
