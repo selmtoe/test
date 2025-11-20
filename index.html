@@ -1649,50 +1649,62 @@ if (type === 'start') {
 
 };
 `;
+
 const aiWorkerScript_Simplified = `
 /* --- AI 6: Cold Clear (Wasm Wrapper) --- */
-// Emscriptenで生成されたグルーコード(ai_core.js)を読み込みます。
-// 注意: このHTMLと同じディレクトリに 'ai_core.js' と 'ai_core.wasm' を置く必要があります。
-importScripts('ai_core.js');
 
-// --- Global Variables ---
-let aiModule = null; // Wasmモジュールインスタンス
-let aiAgent = null;  // C++クラスのインスタンス
+// 1. メインスレッドから注入された WASM_BASE_URL を受け取る
+if (typeof WASM_BASE_URL === 'undefined') {
+    var WASM_BASE_URL = '';
+    console.warn('WASM_BASE_URL is undefined. Wasm loading might fail.');
+}
+
+// 2. グルーコード(ai_core.js)を読み込む (絶対パスを使用)
+try {
+    importScripts(WASM_BASE_URL + 'ai_core.js');
+} catch (e) {
+    console.error("Failed to load ai_core.js:", e);
+}
+
+let aiModule = null;
+let aiAgent = null;
 let isThinking = false;
-let currentQueue = []; // 文字列の配列 (['I', 'J', ...])
+let currentQueue = [];
 
-// --- Wasm Initialization ---
-// createAIModule() は emcc の -s EXPORT_NAME="createAIModule" で指定した名前です
+// 3. Wasmモジュールの設定
+// .wasmファイルを正しい場所(ベースURL配下)から探すように指示
+const moduleConfig = {
+    locateFile: function(path) {
+        return WASM_BASE_URL + path;
+    }
+};
+
+// 4. 初期化
 if (typeof createAIModule === 'function') {
-    createAIModule().then(module => {
+    createAIModule(moduleConfig).then(module => {
         aiModule = module;
-        // C++側の AIAgent クラスをインスタンス化
         aiAgent = new aiModule.AIAgent();
-        // メインスレッドに準備完了を通知（デバッグ用、必要なければ削除可）
         self.postMessage({ type: 'debug', message: 'Wasm AI Loaded & Ready' });
+    }).catch(err => {
+        console.error("Wasm Init Error:", err);
     });
 } else {
-    console.error("Error: createAIModule is not defined. Check if ai_core.js is loaded correctly.");
+    console.error("Error: createAIModule is not defined. Check ai_core.js path.");
 }
 
 // --- Search Loop ---
 function thinkingLoop() {
-    // AIがロードされていない、または思考停止フラグが立っている場合は中断
     if (!isThinking || !aiAgent) return;
     
-    // C++に渡すためにキュー配列を結合して文字列にする (例: ['I','Z'] -> "IZ")
-    // 元のJSロジックに合わせて2手先までなどを考慮するのはC++側で行っています
+    // 文字列結合してC++へ渡す
     const queueStr = currentQueue.join('');
     
-    // 探索を実行 (200ノード分だけ進める)
-    // searchStep(iterations, pieceQueueString)
+    // 探索実行 (ノード数制限はC++側で制御またはここ指定)
     aiAgent.searchStep(200, queueStr);
     
-    // 現在の探索済みノード数を取得
     const count = aiAgent.getNodeCount();
     self.postMessage({ type: 'nodeCount', count: count });
     
-    // ブロッキングを防ぐため、次のループをスケジュール
     setTimeout(thinkingLoop, 0);
 }
 
@@ -1700,36 +1712,28 @@ function thinkingLoop() {
 self.onmessage = (e) => {
     const { type, boardString, nextString, holdPiece, canHold, isB2B, ren } = e.data;
 
-    // まだWasmがロードされていない場合は無視するかエラー処理
     if (!aiAgent) {
-        if (type === 'start') {
-            console.warn("AI is still loading...");
-        }
+        if (type === 'start') console.warn("AI is still loading...");
         return;
     }
 
     if (type === 'start') {
         try {
-            // ボード情報のパース
             const layout = JSON.parse(boardString);
-            
-            // JSの2次元配列をC++のTetrisBoardオブジェクトに変換
+            // JS配列 -> C++ TetrisBoard
             const cppBoard = aiModule.TetrisBoard.fromJS(layout);
             
             currentQueue = nextString.split('');
             
-            // ホールド情報の整形 (文字コードとして渡す)
-            // holdPieceが null や undefined の場合は 0 を渡す
+            // ホールドの文字コード化
             let holdChar = 0;
             if (holdPiece && holdPiece !== 'null' && holdPiece.length === 1) {
                 holdChar = holdPiece.charCodeAt(0);
             }
 
-            // canHold の処理 (undefined なら true 扱い)
             const canHoldBool = (canHold !== undefined) ? canHold : true;
 
-            // C++側の初期化関数を呼び出す
-            // initSearch(board, queueStr, holdChar, isB2B, combo, canHold)
+            // C++側初期化
             aiAgent.initSearch(cppBoard, nextString, holdChar, !!isB2B, ren || 0, canHoldBool);
 
             if (!isThinking) {
@@ -1737,16 +1741,14 @@ self.onmessage = (e) => {
                 thinkingLoop();
             }
         } catch (err) {
-            console.error("AI Worker Error (start):", err);
+            console.error("AI Worker Start Error:", err);
         }
 
     } else if (type === 'stop') {
         if (aiAgent) {
-            // ベストムーブを取得 (JSオブジェクトとして返ってくる: {piece, x, y, rotation})
-            const bestPlacement = aiAgent.getBestMove(); 
+            const bestPlacement = aiAgent.getBestMove();
             
             if (bestPlacement) {
-                // 元のJSコードと同様の形式でメインスレッドに返す
                 self.postMessage({
                     piece: bestPlacement.piece,
                     x: bestPlacement.x,
@@ -1754,15 +1756,11 @@ self.onmessage = (e) => {
                     rotation: bestPlacement.rotation,
                 });
                 
-                // ツリーを更新して次の探索に備える
                 aiAgent.advanceTree();
-                
-                // JS側のキュー管理 (表示同期用)
                 if (currentQueue.length > 0) {
                     currentQueue.shift();
                 }
             } else {
-                // 見つからなかった場合
                 self.postMessage(null);
             }
         }
@@ -2323,16 +2321,22 @@ class Player {
         
         this.aiType = gameSettings.aiType || 'simplified'; 
 
+
         if (this.isAi) {
             // AIタイプによって読み込むスクリプトを変える
             let scriptToLoad = aiWorkerScript_Simplified;
             if (this.aiType === 'default') {
-                scriptToLoad = aiWorkerScript;//strongly simplified
+                scriptToLoad = aiWorkerScript; // defaultは純粋JS版なのでそのまま
+            } else {
+                // --- 修正箇所ここから ---
+                // Wasm版(Simplified)の場合、現在のディレクトリパスを注入する
+                const baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1);
+                scriptToLoad = `const WASM_BASE_URL = "${baseUrl}";\n` + scriptToLoad;
+                // --- 修正箇所ここまで ---
             }
 
             const blob = new Blob([scriptToLoad], { type: 'application/javascript' });
             this.aiWorker = new Worker(URL.createObjectURL(blob));
-
             this.aiWorker.onmessage = (e) => {
                 if (e.data && e.data.type === 'debug') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
