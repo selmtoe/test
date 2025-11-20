@@ -497,7 +497,7 @@ const aiWorkerScript = `
 
 `;
 
-/* --- AI 6: C++ Wasm Version (Pondering Enabled) --- */
+/* --- AI 6: C++ Wasm Version (Sync Fixed) --- */
 const aiWorkerScript_Simplified = `
 // --- デバッグ用ヘルパー ---
 function debugLog(msg) {
@@ -517,11 +517,8 @@ try {
 let Module = null;
 let isThinking = false;
 let currentQueueStr = "";
-
-// Ponderingのための状態管理
-let lastBoardHash = 0; // 重複initを防ぐためのキャッシュ（任意）
-
 let pendingStartData = null;
+let loopCount = 0; // 通信間引き用カウンタ
 
 const wasmModuleConfig = {
     locateFile: function(path, prefix) {
@@ -539,8 +536,6 @@ if (typeof createTetrisAIModule !== 'undefined') {
                 handleStart(pendingStartData);
                 pendingStartData = null;
             }
-            // 初期化完了したら思考ループを開始しておく
-            startThinkingLoop(); 
         } catch(e) {
             errorLog('Init Error: ' + e);
         }
@@ -569,32 +564,30 @@ function convertBoard(boardLayout) {
 
 const MINO_MAP = {'I':0, 'O':1, 'T':2, 'S':3, 'Z':4, 'J':5, 'L':6};
 
-// 思考ループ：常に回し続ける
-function startThinkingLoop() {
-    if (isThinking) return;
-    isThinking = true;
-    thinkingLoop();
-}
-
 function thinkingLoop() {
-    if (!Module) {
-        setTimeout(thinkingLoop, 100);
-        return;
-    }
+    if (!isThinking || !Module) return;
 
     try {
-        // 1回のステップ数を増やす (10000 -> 30000等)
-        // Pondering中はここが回り続ける
+        // 1回のステップ数を減らして応答性を確保 (前回30000 -> 今回5000)
         if (currentQueueStr.length > 0) {
-            Module.searchStep(30000, currentQueueStr);
+            Module.searchStep(5000, currentQueueStr);
         }
+        
+        // ノード数の更新を毎回送ると重いので、10回に1回程度にする
+        loopCount++;
+        if (loopCount % 10 === 0) {
+             // C++側で postNodeCount が呼ばれる仕掛けだが、
+             // 必要ならここで明示的に送ることも検討（現状はC++依存でOK）
+        }
+
     } catch(e) {
         errorLog('Thinking Error: ' + e);
-        // エラーが出ても止まらず再開を試みる
+        isThinking = false;
+        return;
     }
     
-    // setTimeoutの遅延を最小限にするため、MessageChannelを使うハックも有効だが
-    // まずは0ms指定で、ステップ数を増やすことでカバーする
+    // 次のループ予約。MessageChannelなどを使うとより早いが、
+    // 同期ズレを防ぐため setTimeout(..., 0) でイベントループを回させる
     setTimeout(thinkingLoop, 0);
 }
 
@@ -603,6 +596,8 @@ function handleStart(data) {
     try {
         const layout = JSON.parse(boardString);
         const boardRows = convertBoard(layout);
+        
+        // 新しいキュー情報で更新
         currentQueueStr = nextString;
         
         let holdId = -1;
@@ -610,11 +605,14 @@ function handleStart(data) {
             holdId = MINO_MAP[holdPiece];
         }
         
-        // C++側でハッシュチェックを行い、一致すれば木を再利用(Pondering成功)、
-        // 一致しなければリセットされる。
+        // 思考停止してから初期化（安全策）
+        isThinking = false;
+        
         Module.initSearch(boardRows, currentQueueStr, holdId, !!isB2B, ren || 0);
         
-        startThinkingLoop(); // 念のためキック
+        // 思考開始
+        isThinking = true;
+        thinkingLoop();
         
     } catch (err) {
         errorLog('Start Error: ' + err.message);
@@ -622,33 +620,43 @@ function handleStart(data) {
 }
 
 function handleStop() {
+    // まず思考フラグを折ってループを止める準備
+    // (ただし現在回っているthinkingLoopは止まらないので、結果送信は即座に行う)
+    const wasThinking = isThinking;
+    isThinking = false; 
+    
     if (!Module) return;
+    
     try {
-        // 1. 最善手を取得
         const result = Module.getBestMove();
         
-        // 2. メインスレッドに返す
         if (result) {
             let finalX = result.x;
-            if (result.piece === 'I') finalX -= 1; // Iミノの補正
+            if (result.piece === 'I') finalX -= 1;
             
+            // ★ 結果をメインスレッドに送信（これが最優先）
             self.postMessage({
                 piece: result.piece, x: finalX, y: result.y, rotation: result.rotation,
             });
 
-            // --- Pondering 処理 ---
+            // --- Pondering (先読み) の準備 ---
+            // C++側では getBestMove() 内で pruneAndReroot が走っているので
+            // ルートは「1手進んだ状態」になっている。
             
-            // getBestMove()を呼んだ時点で、C++内部では pruneAndReroot が走り、
-            // 探索木のルートが「選んだ手を打った後の盤面」に進んでいる。
-            
-            // したがって、JS側でも「次に探索すべきキュー」を1つ進める必要がある。
+            // キューを1つ進める
             if (currentQueueStr.length > 0) {
-                // 先頭（今打ったミノ）を削除して、次の予測へ
                 currentQueueStr = currentQueueStr.substring(1);
             }
             
-            // ★重要：ここで isThinking = false にしない！
-            // ループは回り続け、進んだルートと進んだキューで探索を継続する（先読み）。
+            // 再び思考再開（ポンダリング）
+            // 少し遅延させて、メインスレッドへのメッセージ送信を優先させる
+            setTimeout(() => {
+                // まだ次のStart命令が来ていなければ再開
+                if (!isThinking) {
+                    isThinking = true;
+                    thinkingLoop();
+                }
+            }, 10);
             
         } else {
             self.postMessage(null);
@@ -661,13 +669,17 @@ function handleStop() {
 
 self.onmessage = (e) => {
     const { type } = e.data;
+    
     if (!Module) {
         if (type === 'start') pendingStartData = e.data;
-        // stopはモジュールロード前なら無視
         return;
     }
-    if (type === 'start') handleStart(e.data);
-    else if (type === 'stop') handleStop();
+    
+    if (type === 'start') {
+        handleStart(e.data);
+    } else if (type === 'stop') {
+        handleStop();
+    }
 };
 `;
 
