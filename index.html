@@ -498,15 +498,19 @@ const aiWorkerScript = `
 
 `;
 
+/* --- AI 6: C++ Wasm Version (Clean & Node Count Mode) --- */
 const aiWorkerScript_Simplified = `
 // --- デバッグ用ヘルパー ---
 function debugLog(msg) {
-    // 必要に応じてコメントアウトを解除
+    // 画面への通知を停止（コンソールには残します）
     // console.log('[AI Worker] ' + msg); 
 }
 
+// エラー時のみ通知するためのヘルパー
 function errorLog(msg) {
     console.error('[AI Worker Error] ' + msg);
+    // エラーだけは画面に出したい場合はコメントアウトを外してください
+    // self.postMessage({ type: 'debug', message: 'ERROR: ' + msg });
 }
 
 try {
@@ -516,10 +520,11 @@ try {
 }
 
 let Module = null;
-let isThinking = false;      // 思考ループが回っているかどうか
-let currentQueueStr = "";    // 現在AIが認識しているネクストキュー
+let isThinking = false;
+let currentQueueStr = "";
 
-let pendingStartData = null; // モジュールロード待ち用
+let pendingStartData = null;
+let pendingStop = false;
 
 const wasmModuleConfig = {
     locateFile: function(path, prefix) {
@@ -533,11 +538,13 @@ if (typeof createTetrisAIModule !== 'undefined') {
         Module = instance;
         try {
             Module.initAgent();
-            debugLog("Module initialized.");
-            
             if (pendingStartData) {
                 handleStart(pendingStartData);
                 pendingStartData = null;
+            }
+            if (pendingStop) {
+                handleStop();
+                pendingStop = false;
             }
         } catch(e) {
             errorLog('Init Error: ' + e);
@@ -545,13 +552,11 @@ if (typeof createTetrisAIModule !== 'undefined') {
     });
 }
 
-// 盤面変換（1D配列 -> ビットボード配列）
 function convertBoard(boardLayout) {
     const height = 40; 
-    const width = 10;
+    const width = 10;  
     const rows = new Int32Array(height).fill(0);
     const layoutHeight = boardLayout.length;
-    
     for (let y = 0; y < layoutHeight; y++) {
         const internalY = y + (height - layoutHeight);
         if (internalY < 0) continue;
@@ -569,33 +574,27 @@ function convertBoard(boardLayout) {
 
 const MINO_MAP = {'I':0, 'O':1, 'T':2, 'S':3, 'Z':4, 'J':5, 'L':6};
 
-// --- 思考ループ ---
 function thinkingLoop() {
-    // isThinkingフラグが折れていない限り回り続ける
     if (!isThinking) return;
     if (!Module) return;
-
+    
     try {
-        // C++側の探索を1ステップ進める (10000回指定)
-        Module.searchStep(10000, currentQueueStr);
+        // ここでC++側が postNodeCount を呼んでくれます
+        Module.searchStep(10000, currentQueueStr); 
     } catch(e) {
         errorLog('Thinking Error: ' + e);
         isThinking = false;
         return;
     }
     
-    // 次のタスクとして即時スケジュール（ノンブロッキング）
     setTimeout(thinkingLoop, 0);
 }
 
-// --- 盤面情報の更新と探索開始 ---
 function handleStart(data) {
     const { boardString, nextString, holdPiece, isB2B, ren } = data;
     try {
         const layout = JSON.parse(boardString);
         const boardRows = convertBoard(layout);
-        
-        // キュー情報を更新
         currentQueueStr = nextString;
         
         let holdId = -1;
@@ -603,11 +602,8 @@ function handleStart(data) {
             holdId = MINO_MAP[holdPiece];
         }
         
-        // C++側の探索ツリーを初期化（または再利用）
-        // 盤面ハッシュが一致すれば、これまでの探索結果(Pondering分)が維持される
         Module.initSearch(boardRows, currentQueueStr, holdId, !!isB2B, ren || 0);
-
-        // 思考ループが止まっていたら再開させる
+        
         if (!isThinking) {
             isThinking = true;
             thinkingLoop();
@@ -617,65 +613,36 @@ function handleStart(data) {
     }
 }
 
-// --- 最善手の要求とPonderingへの移行 ---
 function handleStop() {
-    // ★重要: ここで isThinking = false にしないことで思考を継続させる（Pondering）
-
+    isThinking = false;
     if (!Module) return;
-
     try {
-        // 1. 現時点での最善手を取得
-        // C++側では getBestMoveJS 内で pruneAndReroot が呼ばれ、
-        // ルートノードが「最善手を打った後の盤面」に更新される
-        const result = Module.getBestMove();
-
+        const result = Module.getBestMove(); 
         if (result) {
             let finalX = result.x;
-            if (result.piece === 'I') finalX -= 1; // Iミノの補正
-
-            // 2. メインスレッドへ手を送信
+            if (result.piece === 'I') finalX -= 1;
             self.postMessage({
-                piece: result.piece, 
-                x: finalX, 
-                y: result.y, 
-                rotation: result.rotation,
+                piece: result.piece, x: finalX, y: result.y, rotation: result.rotation,
             });
-
-            // 3. 予測状態に合わせてJS側のキュー情報を更新
-            // （打った手は消費されるので、キューを1つ進める）
-            if (currentQueueStr.length > 0) {
-                currentQueueStr = currentQueueStr.substring(1);
-            }
-
-            // 4. 思考は停止せず、更新されたルート（未来の盤面）から探索を続ける
-            // isThinking は true のまま維持
+            if (currentQueueStr.length > 0) currentQueueStr = currentQueueStr.substring(1);
         } else {
-            // 手が見つからない（ゲームオーバー等）場合は思考停止
             self.postMessage(null);
-            isThinking = false; 
         }
     } catch(err) {
         errorLog('Stop Error: ' + err);
         self.postMessage(null);
-        isThinking = false;
     }
 }
 
-// --- メッセージハンドラ ---
 self.onmessage = (e) => {
     const { type } = e.data;
-
     if (!Module) {
         if (type === 'start') pendingStartData = e.data;
-        // モジュールロード前に stop が来ても無視（まだ思考していないため）
+        else if (type === 'stop') pendingStop = true;
         return;
     }
-
-    if (type === 'start') {
-        handleStart(e.data);
-    } else if (type === 'stop') {
-        handleStop();
-    }
+    if (type === 'start') handleStart(e.data);
+    else if (type === 'stop') handleStop();
 };
 `;
 
