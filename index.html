@@ -588,7 +588,7 @@ function ponderLoop() {
         // 2. 探索を進める (1ステップあたりのノード数は少なめにし、レスポンス性を確保)
         // キュー文字列が空だとC++側でエラーになるかもしれないのでチェック
         if (currentQueueStr && currentQueueStr.length >= 2) {
-            Module.searchStep(5000, currentQueueStr); 
+            Module.searchStep(500, currentQueueStr); 
         }
 
         // 3. 手を返す条件を満たしているかチェック
