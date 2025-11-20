@@ -498,37 +498,47 @@ const aiWorkerScript = `
 
 `;
 
-/* --- AI 6: C++ Wasm Version (Debug Mode) --- */
+/* --- AI 6: C++ Wasm Version (Fixed for Blob URL) --- */
 const aiWorkerScript_Simplified = `
 // --- デバッグ用ヘルパー ---
 function debugLog(msg) {
-    // コンソールにも出す
     console.log('[AI Worker] ' + msg);
-    // メインスレッドに送って画面に出す
     self.postMessage({ type: 'debug', message: msg });
 }
 
-debugLog('Worker started. Attempting to import tetris_ai.js...');
+debugLog('Worker started.');
+debugLog('Target Script URL: ' + self.wasmScriptUrl);
 
-// 1. JSファイルのインポート試行
+// 1. JSファイルのインポート (絶対パスを使用)
 try {
-    importScripts('tetris_ai.js'); 
+    importScripts(self.wasmScriptUrl); 
     debugLog('tetris_ai.js imported successfully.');
 } catch (e) {
-    debugLog('CRITICAL ERROR: Failed to import tetris_ai.js. Check file path! Error: ' + e);
+    debugLog('CRITICAL ERROR: Failed to import tetris_ai.js. ' + e);
 }
 
 let Module = null;
 let isThinking = false;
 let currentQueueStr = "";
 
-// 2. Wasmモジュールの初期化試行
+// 2. Wasmモジュールの初期化
+// Emscriptenは .wasm ファイルを自動で探しますが、Blob内だとパスが狂うため
+// locateFile オプションで .wasm の絶対パスを明示的に教えます。
+const wasmModuleConfig = {
+    locateFile: function(path, prefix) {
+        if (path.endsWith('.wasm')) {
+            return self.wasmBinaryUrl;
+        }
+        return prefix + path;
+    }
+};
+
 debugLog('Checking for createTetrisAIModule...');
 if (typeof createTetrisAIModule === 'undefined') {
-    debugLog('CRITICAL ERROR: createTetrisAIModule is undefined. Wasm compilation failed or file not loaded.');
+    debugLog('CRITICAL ERROR: createTetrisAIModule is undefined. Import failed.');
 } else {
-    debugLog('Calling createTetrisAIModule()...');
-    createTetrisAIModule().then(instance => {
+    debugLog('Calling createTetrisAIModule with custom locateFile...');
+    createTetrisAIModule(wasmModuleConfig).then(instance => {
         Module = instance;
         try {
             Module.initAgent();
@@ -541,7 +551,8 @@ if (typeof createTetrisAIModule === 'undefined') {
     });
 }
 
-// JS側でのボードデータ変換ヘルパー
+// --- 以下、ロジック部分は変更なし ---
+
 function convertBoard(boardLayout) {
     const height = 40; 
     const width = 10;  
@@ -569,15 +580,14 @@ const MINO_MAP = {'I':0, 'O':1, 'T':2, 'S':3, 'Z':4, 'J':5, 'L':6};
 function thinkingLoop() {
     if (!isThinking) return;
     if (!Module) {
-        debugLog('ThinkingLoop skipped: Module not loaded.');
+        // debugLog('ThinkingLoop skipped: Module not loaded.');
         return;
     }
     
     try {
-        // 探索ステップ実行
         Module.searchStep(300, currentQueueStr); 
     } catch(e) {
-        debugLog('CRITICAL ERROR in thinkingLoop (Module.searchStep): ' + e);
+        debugLog('CRITICAL ERROR in thinkingLoop: ' + e);
         isThinking = false;
         return;
     }
@@ -586,9 +596,6 @@ function thinkingLoop() {
 }
 
 self.onmessage = (e) => {
-    // メッセージ受信ログ
-    // debugLog('Message received: ' + e.data.type);
-
     if (!Module) {
         if (e.data.type === 'start') {
              debugLog('Received START but Wasm Module is NOT ready yet.');
@@ -610,7 +617,6 @@ self.onmessage = (e) => {
                 holdId = MINO_MAP[holdPiece];
             }
             
-            // debugLog('Starting Search in C++...');
             Module.initSearch(boardRows, currentQueueStr, holdId, !!isB2B, ren || 0);
             
             if (!isThinking) {
@@ -646,7 +652,7 @@ self.onmessage = (e) => {
                 self.postMessage(null);
             }
         } catch(err) {
-            debugLog('ERROR inside stop handler (getBestMove): ' + err);
+            debugLog('ERROR inside stop handler: ' + err);
             self.postMessage(null);
         }
     }
@@ -1196,55 +1202,78 @@ function* createMinoGenerator(customQueue) {
 }
 
 class Player {
-    constructor(id, offsetX, keyBindings, padIndex, isAi = false) {
+constructor(id, offsetX, keyBindings, padIndex, isAi = false) {
         this.id = id;
         this.offsetX = offsetX; this.keyBindings = keyBindings; this.padIndex = padIndex;
         this.isAi = isAi;
         this.isAiThinking = false;
         this.aiWorker = null;
-        
         this.aiType = gameSettings.aiType || 'simplified'; 
 
         if (this.isAi) {
-            // AIタイプによって読み込むスクリプトを変える
-            let scriptToLoad = aiWorkerScript_Simplified;
+            // --- 修正箇所: AIタイプの分岐ロジック ---
+            
             if (this.aiType === 'default') {
-                scriptToLoad = aiWorkerScript;//strongly simplified
+                // 1. 'default' の場合: 元のJS版AI (aiWorkerScript) を使用
+                // (元のファイルにある aiWorkerScript 変数を使います)
+                const blob = new Blob([aiWorkerScript], { type: 'application/javascript' });
+                this.aiWorker = new Worker(URL.createObjectURL(blob));
+                
+            } else {
+                // 2. それ以外 ('simplified') の場合: 今回のWasm版AIを使用
+                
+                // 現在のページのURLベースを取得して絶対パスを作成
+                const baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1);
+                const jsUrl = baseUrl + 'tetris_ai.js';
+                const wasmUrl = baseUrl + 'tetris_ai.wasm';
+
+                // Workerスクリプトの先頭にパス変数を注入
+                const header = `
+                    self.wasmScriptUrl = "${jsUrl}";
+                    self.wasmBinaryUrl = "${wasmUrl}";
+                `;
+
+                // 前回作成したデバッグ版Wasmラッパー (aiWorkerScript_Simplified) を使用
+                const blob = new Blob([header + aiWorkerScript_Simplified], { type: 'application/javascript' });
+                this.aiWorker = new Worker(URL.createObjectURL(blob));
             }
 
-            const blob = new Blob([scriptToLoad], { type: 'application/javascript' });
-            this.aiWorker = new Worker(URL.createObjectURL(blob));
+            // --------------------------------------
 
+            // 共通のメッセージハンドラ
             this.aiWorker.onmessage = (e) => {
                 if (e.data && e.data.type === 'debug') {
+                    // デバッグログ表示 (Wasm版のエラー確認用)
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
                     if (debugDisplay) {
                         debugDisplay.style.display = 'block';
-                        
-                        // --- 修正箇所: ログを追記形式に変更 ---
-                        // 既存の内容を取得
                         const timestamp = new Date().toLocaleTimeString();
                         const newMessage = `<div style="border-bottom: 1px solid #555; margin-bottom: 2px;">[${timestamp}] ${e.data.message}</div>`;
                         
-                        // ログが多すぎたら古いものを消す（メモリ対策）
+                        // ログが増えすぎないように制限
                         if (debugDisplay.innerHTML.length > 5000) {
                             debugDisplay.innerHTML = debugDisplay.innerHTML.substring(0, 2000);
                         }
-                        
-                        // 先頭に追加（新しいものが上に来るように）
                         debugDisplay.innerHTML = newMessage + debugDisplay.innerHTML;
-                        // ------------------------------------
                     }
-                    console.log("[MainThread received]", e.data.message);
+                    console.log("[AI Worker]", e.data.message);
+
                 } else if (e.data && e.data.type === 'nodeCount') {
-                    // ノード数カウントの表示は別の場所にやるか、ログに埋もれないようにする
-                    // 今回はエラー調査優先なので一旦ログには出さないでおくか、
-                    // 別のDOM要素を作るのがベストですが、まずはエラーログ優先。
+                    // 探索ノード数の更新 (元のロジック準拠)
+                    const debugDisplay = document.getElementById('ai-tree-debug-display');
+                    if (debugDisplay) {
+                        debugDisplay.dataset.count = e.data.count;
+                        // ログで画面が埋まらないよう、nodeCountだけの時はHTML更新を控えるか、
+                        // 必要ならステータス行だけ更新する処理をここに入れても良いです
+                    }
+
                 } else if (gameState === 'PLAYING' && this.isAiThinking) {
+                    // 思考結果を受け取って移動を実行
                     this.executeAiMove(e.data);
                 }
             };
         }
+        
         this.isDrawingOnBoard = false;
         this.drawnBlocks = new Map();
         this.customGhosts = [];
