@@ -580,7 +580,7 @@ function thinkingLoop() {
     
     try {
         // ここでC++側が postNodeCount を呼んでくれます
-        Module.searchStep(500, currentQueueStr); 
+        Module.searchStep(10000, currentQueueStr); 
     } catch(e) {
         errorLog('Thinking Error: ' + e);
         isThinking = false;
