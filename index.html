@@ -498,19 +498,20 @@ const aiWorkerScript = `
 
 `;
 
-/* --- AI 6: C++ Wasm Version (Clean & Node Count Mode) --- */
+/* --- AI 6: C++ Wasm Version (Clean & Pondering Mode) --- */
 const aiWorkerScript_Simplified = `
-// --- デバッグ用ヘルパー ---
-function debugLog(msg) {
-    // 画面への通知を停止（コンソールには残します）
-    // console.log('[AI Worker] ' + msg); 
+// --- デバッグ・エラー通知ヘルパー ---
+function postDebug(msg) {
+    self.postMessage({ type: 'debug', message: msg });
 }
 
-// エラー時のみ通知するためのヘルパー
+// エラーを画面に確実に表示するためのラッパー
+self.onerror = function(message, source, lineno, colno, error) {
+    postDebug("WORKER ERROR: " + message + " at " + lineno + ":" + colno);
+};
+
 function errorLog(msg) {
-    console.error('[AI Worker Error] ' + msg);
-    // エラーだけは画面に出したい場合はコメントアウトを外してください
-    // self.postMessage({ type: 'debug', message: 'ERROR: ' + msg });
+    postDebug("ERROR: " + msg);
 }
 
 try {
@@ -520,11 +521,11 @@ try {
 }
 
 let Module = null;
-let isThinking = false;
 let currentQueueStr = "";
-
-let pendingStartData = null;
-let pendingStop = false;
+// Pondering State
+let isPondering = false;       // ループが回っているか
+let pendingRequest = null;     // メインスレッドからの「この局面で手をくれ」という依頼
+let searchLimitNodes = 150000; // 最大探索ノード数制限
 
 const wasmModuleConfig = {
     locateFile: function(path, prefix) {
@@ -538,14 +539,10 @@ if (typeof createTetrisAIModule !== 'undefined') {
         Module = instance;
         try {
             Module.initAgent();
-            if (pendingStartData) {
-                handleStart(pendingStartData);
-                pendingStartData = null;
-            }
-            if (pendingStop) {
-                handleStop();
-                pendingStop = false;
-            }
+            postDebug("Wasm Module Initialized. Starting Ponder Loop.");
+            // モジュール読み込み完了後、直ちにPondering開始
+            isPondering = true;
+            ponderLoop();
         } catch(e) {
             errorLog('Init Error: ' + e);
         }
@@ -554,7 +551,7 @@ if (typeof createTetrisAIModule !== 'undefined') {
 
 function convertBoard(boardLayout) {
     const height = 40; 
-    const width = 10;  
+    const width = 10;
     const rows = new Int32Array(height).fill(0);
     const layoutHeight = boardLayout.length;
     for (let y = 0; y < layoutHeight; y++) {
@@ -574,75 +571,122 @@ function convertBoard(boardLayout) {
 
 const MINO_MAP = {'I':0, 'O':1, 'T':2, 'S':3, 'Z':4, 'J':5, 'L':6};
 
-function thinkingLoop() {
-    if (!isThinking) return;
-    if (!Module) return;
-    
-    try {
-        // ここでC++側が postNodeCount を呼んでくれます
-        Module.searchStep(10000, currentQueueStr); 
-    } catch(e) {
-        errorLog('Thinking Error: ' + e);
-        isThinking = false;
+// --- メインの思考ループ (Pondering) ---
+function ponderLoop() {
+    if (!Module) {
+        setTimeout(ponderLoop, 100);
         return;
     }
+
+    try {
+        // 1. メインスレッドからのリクエストがあれば処理 (予測チェック & 初期化)
+        if (pendingRequest) {
+            processRequest(pendingRequest);
+            pendingRequest = null; // 処理したらクリア
+        }
+
+        // 2. 探索を進める (1ステップあたりのノード数は少なめにし、レスポンス性を確保)
+        // キュー文字列が空だとC++側でエラーになるかもしれないのでチェック
+        if (currentQueueStr && currentQueueStr.length >= 2) {
+            Module.searchStep(500, currentQueueStr); 
+        }
+
+        // 3. 手を返す条件を満たしているかチェック
+        //    条件: 「手を要求されている(shouldReply)」かつ「(予測が当たって再利用中) または (リセット後の最低探索数を満たした)」
+        if (self.shouldReply) {
+            // リセット直後(予測外れ)の場合、ある程度回す必要がある。
+            // 簡易的にフレームカウントで待機させる。
+            
+            if (self.isReuseMatch || self.thinkFrameCount > 5) {
+                // 答えを返す
+                sendBestMove();
+                self.shouldReply = false; // 返答済み
+                self.thinkFrameCount = 0;
+            } else {
+                self.thinkFrameCount++;
+            }
+        }
+
+    } catch(e) {
+        errorLog('Ponder Error: ' + e);
+        // エラーが出ても止まらず再開を試みる
+    }
     
-    setTimeout(thinkingLoop, 0);
+    // 次のループへ (setTimeout 0 で常時稼働)
+    setTimeout(ponderLoop, 0);
 }
 
-function handleStart(data) {
+function processRequest(data) {
     const { boardString, nextString, holdPiece, isB2B, ren } = data;
     try {
         const layout = JSON.parse(boardString);
         const boardRows = convertBoard(layout);
         currentQueueStr = nextString;
-        
         let holdId = -1;
         if (holdPiece && MINO_MAP[holdPiece] !== undefined) {
             holdId = MINO_MAP[holdPiece];
         }
         
-        Module.initSearch(boardRows, currentQueueStr, holdId, !!isB2B, ren || 0);
+        // initSearchを実行し、木が再利用されたか(予測的中か)を取得
+        // C++側で bool を返すように変更済みであることが前提
+        const isReuse = Module.initSearch(boardRows, currentQueueStr, holdId, !!isB2B, ren || 0);
         
-        if (!isThinking) {
-            isThinking = true;
-            thinkingLoop();
+        self.isReuseMatch = isReuse;
+        self.shouldReply = true; // このリクエストに対して返答が必要
+        self.thinkFrameCount = 0;
+
+        if (isReuse) {
+            // postDebug("Prediction HIT! Reusing tree.");
+        } else {
+            // postDebug("Prediction MISS. Resetting tree.");
         }
+
     } catch (err) {
-        errorLog('Start Error: ' + err.message);
+        errorLog('Process Request Error: ' + err.message);
     }
 }
 
-function handleStop() {
-    isThinking = false;
+function sendBestMove() {
     if (!Module) return;
     try {
-        const result = Module.getBestMove(); 
+        const result = Module.getBestMove(); // ここで内部的に pruneAndReroot も呼ばれる (JSバインディングの実装による)
+        
         if (result) {
             let finalX = result.x;
             if (result.piece === 'I') finalX -= 1;
+            
             self.postMessage({
-                piece: result.piece, x: finalX, y: result.y, rotation: result.rotation,
+                type: 'move', // メッセージタイプを明示
+                piece: result.piece, 
+                x: finalX, 
+                y: result.y, 
+                rotation: result.rotation,
+                isReuse: self.isReuseMatch
             });
-            if (currentQueueStr.length > 0) currentQueueStr = currentQueueStr.substring(1);
+
+            // 手を決定した後、C++側のルートは「その手を打った後の状態」に進んでいる(pruneAndRerootにより)。
+            // なので、キュー文字列も1つ進めて、次の手(Pondering)に備える。
+            if (currentQueueStr.length > 0) {
+                currentQueueStr = currentQueueStr.substring(1);
+            }
         } else {
-            self.postMessage(null);
+            self.postMessage({ type: 'move', data: null });
         }
     } catch(err) {
-        errorLog('Stop Error: ' + err);
-        self.postMessage(null);
+        errorLog('Send Move Error: ' + err);
     }
 }
 
 self.onmessage = (e) => {
     const { type } = e.data;
-    if (!Module) {
-        if (type === 'start') pendingStartData = e.data;
-        else if (type === 'stop') pendingStop = true;
-        return;
+    // 'start' を 'requestMove' として扱う
+    if (type === 'start') {
+        pendingRequest = e.data;
     }
-    if (type === 'start') handleStart(e.data);
-    else if (type === 'stop') handleStop();
+    else if (type === 'stop') {
+        // ストップ命令が来たら返答フラグを下ろす
+        self.shouldReply = false;
+    }
 };
 `;
 
@@ -1197,12 +1241,11 @@ constructor(id, offsetX, keyBindings, padIndex, isAi = false) {
         this.aiWorker = null;
         this.aiType = gameSettings.aiType || 'simplified'; 
 
-        if (this.isAi) {
+if (this.isAi) {
             // --- 修正箇所: AIタイプの分岐ロジック ---
             
             if (this.aiType === 'default') {
                 // 1. 'default' の場合: 元のJS版AI (aiWorkerScript) を使用
-                // (元のファイルにある aiWorkerScript 変数を使います)
                 const blob = new Blob([aiWorkerScript], { type: 'application/javascript' });
                 this.aiWorker = new Worker(URL.createObjectURL(blob));
                 
@@ -1213,7 +1256,6 @@ constructor(id, offsetX, keyBindings, padIndex, isAi = false) {
                 const baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1);
                 const jsUrl = baseUrl + 'tetris_ai.js';
                 const wasmUrl = baseUrl + 'tetris_ai.wasm';
-
                 // Workerスクリプトの先頭にパス変数を注入
                 const header = `
                     self.wasmScriptUrl = "${jsUrl}";
@@ -1226,24 +1268,43 @@ constructor(id, offsetX, keyBindings, padIndex, isAi = false) {
             }
 
             this.aiWorker.onmessage = (e) => {
-                if (e.data && e.data.type === 'nodeCount') {
+                const data = e.data;
+                if (!data) return;
+
+                if (data.type === 'nodeCount') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
                     if (debugDisplay) {
                         debugDisplay.style.display = 'block';
                         // ログのように追記せず、数値を更新するだけにする
-                        // 見やすいようにスタイルも少し調整（お好みで）
                         debugDisplay.style.fontFamily = '"Orbitron", monospace';
                         debugDisplay.style.fontSize = '14px';
-                        debugDisplay.innerHTML = `AI Nodes: <span style="color: #00ff00;">${e.data.count.toLocaleString()}</span>`;
+                        debugDisplay.innerHTML = `AI Nodes: <span style="color: #00ff00;">${data.count.toLocaleString()}</span>`;
                     }
                 } 
-                // ★変更点: 'debug' メッセージは（Worker側で送らないようにしたけど）念のため無視、またはコンソールへ
-                else if (e.data && e.data.type === 'debug') {
-                    console.log("[AI Log]", e.data.message);
+                // ★変更点: 'debug' メッセージを画面上のログエリアに表示する
+                else if (data.type === 'debug') {
+                    console.log("[AI Log]", data.message);
+                    const display = document.getElementById('ai-debug-display');
+                    if (display) {
+                        let logContainer = display.querySelector('.ai-log-container');
+                        if (!logContainer) {
+                            // updateAiDebugDisplayがまだ呼ばれていない場合のフォールバック
+                            logContainer = document.createElement('div');
+                            logContainer.className = 'ai-log-container';
+                            display.appendChild(logContainer);
+                        }
+                        const msgDiv = document.createElement('div');
+                        msgDiv.textContent = "> " + data.message;
+                        msgDiv.style.borderBottom = "1px solid #333";
+                        // 新しいメッセージを上に追加
+                        logContainer.insertBefore(msgDiv, logContainer.firstChild);
+                    }
                 } 
-                else if (gameState === 'PLAYING' && this.isAiThinking) {
+                // ★変更点: 思考結果 (type: 'move') を受け取って移動を実行
+                else if ((data.type === 'move' || (!data.type && data.piece)) && gameState === 'PLAYING' && this.isAiThinking) {
                     // 思考結果を受け取って移動を実行
-                    this.executeAiMove(e.data);
+                    // 互換性のため data.piece がある場合も許容
+                    this.executeAiMove(data);
                 }
             };
         }
