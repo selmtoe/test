@@ -498,7 +498,7 @@ const aiWorkerScript = `
 
 `;
 
-/* --- AI 6: C++ Wasm Version (Fixed for Blob URL) --- */
+/* --- AI 6: C++ Wasm Version (Fixed Timing Issue) --- */
 const aiWorkerScript_Simplified = `
 // --- デバッグ用ヘルパー ---
 function debugLog(msg) {
@@ -507,82 +507,68 @@ function debugLog(msg) {
 }
 
 debugLog('Worker started.');
-debugLog('Target Script URL: ' + self.wasmScriptUrl);
-
-// 1. JSファイルのインポート (絶対パスを使用)
+// ... (importScriptsなどの部分はそのまま) ...
 try {
     importScripts(self.wasmScriptUrl); 
-    debugLog('tetris_ai.js imported successfully.');
 } catch (e) {
-    debugLog('CRITICAL ERROR: Failed to import tetris_ai.js. ' + e);
+    debugLog('CRITICAL ERROR: ' + e);
 }
 
 let Module = null;
 let isThinking = false;
 let currentQueueStr = "";
 
-// 2. Wasmモジュールの初期化
-// Emscriptenは .wasm ファイルを自動で探しますが、Blob内だとパスが狂うため
-// locateFile オプションで .wasm の絶対パスを明示的に教えます。
+// ★追加: 初期化前に来たstartメッセージを保存しておく変数
+let pendingStartData = null;
+
 const wasmModuleConfig = {
     locateFile: function(path, prefix) {
-        if (path.endsWith('.wasm')) {
-            return self.wasmBinaryUrl;
-        }
+        if (path.endsWith('.wasm')) return self.wasmBinaryUrl;
         return prefix + path;
     }
 };
 
-debugLog('Checking for createTetrisAIModule...');
-if (typeof createTetrisAIModule === 'undefined') {
-    debugLog('CRITICAL ERROR: createTetrisAIModule is undefined. Import failed.');
-} else {
-    debugLog('Calling createTetrisAIModule with custom locateFile...');
+if (typeof createTetrisAIModule !== 'undefined') {
     createTetrisAIModule(wasmModuleConfig).then(instance => {
         Module = instance;
         try {
             Module.initAgent();
-            debugLog('Wasm Module Initialized & initAgent called successfully.');
+            debugLog('Wasm Module Initialized.');
+
+            // ★修正: もし待たせていたスタート命令があれば、ここで実行開始する
+            if (pendingStartData) {
+                debugLog('Executing pending START command...');
+                handleStart(pendingStartData);
+                pendingStartData = null; // クリア
+            }
+
         } catch(e) {
             debugLog('ERROR calling initAgent: ' + e);
         }
-    }).catch(err => {
-        debugLog('CRITICAL ERROR in Wasm instantiation: ' + err);
     });
 }
 
-// --- 以下、ロジック部分は変更なし ---
-
+// --- ボード変換関数などはそのまま ---
 function convertBoard(boardLayout) {
-    const height = 40; 
-    const width = 10;  
-    const rows = new Int32Array(height).fill(0);
-    
+    // ... (変更なし) ...
+    const height = 40; const width = 10; const rows = new Int32Array(height).fill(0);
     const layoutHeight = boardLayout.length;
     for (let y = 0; y < layoutHeight; y++) {
         const internalY = y + (height - layoutHeight);
         if (internalY < 0) continue;
-        
-        let rowValue = 0;
-        const row = boardLayout[y];
+        let rowValue = 0; const row = boardLayout[y];
         for (let x = 0; x < width; x++) {
-            if (row[x] !== null && row[x] !== 'null') {
-                rowValue |= (1 << x);
-            }
+            if (row[x] !== null && row[x] !== 'null') rowValue |= (1 << x);
         }
         rows[internalY] = rowValue;
     }
     return rows;
 }
-
 const MINO_MAP = {'I':0, 'O':1, 'T':2, 'S':3, 'Z':4, 'J':5, 'L':6};
 
 function thinkingLoop() {
     if (!isThinking) return;
-    if (!Module) {
-        // debugLog('ThinkingLoop skipped: Module not loaded.');
-        return;
-    }
+    if (!Module) return;
     
     try {
         Module.searchStep(300, currentQueueStr); 
@@ -591,63 +577,63 @@ function thinkingLoop() {
         isThinking = false;
         return;
     }
-    
     setTimeout(thinkingLoop, 0);
 }
 
+// ★共通化したスタート処理関数
+function handleStart(data) {
+    const { boardString, nextString, holdPiece, isB2B, ren } = data;
+    try {
+        const layout = JSON.parse(boardString);
+        const boardRows = convertBoard(layout);
+        
+        currentQueueStr = nextString;
+        
+        let holdId = -1;
+        if (holdPiece && MINO_MAP[holdPiece] !== undefined) {
+            holdId = MINO_MAP[holdPiece];
+        }
+        
+        // C++側の初期化
+        Module.initSearch(boardRows, currentQueueStr, holdId, !!isB2B, ren || 0);
+        
+        if (!isThinking) {
+            isThinking = true;
+            thinkingLoop();
+        }
+    } catch (err) {
+        debugLog('ERROR inside start handler: ' + err.message);
+    }
+}
+
 self.onmessage = (e) => {
+    const { type } = e.data;
+
+    // まだWasmの準備ができていない場合
     if (!Module) {
-        if (e.data.type === 'start') {
-             debugLog('Received START but Wasm Module is NOT ready yet.');
+        if (type === 'start') {
+             debugLog('Wasm not ready. Queuing START command.');
+             // ★データを保存して待機
+             pendingStartData = e.data;
         }
         return;
     }
 
-    const { type, boardString, nextString, holdPiece, canHold, isB2B, ren } = e.data;
-
     if (type === 'start') {
-        try {
-            const layout = JSON.parse(boardString);
-            const boardRows = convertBoard(layout);
-            
-            currentQueueStr = nextString;
-            
-            let holdId = -1;
-            if (holdPiece && MINO_MAP[holdPiece] !== undefined) {
-                holdId = MINO_MAP[holdPiece];
-            }
-            
-            Module.initSearch(boardRows, currentQueueStr, holdId, !!isB2B, ren || 0);
-            
-            if (!isThinking) {
-                isThinking = true;
-                thinkingLoop();
-            }
-        } catch (err) {
-            debugLog('ERROR inside start handler: ' + err.message);
-        }
+        // 準備ができているなら即実行
+        handleStart(e.data);
 
     } else if (type === 'stop') {
         isThinking = false;
         try {
             const result = Module.getBestMove(); 
-            
             if (result) {
                 let finalX = result.x;
-                if (result.piece === 'I') {
-                    finalX -= 1;
-                }
-                
+                if (result.piece === 'I') finalX -= 1;
                 self.postMessage({
-                    piece: result.piece,
-                    x: finalX,
-                    y: result.y,
-                    rotation: result.rotation,
+                    piece: result.piece, x: finalX, y: result.y, rotation: result.rotation,
                 });
-                
-                if (currentQueueStr.length > 0) {
-                    currentQueueStr = currentQueueStr.substring(1);
-                }
+                if (currentQueueStr.length > 0) currentQueueStr = currentQueueStr.substring(1);
             } else {
                 self.postMessage(null);
             }
