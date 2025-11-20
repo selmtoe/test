@@ -498,28 +498,53 @@ const aiWorkerScript = `
 
 `;
 
-/* --- AI 6: C++ Wasm Version --- */
+/* --- AI 6: C++ Wasm Version (Debug Mode) --- */
 const aiWorkerScript_Simplified = `
-// EmscriptenグルーコードとWasm読み込みのセットアップ
-// 注意: 実際の環境では、emccが出力したtetris_ai.jsとtetris_ai.wasmへのパスを正しく解決する必要があります。
-importScripts('tetris_ai.js'); 
+// --- デバッグ用ヘルパー ---
+function debugLog(msg) {
+    // コンソールにも出す
+    console.log('[AI Worker] ' + msg);
+    // メインスレッドに送って画面に出す
+    self.postMessage({ type: 'debug', message: msg });
+}
+
+debugLog('Worker started. Attempting to import tetris_ai.js...');
+
+// 1. JSファイルのインポート試行
+try {
+    importScripts('tetris_ai.js'); 
+    debugLog('tetris_ai.js imported successfully.');
+} catch (e) {
+    debugLog('CRITICAL ERROR: Failed to import tetris_ai.js. Check file path! Error: ' + e);
+}
 
 let Module = null;
 let isThinking = false;
 let currentQueueStr = "";
 
-// Wasmモジュールの初期化
-createTetrisAIModule().then(instance => {
-    Module = instance;
-    Module.initAgent();
-    self.postMessage({ type: 'debug', message: 'Wasm Module Loaded' });
-});
+// 2. Wasmモジュールの初期化試行
+debugLog('Checking for createTetrisAIModule...');
+if (typeof createTetrisAIModule === 'undefined') {
+    debugLog('CRITICAL ERROR: createTetrisAIModule is undefined. Wasm compilation failed or file not loaded.');
+} else {
+    debugLog('Calling createTetrisAIModule()...');
+    createTetrisAIModule().then(instance => {
+        Module = instance;
+        try {
+            Module.initAgent();
+            debugLog('Wasm Module Initialized & initAgent called successfully.');
+        } catch(e) {
+            debugLog('ERROR calling initAgent: ' + e);
+        }
+    }).catch(err => {
+        debugLog('CRITICAL ERROR in Wasm instantiation: ' + err);
+    });
+}
 
 // JS側でのボードデータ変換ヘルパー
-// 2D配列(文字列含む)を受け取り、Int32Array(行ごとのビット列)に変換してWasmに渡す
 function convertBoard(boardLayout) {
-    const height = 40; // BOARD_HEIGHT
-    const width = 10;  // WIDTH
+    const height = 40; 
+    const width = 10;  
     const rows = new Int32Array(height).fill(0);
     
     const layoutHeight = boardLayout.length;
@@ -539,18 +564,20 @@ function convertBoard(boardLayout) {
     return rows;
 }
 
-// Mino文字をIntへ変換 (JS側管理用、C++側とは独立)
 const MINO_MAP = {'I':0, 'O':1, 'T':2, 'S':3, 'Z':4, 'J':5, 'L':6};
 
 function thinkingLoop() {
-    if (!isThinking || !Module) return;
+    if (!isThinking) return;
+    if (!Module) {
+        debugLog('ThinkingLoop skipped: Module not loaded.');
+        return;
+    }
     
-    // 探索ステップ実行
-    // currentQueueStrは文字列として渡す
     try {
-        Module.searchStep(300, currentQueueStr); // 1回の呼び出しあたりの反復数
+        // 探索ステップ実行
+        Module.searchStep(300, currentQueueStr); 
     } catch(e) {
-        self.postMessage({ type: 'debug', message: 'Error in thinkingLoop: ' + e });
+        debugLog('CRITICAL ERROR in thinkingLoop (Module.searchStep): ' + e);
         isThinking = false;
         return;
     }
@@ -559,24 +586,31 @@ function thinkingLoop() {
 }
 
 self.onmessage = (e) => {
-    if (!Module) return;
+    // メッセージ受信ログ
+    // debugLog('Message received: ' + e.data.type);
+
+    if (!Module) {
+        if (e.data.type === 'start') {
+             debugLog('Received START but Wasm Module is NOT ready yet.');
+        }
+        return;
+    }
 
     const { type, boardString, nextString, holdPiece, canHold, isB2B, ren } = e.data;
 
     if (type === 'start') {
         try {
             const layout = JSON.parse(boardString);
-            const boardRows = convertBoard(layout); // Int32Array
+            const boardRows = convertBoard(layout);
             
             currentQueueStr = nextString;
             
-            // holdPieceの処理: 文字列をIntIDに変換、なければ-1
             let holdId = -1;
             if (holdPiece && MINO_MAP[holdPiece] !== undefined) {
                 holdId = MINO_MAP[holdPiece];
             }
             
-            // AI初期化 (Wasm呼び出し)
+            // debugLog('Starting Search in C++...');
             Module.initSearch(boardRows, currentQueueStr, holdId, !!isB2B, ren || 0);
             
             if (!isThinking) {
@@ -584,18 +618,16 @@ self.onmessage = (e) => {
                 thinkingLoop();
             }
         } catch (err) {
-            console.error("AI Worker Error (start):", err);
-            self.postMessage({ type: 'debug', message: 'Error: ' + err.message });
+            debugLog('ERROR inside start handler: ' + err.message);
         }
 
     } else if (type === 'stop') {
         isThinking = false;
         try {
-            const result = Module.getBestMove(); // { piece: "T", x: 3, y: 19, rotation: 0 } または null
+            const result = Module.getBestMove(); 
             
             if (result) {
                 let finalX = result.x;
-                // Iミノの左端補正 (JS版の挙動に合わせる)
                 if (result.piece === 'I') {
                     finalX -= 1;
                 }
@@ -607,7 +639,6 @@ self.onmessage = (e) => {
                     rotation: result.rotation,
                 });
                 
-                // キューを進める (JS側管理)
                 if (currentQueueStr.length > 0) {
                     currentQueueStr = currentQueueStr.substring(1);
                 }
@@ -615,7 +646,7 @@ self.onmessage = (e) => {
                 self.postMessage(null);
             }
         } catch(err) {
-            self.postMessage({ type: 'debug', message: 'Error getting move: ' + err });
+            debugLog('ERROR inside stop handler (getBestMove): ' + err);
             self.postMessage(null);
         }
     }
