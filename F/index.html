@@ -1465,11 +1465,11 @@ code = JSON.stringify(board, null, 2);
                         }
 
                         if (group.length === 4) {
-                            // Y座標優先、次にX座標でソート
+                            // Y座標優先、次にX座標でソート（ピボット確定のため）
                             group.sort((a, b) => a.y - b.y || a.x - b.x);
                             const pivot = group[0];
-                            // 相対座標キーを生成
-                            const relStr = group.slice(1).map(b => `${b.x - pivot.x},${b.y - pivot.y}`).join(';');
+                            // 相対座標キーを生成。ここで .sort() を入れて辞書順にする
+                            const relStr = group.slice(1).map(b => `${b.x - pivot.x},${b.y - pivot.y}`).sort().join(';');
                             
                             const match = DRAW_SHAPE_MAP[relStr];
                             if (match) {
