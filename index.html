@@ -1271,39 +1271,53 @@ if (this.isAi) {
                 const data = e.data;
                 if (!data) return;
 
+                const treeDisplay = document.getElementById('ai-tree-debug-display');
+
+                // 共通の初期化処理（コンテナ構造を作る）
+                const initTreeDisplay = () => {
+                    if (treeDisplay && !document.getElementById('ai-tree-log')) {
+                        treeDisplay.style.display = 'block';
+                        treeDisplay.style.fontFamily = '"Orbitron", monospace';
+                        treeDisplay.style.fontSize = '14px';
+                        treeDisplay.innerHTML = `
+                            <div>AI Nodes: <span id="ai-node-count" style="color: #00ff00;">0</span></div>
+                            <div id="ai-tree-log" style="max-height: 300px; overflow-y: auto; font-size: 12px; margin-top: 5px; padding-top: 5px; border-top: 1px solid #555; font-family: monospace;"></div>
+                        `;
+                    }
+                };
+
                 if (data.type === 'nodeCount') {
-                    const debugDisplay = document.getElementById('ai-tree-debug-display');
-                    if (debugDisplay) {
-                        debugDisplay.style.display = 'block';
-                        // ログのように追記せず、数値を更新するだけにする
-                        debugDisplay.style.fontFamily = '"Orbitron", monospace';
-                        debugDisplay.style.fontSize = '14px';
-                        debugDisplay.innerHTML = `AI Nodes: <span style="color: #00ff00;">${data.count.toLocaleString()}</span>`;
+                    if (treeDisplay) {
+                        initTreeDisplay();
+                        const countSpan = document.getElementById('ai-node-count');
+                        if (countSpan) {
+                            countSpan.textContent = data.count.toLocaleString();
+                        }
                     }
                 } 
-                // ★変更点: 'debug' メッセージを画面上のログエリアに表示する
+                // ★変更点: 'debug' メッセージを画面左上の既存ウィンドウ(ai-tree-debug-display)に出す
                 else if (data.type === 'debug') {
-                    console.log("[AI Log]", data.message);
-                    const display = document.getElementById('ai-debug-display');
-                    if (display) {
-                        let logContainer = display.querySelector('.ai-log-container');
-                        if (!logContainer) {
-                            // updateAiDebugDisplayがまだ呼ばれていない場合のフォールバック
-                            logContainer = document.createElement('div');
-                            logContainer.className = 'ai-log-container';
-                            display.appendChild(logContainer);
+                    // console.log("[AI Log]", data.message);
+                    if (treeDisplay) {
+                        initTreeDisplay();
+                        const logContainer = document.getElementById('ai-tree-log');
+                        if (logContainer) {
+                            const msgDiv = document.createElement('div');
+                            msgDiv.textContent = "> " + data.message;
+                            msgDiv.style.borderBottom = "1px solid #333";
+                            msgDiv.style.whiteSpace = "pre-wrap";
+                            // 新しいメッセージを上に追加
+                            logContainer.insertBefore(msgDiv, logContainer.firstChild);
+                            
+                            // ログが増えすぎないように古いものを削除 (最大50件)
+                            if (logContainer.children.length > 50) {
+                                logContainer.removeChild(logContainer.lastChild);
+                            }
                         }
-                        const msgDiv = document.createElement('div');
-                        msgDiv.textContent = "> " + data.message;
-                        msgDiv.style.borderBottom = "1px solid #333";
-                        // 新しいメッセージを上に追加
-                        logContainer.insertBefore(msgDiv, logContainer.firstChild);
                     }
                 } 
                 // ★変更点: 思考結果 (type: 'move') を受け取って移動を実行
                 else if ((data.type === 'move' || (!data.type && data.piece)) && gameState === 'PLAYING' && this.isAiThinking) {
-                    // 思考結果を受け取って移動を実行
-                    // 互換性のため data.piece がある場合も許容
                     this.executeAiMove(data);
                 }
             };
