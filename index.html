@@ -1733,7 +1733,7 @@ const TEMPLATES = [
     const sIndex = minos.indexOf('S');
     const iIndex = minos.indexOf('I');
 
-    return oIndex !== -1 && zIndex !== -1 && iIndex !== -1 && !(lIndex > sIndex && lIndex > iIndex);
+    return lIndex !== -1 && sIndex !== -1 && iIndex !== -1 && !(lIndex > sIndex && lIndex > iIndex);
         }
     },
     // 1. 山岳2号右 (1巡目)
