@@ -226,9 +226,38 @@
     to { opacity: 1; }
 }
 
+/* デバッグコンソール用のスタイル追加 */
+#debug-console-overlay {
+    position: fixed; top: 0;
+    left: 0; width: 100%; height: 200px;
+    background: rgba(0,0,0,0.8); color: #ff4444; z-index: 9999;
+    overflow-y: scroll; font-family: monospace; font-size: 12px;
+    pointer-events: none;
+    /* クリックを下の要素に通す */
+    white-space: pre-wrap; padding: 10px; border-bottom: 2px solid red;
+    display: none;
+}
 </style>
 </head>
 <body>
+<div id="debug-console-overlay"></div>
+<script>
+    // エラーを画面に表示する仕組み
+    (function(){
+        const consoleDiv = document.getElementById('debug-console-overlay');
+        function logError(msg) {
+            consoleDiv.textContent += "ERROR: " + msg + "\n----------------\n";
+            consoleDiv.style.display = 'block';
+        }
+        window.onerror = function(msg, url, line, col, error) {
+            logError(`${msg}\nAt: ${line}:${col}\n${error ? error.stack : ''}`);
+            return false;
+        };
+        window.onunhandledrejection = function(e) {
+            logError(`Unhandled Promise Rejection: ${e.reason}`);
+        };
+    })();
+</script>
 
 <div class="main-container">
     <div id="editor-container">
@@ -495,197 +524,2579 @@ justify-content: center; gap: 10px; flex-wrap: wrap;">
 <script>
 
 const aiWorkerScript = `
+const StandardWeights = {
+    //盤面評価系
+    back_to_back: 52,
+    bumpiness: -24,
+    bumpiness_sq: -7,
+    row_transitions: -5,
+    height: -39,
+    top_half: -150,
+    top_quarter: -511,
+    jeopardy: -11,
+    cavity_cells: -173,
+    cavity_cells_sq: -3,
+    overhang_cells: -34,
+    overhang_cells_sq: -1,
+    covered_cells: -17,
+    covered_cells_sq: -1,
+    tslot: [8, 148, 192, 407],
+    well_depth: 57,
+    max_well_depth: 17,
+    well_column: [20, 23, 20, 50, 59, 21, 59, 10, -10, 24],
 
-`;
+    // 行動評価系
+    b2b_clear: 104,
+    clear1: -263,
+    clear2: -220,
+    clear3: -178,
+    clear4: 270,
+    tspin1: 1,
+    tspin2: 290,
+    tspin3: 482,
+    mini_tspin1: -158,
+    mini_tspin2: -93,
+    perfect_clear: 999,
+    combo_garbage: 150,
+    wasted_t: -152,
 
-/* --- AI 6: C++ Wasm Version (Clean & Pondering Mode) --- */
-const aiWorkerScript_Simplified = `
-// --- デバッグ・エラー通知ヘルパー ---
-function postDebug(msg) {
-    self.postMessage({ type: 'debug', message: msg });
-}
-
-// エラーを画面に確実に表示するためのラッパー
-self.onerror = function(message, source, lineno, colno, error) {
-    postDebug("WORKER ERROR: " + message + " at " + lineno + ":" + colno);
+    //REN
+    COMBO_GARBAGE: [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5],
 };
 
-function errorLog(msg) {
-    postDebug("ERROR: " + msg);
-}
+const weights = StandardWeights;
+const MOVE_DIGITS = 5;
+const MAX_SEARCH_DEPTH = 15;
+const PLAYFIELD_HEIGHT = 20;
 
-try {
-    importScripts(self.wasmScriptUrl); 
-} catch (e) {
-    errorLog('Failed to import scripts: ' + e);
-}
-
-let Module = null;
-let currentQueueStr = "";
-// Pondering State
-let isPondering = false;       // ループが回っているか
-let pendingRequest = null;     // メインスレッドからの「この局面で手をくれ」という依頼
-let searchLimitNodes = 150000; // 最大探索ノード数制限
-
-const wasmModuleConfig = {
-    locateFile: function(path, prefix) {
-        if (path.endsWith('.wasm')) return self.wasmBinaryUrl;
-        return prefix + path;
-    }
-};
-
-if (typeof createTetrisAIModule !== 'undefined') {
-    createTetrisAIModule(wasmModuleConfig).then(instance => {
-        Module = instance;
-        try {
-            Module.initAgent();
-            postDebug("Wasm Module Initialized. Starting Ponder Loop.");
-            // モジュール読み込み完了後、直ちにPondering開始
-            isPondering = true;
-            ponderLoop();
-        } catch(e) {
-            errorLog('Init Error: ' + e);
+//ホールド判定(おそらく全てのホールドに対応)
+function judgeAvailableMinos(
+    originalMinoSequence,
+    usedMinos
+) {
+    const judge = [...originalMinoSequence];
+    const remainingMinos = [...originalMinoSequence];
+    for (const used_mino of usedMinos) {
+        const it_index = remainingMinos.indexOf(used_mino);
+        if (it_index !== -1) {
+            remainingMinos.splice(it_index, 1); //最初に合致したものだけ削除
         }
-    });
+    }
+
+    //残ったミノの先頭2つを返す
+    const available = [];
+    if (remainingMinos.length > 0) available.push(remainingMinos[0]);
+    if (remainingMinos.length >= 2) available.push(remainingMinos[1]);
+
+    return available;
 }
 
-function convertBoard(boardLayout) {
-    const height = 40; 
-    const width = 10;
-    const rows = new Int32Array(height).fill(0);
-    const layoutHeight = boardLayout.length;
-    for (let y = 0; y < layoutHeight; y++) {
-        const internalY = y + (height - layoutHeight);
-        if (internalY < 0) continue;
-        let rowValue = 0;
-        const row = boardLayout[y];
-        for (let x = 0; x < width; x++) {
-            if (row[x] !== null && row[x] !== 'null') {
-                rowValue |= (1 << x);
+function makeID(baseID, moveIndex) {
+  return baseID + String(moveIndex).padStart(MOVE_DIGITS, '0');
+}
+
+class TetrisBoard {
+    static WIDTH = 10;
+    static HEIGHT = 40;
+
+    constructor(initialRows = null) {
+        this.rows = new Uint16Array(TetrisBoard.HEIGHT).fill(0);
+        if (initialRows) {
+            for (let i = 0; i < TetrisBoard.HEIGHT; ++i) {
+                this.rows[i] = initialRows[i];
             }
         }
-        rows[internalY] = rowValue;
     }
-    return rows;
+
+    clone() {
+        const newBoard = new TetrisBoard();
+        newBoard.rows.set(this.rows);
+        return newBoard;
+    }
+
+    isFilled(row, col) {
+        if (row < 0 || row >= TetrisBoard.HEIGHT || col < 0 || col >= TetrisBoard.WIDTH) return true;
+        return (this.rows[row] & (1 << col)) !== 0;
+    }
+
+    fill(row, col) {
+        if (row >= 0 && row < TetrisBoard.HEIGHT && col >= 0 && col < TetrisBoard.WIDTH) {
+            this.rows[row] |= (1 << col);
+        }
+    }
+
+    clear(row, col) {
+        if (row >= 0 && row < TetrisBoard.HEIGHT && col >= 0 && col < TetrisBoard.WIDTH) {
+            this.rows[row] &= ~(1 << col);
+        }
+    }
+
+    isLineFull(row) {
+        if (row < 0 || row >= TetrisBoard.HEIGHT) return false;
+        return (this.rows[row] & ((1 << TetrisBoard.WIDTH) - 1)) === ((1 << TetrisBoard.WIDTH) - 1);
+    }
+
+    clearLine(targetRow) {
+        if (targetRow < 0 || targetRow >= TetrisBoard.HEIGHT) return;
+        for (let r = targetRow; r < TetrisBoard.HEIGHT - 1; ++r) {
+            this.rows[r] = this.rows[r + 1];
+        }
+        this.rows[TetrisBoard.HEIGHT - 1] = 0;
+    }
+
+    clearFullLines() {
+        let cleared = 0;
+        let r = 0;
+        while (r < TetrisBoard.HEIGHT) {
+            if (this.isLineFull(r)) {
+                this.clearLine(r);
+                cleared++;
+            } else {
+                r++;
+            }
+        }
+        return cleared;
+    }
 }
 
-const MINO_MAP = {'I':0, 'O':1, 'T':2, 'S':3, 'Z':4, 'J':5, 'L':6};
 
-// --- メインの思考ループ (Pondering) ---
-function ponderLoop() {
-    if (!Module) {
-        setTimeout(ponderLoop, 100);
+// Placement, Node are defined as plain objects.
+
+let nodeMap = new Map();
+let searchStartTime = 0;
+let bestNodeIDAtDepth1 = "";
+let maxEvaluationAtDepth1 = -Number.MAX_VALUE;
+
+function propagateEvaluation(nodeID) {
+    let currentPropagateTargetID = nodeID;
+
+    while (nodeMap.has(currentPropagateTargetID)) {
+        const S = nodeMap.get(currentPropagateTargetID);
+
+        if (isDepthLevel(currentPropagateTargetID, 1)) {
+            if (S.acc_eval + S.transient_eval > maxEvaluationAtDepth1) {
+                maxEvaluationAtDepth1 = S.acc_eval + S.transient_eval;
+                bestNodeIDAtDepth1 = currentPropagateTargetID;
+            }
+        }
+
+        const parentID = S.parentID;
+        if (parentID === undefined || !nodeMap.has(parentID)) {
+            break;
+        }
+
+        const P = nodeMap.get(parentID);
+        let max_value_from_children = -Number.MAX_VALUE;
+        let parent_has_valid_children = false;
+
+        if (P.childrenIDs.length > 0) {
+            for (const child_id_of_P of P.childrenIDs) {
+                if (nodeMap.has(child_id_of_P)) {
+                    const child_node = nodeMap.get(child_id_of_P);
+                    max_value_from_children = Math.max(max_value_from_children, child_node.acc_eval + child_node.transient_eval);
+                    parent_has_valid_children = true;
+                }
+            }
+        }
+
+        if (parent_has_valid_children) {
+            if (P.transient_eval < max_value_from_children) {
+                P.transient_eval = max_value_from_children;
+                currentPropagateTargetID = parentID;
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+}
+
+function getMinoShape(pieceType, rotation) {
+    rotation = rotation % 4;
+    switch (pieceType) { //間違えて(y,x)で作ってしまったので、後に辻褄合わせをしてある
+        case 'I':
+            if (rotation == 1|| rotation == 3) {
+                return [[0,0], [0, 1], [0, 2], [0,3]];
+            } else {
+                return [[0,0], [1, 0], [2, 0], [3, 0]];
+            }
+        case 'O':
+            return [[0,0], [1, 0], [0, 1], [1, 1]];
+        case 'T':
+            if (rotation == 1) return [[0,0], [0, -1], [0, 1], [1, 0]];
+            if (rotation == 2) return [[0,0], [1, 0], [-1, 0], [0, -1]];
+            if (rotation == 3) return [[0,0], [0, -1], [0, 1], [-1, 0]];
+            if (rotation == 0) return [[0,0], [1, 0], [-1, 0], [0, 1]];
+            break;
+        case 'S':
+            if (rotation == 1 || rotation == 3) return [[0,0], [1, -1], [1, 0], [0, 1]];
+            if (rotation == 0 || rotation == 2) return [[0,0], [-1, 0], [1, 1], [0, 1]];
+            break;
+        case 'Z':
+            if (rotation == 1 || rotation == 3) return [[0,0], [-1, -1], [-1, 0], [0, 1]];
+            if (rotation == 0 || rotation == 2) return [[0,0], [1, 0], [-1, 1], [0, 1]];
+            break;
+        case 'J':
+            if (rotation == 0) return [[0,0], [-1, 0], [1, 0], [-1, 1]];
+            if (rotation == 1) return [[0,0], [0, -1], [1, 1], [0, 1]];
+            if (rotation == 2) return [[0,0], [1, 0], [-1, 0], [1, -1]];
+            if (rotation == 3) return [[0,0], [0, -1], [-1, -1], [0, 1]];
+            break;
+        case 'L':
+            if (rotation == 0) return [[0,0], [-1, 0], [1, 0], [1, 1]];
+            if (rotation == 1) return [[0,0], [0, -1], [1, -1], [0, 1]];
+            if (rotation == 2) return [[0,0], [1, 0], [-1, 0], [-1, -1]];
+            if (rotation == 3) return [[0,0], [0, -1], [-1, 1], [0, 1]];
+            break;
+        default:
+            return [[0,0]];
+    }
+    return [[0,0]];
+}
+
+function checkCollision(board, pieceType, rotation, x_pivot, y_pivot) {
+    const shapeWithPivot = getMinoShape(pieceType, rotation);
+
+    for (const blockOffset of shapeWithPivot) {
+        const blockY = y_pivot + blockOffset[1]; //辻褄合わせの為second(1)とfirst(0)を逆にしてるけどこれで正しい
+        const blockX = x_pivot + blockOffset[0];
+
+        if (board.isFilled(blockY, blockX)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function placeMinoOnBoard(board, pieceType, p) {
+    const shapeWithPivot = getMinoShape(pieceType, p.rotation);
+    for(const offset of shapeWithPivot) {
+        board.fill(p.y + offset[1], p.x + offset[0]);//逆にしてるけどこれが正しい
+    }
+}
+
+function getColumnHeights(board) {
+    const heights = new Array(TetrisBoard.WIDTH).fill(0);
+    for (let c = 0; c < TetrisBoard.WIDTH; ++c) {
+        for (let r = TetrisBoard.HEIGHT - 1; r >= 0; --r) {
+            if (board.isFilled(r, c)) {
+                heights[c] = r + 1;
+                break;
+            }
+        }
+    }
+    return heights;
+}
+
+function calculateBumpiness(board, wellColumn) {
+    const heights = getColumnHeights(board);
+    let bumpiness_val = 0;
+    let bumpiness_sq_val = 0;
+    let prev_col_idx;
+    if (wellColumn === 0) {
+        prev_col_idx = 1;
+    } else {
+        prev_col_idx = 0;
+    }
+
+    while (prev_col_idx < TetrisBoard.WIDTH && prev_col_idx === wellColumn) {
+        prev_col_idx++;
+    }
+    if (prev_col_idx >= TetrisBoard.WIDTH) {
+        return [0, 0];
+    }
+    let current_height = heights[prev_col_idx];
+
+    for (let i = prev_col_idx + 1; i < TetrisBoard.WIDTH; ++i) {
+        if (i === wellColumn) {
+            continue;
+        }
+        const dh = Math.abs(heights[i] - current_height);
+        bumpiness_val += dh;
+        bumpiness_sq_val += dh * dh;
+        current_height = heights[i];
+    }
+    return [bumpiness_val, bumpiness_sq_val];
+}
+
+function calculateCavitiesAndOverhangs(board) {
+    const heights = getColumnHeights(board);
+    let cavities = 0;
+    let overhangs = 0;
+
+    let max_board_height = 0;
+    for (const h of heights) {
+        max_board_height = Math.max(max_board_height, h);
+    }
+    if (max_board_height === 0) return [0,0];
+
+    for (let y = 0; y < max_board_height; ++y) {
+        for (let x = 0; x < TetrisBoard.WIDTH; ++x) {
+            if (board.isFilled(y, x) || y >= heights[x]) {
+                continue;
+            }
+            let counted_as_overhang = false;
+            if (x > 1) {
+                if (heights[x - 1] <= y && heights[x - 2] <= (y + 1)) {
+                    overhangs++;
+                    counted_as_overhang = true;
+                }
+            }
+            if (counted_as_overhang) continue;
+            if (x < TetrisBoard.WIDTH - 2) {
+                if (heights[x + 1] <= y && heights[x + 2] <= (y + 1)) {
+                    overhangs++;
+                    counted_as_overhang = true;
+                }
+            }
+            if (counted_as_overhang) continue;
+            cavities++;
+        }
+    }
+    return [cavities, overhangs];
+}
+
+function calculateCoveredCells(board) {
+    const heights = getColumnHeights(board);
+    let covered = 0;
+    let covered_sq = 0;
+
+    for (let x = 0; x < TetrisBoard.WIDTH; ++x) {
+        if (heights[x] <= 1) {
+            continue;
+        }
+        for (let y = heights[x] - 2; y >= 0; --y) {
+            if (!board.isFilled(y, x)) {
+                const cells_above_hole = heights[x] - (y + 1);
+                const actual_cells_counted = Math.min(6, cells_above_hole);
+                covered += actual_cells_counted;
+                covered_sq += actual_cells_counted * actual_cells_counted;
+            }
+        }
+    }
+    return [covered, covered_sq];
+}
+
+function countSetBits(n) {
+    let count = 0;
+    while (n > 0) {
+        n &= (n - 1);
+        count++;
+    }
+    return count;
+}
+
+function calculateRowTransitions(board) {
+     let rust_transitions = 0;
+     for (let y = 0; y < TetrisBoard.HEIGHT; ++y) {
+         const r = board.rows[y];
+         const d = (r | (1 << TetrisBoard.WIDTH)) ^ (1 | (r << 1));
+         rust_transitions += countSetBits(d);
+     }
+     return rust_transitions;
+}
+
+function calculateWell(board) {
+    const heights = getColumnHeights(board);
+    let well_col = -1;
+    let min_h = TetrisBoard.HEIGHT + 1;
+
+    for (let c = 0; c < TetrisBoard.WIDTH; ++c) {
+        if (heights[c] < min_h) {
+            min_h = heights[c];
+            well_col = c;
+        }
+    }
+
+    let depth = 0;
+    if (well_col !== -1) {
+        for (let y = heights[well_col]; y < TetrisBoard.HEIGHT; ++y) {
+            let is_well_row = true;
+            for (let x = 0; x < TetrisBoard.WIDTH; ++x) {
+                if (x !== well_col && !board.isFilled(y, x)) {
+                    is_well_row = false;
+                    break;
+                }
+            }
+            if (is_well_row) {
+                depth++;
+            } else {
+                break;
+            }
+        }
+    }
+    depth = Math.min(depth, weights.max_well_depth);
+    return [depth, well_col];
+}
+
+function check_sides(board, x, y) {
+    for (let dx = 1; dx <= 9; ++dx) {
+        if (x - dx < 0 || x + dx >= TetrisBoard.WIDTH) return false;
+        if (!board.isFilled(y, x - dx) || !board.isFilled(y, x + dx)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function check_top(board, x, y) {
+    for (let check_y = y + 1; check_y < 25; ++check_y) {
+        if (board.isFilled(check_y, x)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function get_tslot_score(count) {
+    if (count >= 3) return weights.tslot[3];
+    if (count === 2) return weights.tslot[2];
+    if (count === 1) return weights.tslot[1];
+    return weights.tslot[0];
+}
+
+function calculateTslots(board) {
+    let t_slot_score = 0.0;
+    for (let y = 0; y < TetrisBoard.HEIGHT; ++y) {
+        for (let x = 0; x < TetrisBoard.WIDTH; ++x) {
+            const is_filled = (dx, dy) => {
+                return board.isFilled(y + dy, x + dx);
+            };
+
+            // TSD
+            if (!is_filled(-1, 0) && is_filled(1, -1) && is_filled(-1, -1) && is_filled(-1, 1)) {
+                if (check_top(board, x, y) && check_top(board, x + 1, y)) {
+                    let count = 0;
+                    if (check_sides(board, x, y)) count++;
+                    if (check_sides(board, x, y - 1)) count++;
+                    t_slot_score += (count === 2) ? weights.tslot[2] : ((count === 1) ? weights.tslot[1] : weights.tslot[0]);
+                }
+            }
+            // TSD
+            if (!is_filled(1, 0) && is_filled(1, -1) && is_filled(-1, -1) && is_filled(1, 1)) {
+                if (check_top(board, x, y) && check_top(board, x - 1, y)) {
+                    let count = 0;
+                    if (check_sides(board, x, y)) count++;
+                    if (check_sides(board, x, y - 1)) count++;
+                     t_slot_score += (count === 2) ? weights.tslot[2] : ((count === 1) ? weights.tslot[1] : weights.tslot[0]);
+                }
+            }
+        }
+    }
+    return t_slot_score;
+}
+
+function isPerfectClear(board){
+    return board.rows[0] === 0;
+}
+
+function evaluate(
+    board,
+    lastPlacement,
+    linesCleared,
+    isKick,
+    softDropCount,
+    currentCombo,
+    currentB2BActive
+){
+    let acc_eval = 0.0;
+    let transient_eval = 0.0;
+    
+    if (isPerfectClear(board) === true) acc_eval += weights.perfect_clear;
+
+    if (true) {
+        if (currentB2BActive && linesCleared > 0) {
+            acc_eval += weights.b2b_clear;
+        }
+        if (currentCombo > 0) {
+            const combo_idx = Math.min(currentCombo, weights.COMBO_GARBAGE.length - 1);
+            acc_eval += weights.combo_garbage * weights.COMBO_GARBAGE[combo_idx];
+        }
+
+        if (isKick && lastPlacement.pieceType === 'T') {
+            if (linesCleared === 1) acc_eval += weights.tspin1;
+            else if (linesCleared === 2) acc_eval += weights.tspin2;
+            else if (linesCleared === 3) acc_eval += weights.tspin3;
+        } else if (isKick ) {
+            if (linesCleared === 1) acc_eval += weights.clear1;
+            else if (linesCleared === 2) acc_eval += weights.clear2;
+            else if (linesCleared === 3) acc_eval += weights.clear3;
+        }
+        else {
+            if (linesCleared === 1) acc_eval += weights.clear1;
+            else if (linesCleared === 2) acc_eval += weights.clear2;
+            else if (linesCleared === 3) acc_eval += weights.clear3;
+            else if (linesCleared === 4) acc_eval += weights.clear4;
+        }
+    }
+
+    if (lastPlacement.pieceType === 'T' && (linesCleared === 0 || !isKick)) {
+        acc_eval += weights.wasted_t;
+    }
+
+    if (currentB2BActive) {
+        transient_eval += weights.back_to_back;
+    }
+
+    const heights = getColumnHeights(board);
+    let highest_point = 0;
+    for(const h of heights) highest_point = Math.max(highest_point, h);
+
+    transient_eval += weights.top_quarter * Math.max(0, highest_point - 15);
+    transient_eval += weights.top_half * Math.max(0, highest_point - 10);
+    transient_eval += weights.height * highest_point;
+    transient_eval += weights.jeopardy * Math.max(0, highest_point - 10);
+    transient_eval += calculateTslots(board);
+
+    const [well_d, well_c] = calculateWell(board);
+    transient_eval += weights.well_depth * well_d;
+    if (well_d > 0 && well_c >= 0 && well_c < weights.well_column.length) {
+        transient_eval += weights.well_column[well_c];
+    }
+
+    transient_eval += weights.row_transitions * calculateRowTransitions(board);
+
+    const [bump, bump_sq] = calculateBumpiness(board, well_c);
+    transient_eval += bump * weights.bumpiness;
+    transient_eval += bump_sq * weights.bumpiness_sq;
+
+    const [cav, over] = calculateCavitiesAndOverhangs(board);
+    transient_eval += weights.cavity_cells * cav;
+    transient_eval += weights.cavity_cells_sq * cav * cav;
+    transient_eval += weights.overhang_cells * over;
+    transient_eval += weights.overhang_cells_sq * over * over;
+
+    const [cov, cov_sq] = calculateCoveredCells(board);
+    transient_eval += weights.covered_cells * cov;
+    transient_eval += weights.covered_cells_sq * cov_sq;
+
+    return [acc_eval, transient_eval];
+}
+
+function createAndAddChildNode(
+    parentNodeID,
+    boardStateAtParent,
+    p,
+    isKick,
+    childrenGenerated
+) {
+    if (!nodeMap.has(parentNodeID)) return;
+    const parentNode = nodeMap.get(parentNodeID);
+    
+    const childID = makeID(parentNodeID, parentNode.childrenIDs.length);
+
+    const childNode = {
+        board: null,
+        acc_eval: 0.0,
+        transient_eval: -Number.MAX_VALUE,
+        place: p,
+        expanded: false,
+        childrenIDs: [],
+        parentID: parentNodeID,
+        softDropCount: 0,
+        comboCount: 0,
+        B2B: false,
+    };
+
+    if (p.y >= PLAYFIELD_HEIGHT) childNode.softDropCount = 0;
+    else childNode.softDropCount = Math.max(0, (PLAYFIELD_HEIGHT - 1) - p.y);
+
+    const boardAfterPlace = boardStateAtParent.clone();
+    placeMinoOnBoard(boardAfterPlace, p.pieceType, p);
+    const linesCleared = boardAfterPlace.clearFullLines();
+
+    childNode.board = boardAfterPlace;
+
+    const parentActualNode = nodeMap.get(parentNodeID);
+
+    if (linesCleared > 0) {
+        childNode.comboCount = parentActualNode.comboCount + 1;
+    } else {
+        childNode.comboCount = 0;
+    }
+
+    const moveWasSpecialForB2B = (isKick && p.pieceType === 'T' && linesCleared > 0) || (linesCleared >= 4);
+    if (moveWasSpecialForB2B) {
+        childNode.B2B = true;
+    } else {
+        childNode.B2B = (linesCleared > 0) ? false : parentActualNode.B2B;
+    }
+
+    const [acc_val, transient_val] = evaluate(
+        boardAfterPlace,
+        p,
+        linesCleared,
+        isKick,
+        childNode.softDropCount,
+        childNode.comboCount,
+        childNode.B2B
+    );
+    childNode.acc_eval = acc_val;
+    childNode.transient_eval = transient_val;
+
+    nodeMap.set(childID, childNode);
+    nodeMap.get(parentNodeID).childrenIDs.push(childID);
+    childrenGenerated.push([childID, p]);
+
+    propagateEvaluation(childID);
+}
+
+function checkRotationKicks(
+    board,
+    x_pivot,
+    y_pivot,
+    pieceType,
+    currentRotation,
+    parentNodeID,
+    childrenGenerated
+) {
+    let kickNodeCreated = false;
+    const is_filled = (dx, dy) => {
+        return board.isFilled(y_pivot + dy, x_pivot + dx);
+    };
+
+    if (pieceType === 'L' && currentRotation === 3) {
+        if ((is_filled(0, -2) || is_filled(-1, -2) || is_filled(-2, -2))&& !is_filled(-2, -1) && !is_filled(-1, -1) && is_filled(-1, 0)) {
+            createAndAddChildNode(parentNodeID, board, {x: x_pivot - 1, y: y_pivot - 1, rotation: 0, pieceType: 'L'}, true, childrenGenerated);
+            kickNodeCreated = true;
+        }
+    }
+
+    if (pieceType === 'J' && currentRotation === 1) {
+        if ((is_filled(0, -2) || is_filled(1, -2) || is_filled(2, -2))&& !is_filled(2, -1) && !is_filled(1, -1) && is_filled(1, 0)) {
+            createAndAddChildNode(parentNodeID, board, {x: x_pivot + 1, y: y_pivot - 1, rotation: 0, pieceType: 'J'}, true, childrenGenerated);
+            kickNodeCreated = true;
+        }
+    }
+    if (pieceType === 'S' && currentRotation === 0) {
+        if (is_filled(1, 0) && is_filled(0, -1) && is_filled(0, -4) &&
+            !is_filled(-1, -1) && !is_filled(-1, -2) && !is_filled(0, -2) && !is_filled(0, -3)) {
+            createAndAddChildNode(parentNodeID, board, {x: x_pivot - 1, y: y_pivot - 2, rotation: 1, pieceType: 'S'}, true, childrenGenerated);
+            kickNodeCreated = true;
+        }
+    }
+    if (pieceType === 'Z' && currentRotation === 0) {
+        if (is_filled(-1, 0) && is_filled(0, -1) && is_filled(0, -4) &&
+            !is_filled(1, -1) && !is_filled(1, -2) && !is_filled(0, -2) && !is_filled(0, -3)) {
+            createAndAddChildNode(parentNodeID, board, {x: x_pivot + 1, y: y_pivot - 2, rotation: 1, pieceType: 'Z'}, true, childrenGenerated);
+            kickNodeCreated = true;
+        }
+    }
+    if (pieceType === 'S' && currentRotation === 1) {
+        if (is_filled(0, -1) && (is_filled(0, -3) || is_filled(1, -3)) &&
+            !is_filled(0, -2) && !is_filled(1, -2) && !is_filled(2, -1)) {
+            createAndAddChildNode(parentNodeID, board, {x: x_pivot + 1, y: y_pivot - 2, rotation: 0, pieceType: 'S'}, true, childrenGenerated);
+            kickNodeCreated = true;
+        }
+    }
+    if (pieceType === 'Z' && currentRotation === 1) {
+        if (is_filled(0, -1) && (is_filled(0, -3) || is_filled(-1, -3)) &&
+            !is_filled(0, -2) && !is_filled(-1, -2) && !is_filled(-2, -1)) {
+            createAndAddChildNode(parentNodeID, board, {x: x_pivot - 1, y: y_pivot - 2, rotation: 0, pieceType: 'Z'}, true, childrenGenerated);
+            kickNodeCreated = true;
+        }
+    }
+    if (pieceType === 'T' && currentRotation === 1) {
+        if (!is_filled(-1, 0) && is_filled(1, -1) && is_filled(-1, -1) && is_filled(-1, 1)) {
+            createAndAddChildNode(parentNodeID, board, {x: x_pivot, y: y_pivot, rotation: 2, pieceType: 'T'}, true, childrenGenerated);
+            createAndAddChildNode(parentNodeID, board, {x: x_pivot, y: y_pivot, rotation: 0, pieceType: 'T'}, true, childrenGenerated);
+            kickNodeCreated = true;
+        }
+    }
+    if (pieceType === 'T' && currentRotation === 3) {
+        if (!is_filled(1, 0) && is_filled(1, -1) && is_filled(-1, -1) && is_filled(1, 1)) {
+            createAndAddChildNode(parentNodeID, board, {x: x_pivot, y: y_pivot, rotation: 2, pieceType: 'T'}, true, childrenGenerated);
+            createAndAddChildNode(parentNodeID, board, {x: x_pivot, y: y_pivot, rotation: 0, pieceType: 'T'}, true, childrenGenerated);
+            kickNodeCreated = true;
+        }
+    }
+    if (pieceType === 'T' && currentRotation === 0) {
+        if (!is_filled(2, -1) && !is_filled(2, -2) && !is_filled(2, -3) && !is_filled(1, -2) &&
+            is_filled(2, 1) && is_filled(1, -1) && is_filled(2, -4)) {
+            createAndAddChildNode(parentNodeID, board, {x: x_pivot + 2, y: y_pivot - 2, rotation: 3, pieceType: 'T'}, true, childrenGenerated);
+            kickNodeCreated = true;
+        }
+        if (!is_filled(-2, -1) && !is_filled(-2, -2) && !is_filled(-2, -3) && !is_filled(-1, -2) &&
+            is_filled(-2, 1) && is_filled(-1, -1) && is_filled(-2, -4)) {
+            createAndAddChildNode(parentNodeID, board, {x: x_pivot - 2, y: y_pivot - 2, rotation: 1, pieceType: 'T'}, true, childrenGenerated);
+            kickNodeCreated = true;
+        }
+    }
+    if (pieceType === 'T' && currentRotation === 1) { // TST Wall East
+        if (!is_filled(2, -2) && !is_filled(2, -3) && !is_filled(2, -4) && !is_filled(1, -3) && !is_filled(2, -1) && !is_filled(1, -1) &&
+            is_filled(2, 0) && is_filled(-1, 0) && is_filled(1, -2) && is_filled(2,-5)) {
+            createAndAddChildNode(parentNodeID, board, {x: x_pivot + 2, y: y_pivot - 3, rotation: 3, pieceType: 'T'}, true, childrenGenerated);
+            kickNodeCreated = true;
+        }
+    }
+    if (pieceType === 'T' && currentRotation === 3) { // TST Wall West
+        if (!is_filled(-2, -2) && !is_filled(-2, -3) && !is_filled(-2, -4) && !is_filled(-1, -3) && !is_filled(-2, -1) && !is_filled(-1, -1) &&
+            is_filled(-2, 0) && is_filled(1, 0) && is_filled(-1, -2) && is_filled(-2,-5)) {
+            createAndAddChildNode(parentNodeID, board, {x: x_pivot - 2, y: y_pivot - 3, rotation: 1, pieceType: 'T'}, true, childrenGenerated);
+            kickNodeCreated = true;
+        }
+    }
+    return kickNodeCreated;
+}
+
+function expand(
+    parentNodeID,
+    boardStateAtParent,
+    pieceToPlace,
+    pathPlacementsToParent
+) {
+    const childrenGenerated = [];
+    if (!nodeMap.has(parentNodeID)) return childrenGenerated;
+
+    for (let x_pivot = -2; x_pivot < TetrisBoard.WIDTH + 2; ++x_pivot) {
+        for (let r = 0; r < 4; ++r) {
+            let skip_this_x_r_combination = false;
+
+            if (pieceToPlace === 'O' && r > 0) continue;
+            if ((pieceToPlace === 'I' || pieceToPlace === 'S' || pieceToPlace === 'Z') && r > 1) continue;
+
+            let landing_y = -1;
+            let max_relative_y = 0;
+            for(const offset of getMinoShape(pieceToPlace, r)){
+                if(offset[1] > max_relative_y) max_relative_y = offset[1];
+            }
+            let initial_y_candidate = PLAYFIELD_HEIGHT + max_relative_y;
+
+            for (let y_candidate = initial_y_candidate; y_candidate >= -(TetrisBoard.HEIGHT - PLAYFIELD_HEIGHT) ; --y_candidate) {
+                if (!checkCollision(boardStateAtParent, pieceToPlace, r, x_pivot, y_candidate)) {
+                    if (checkCollision(boardStateAtParent, pieceToPlace, r, x_pivot, y_candidate - 1)) {
+                        landing_y = y_candidate;
+                        break;
+                    }
+                } else {
+                    let all_blocks_above_playfield = true;
+                    for(const offset of getMinoShape(pieceToPlace, r)){
+                        if (y_candidate + offset[1] < PLAYFIELD_HEIGHT){
+                            all_blocks_above_playfield = false;
+                            break;
+                        }
+                    }
+                    if (all_blocks_above_playfield && y_candidate >= PLAYFIELD_HEIGHT -1 - max_relative_y) {
+                    } else if (y_candidate >= PLAYFIELD_HEIGHT -1 - max_relative_y) {
+                        skip_this_x_r_combination = true;
+                        break;
+                    }
+                }
+            }
+
+            if (skip_this_x_r_combination || landing_y === -1) {
+                continue;
+            }
+
+            const kickNodeWasCreated = checkRotationKicks(
+                boardStateAtParent,
+                x_pivot,
+                landing_y,
+                pieceToPlace,
+                r,
+                parentNodeID,
+                childrenGenerated
+            );
+
+            if (!kickNodeWasCreated) {
+                 const currentPlacement = {x: x_pivot, y: landing_y, rotation: r, pieceType: pieceToPlace};
+                 createAndAddChildNode(
+                    parentNodeID,
+                    boardStateAtParent,
+                    currentPlacement,
+                    false,
+                    childrenGenerated
+                 );
+            }
+        }
+    }
+    
+    const parentNode = nodeMap.get(parentNodeID);
+    if (parentNode && parentNode.childrenIDs.length > 0) {
+        parentNode.expanded = true;
+    }
+    return childrenGenerated;
+}
+
+function isDepthLevel(id, depth) {
+    return id.length === depth * MOVE_DIGITS;
+}
+
+function select(parentNodeID) {
+    if (!nodeMap.has(parentNodeID)) {
+        return "";
+    }
+
+    const children_ids = nodeMap.get(parentNodeID).childrenIDs;
+    if (children_ids.length === 0) {
+        return "";
+    }
+
+    const child_evals = [];
+    let Emin = Number.MAX_VALUE;
+    let first_valid_child = true;
+
+    for (const id of children_ids) {
+        if (nodeMap.has(id)) {
+            const child_node = nodeMap.get(id);
+            const current_eval = child_node.acc_eval + child_node.transient_eval;
+            child_evals.push({id: id, eval: current_eval});
+            if (first_valid_child) {
+                Emin = current_eval;
+                first_valid_child = false;
+            } else {
+                if (current_eval < Emin) {
+                    Emin = current_eval;
+                }
+            }
+        }
+    }
+
+    if (child_evals.length === 0) {
+        return "";
+    }
+
+    child_evals.sort((a, b) => b.eval - a.eval);
+
+    const weights_for_selection = [];
+    let totalWeight = 0.0;
+
+    for (let i = 0; i < child_evals.length; ++i) {
+        const E_I = child_evals[i].eval;
+        const rank_I = i + 1.0;
+        const numerator = Math.pow(E_I - Emin + 1.0, 2) + 10.0;
+        const denominator = Math.pow(rank_I - 1.0, 2) + 1.0;
+        const weight_val = numerator / denominator;
+        weights_for_selection.push(weight_val);
+        totalWeight += weight_val;
+    }
+
+    if (totalWeight === 0.0 || child_evals.length === 0) {
+        if (child_evals.length === 0) return "";
+        return child_evals[0].id;
+    }
+
+    const r = Math.random() * totalWeight;
+
+    let cumulativeWeight = 0.0;
+    for (let i = 0; i < child_evals.length; ++i) {
+        cumulativeWeight += weights_for_selection[i];
+        if (r <= cumulativeWeight) {
+            return child_evals[i].id;
+        }
+    }
+    if (child_evals.length > 0) return child_evals[child_evals.length - 1].id;
+    return "";
+}
+
+function runAI(initialBoard, minoSequence, isB2B, ren) {
+    bestNodeIDAtDepth1 = "";
+    maxEvaluationAtDepth1 = -Number.MAX_VALUE;
+    searchStartTime = performance.now();
+
+    const rootID = "";
+
+    if (!nodeMap.has(rootID)) {
+        const rootNodeSpecs = {
+            board: null,
+            acc_eval: 0.0,
+            transient_eval: -Number.MAX_VALUE,
+            place: {},
+            expanded: false,
+            childrenIDs: [],
+            parentID: undefined,
+            softDropCount: 0,
+            comboCount: ren,
+            B2B: isB2B,
+        };
+        nodeMap.set(rootID, rootNodeSpecs);
+    }
+
+    nodeMap.get(rootID).board = initialBoard;
+    
+    const availableMinos = judgeAvailableMinos(minoSequence, []);
+    const expandedMinos = {};
+    if(nodeMap.has(rootID)){
+        for(const childId of nodeMap.get(rootID).childrenIDs){
+            if(nodeMap.has(childId)){
+                expandedMinos[nodeMap.get(childId).place.pieceType] = true;
+            }
+        }
+    }
+    for (const pieceForExpansion of availableMinos) {
+        if (!expandedMinos[pieceForExpansion]) {
+            expand(rootID, initialBoard, pieceForExpansion, []);
+        }
+    }
+
+    if (nodeMap.has(rootID)) {
+        for (const childID of nodeMap.get(rootID).childrenIDs) {
+            if (nodeMap.has(childID)) {
+                const childNode = nodeMap.get(childID);
+                const current_child_eval = childNode.acc_eval + childNode.transient_eval;
+                
+                if (current_child_eval > maxEvaluationAtDepth1) {
+                    maxEvaluationAtDepth1 = current_child_eval;
+                    bestNodeIDAtDepth1 = childID;
+                }
+            }
+        }
+    }
+}
+
+function pruneAndReroot(chosenNodeID) {
+    if (chosenNodeID === "" || !nodeMap.has(chosenNodeID)) {
+        nodeMap.clear();
         return;
     }
 
-    try {
-        // 1. メインスレッドからのリクエストがあれば処理 (予測チェック & 初期化)
-        if (pendingRequest) {
-            processRequest(pendingRequest);
-            pendingRequest = null; // 処理したらクリア
-        }
+    const new_nodeMap = new Map();
+    const q = [chosenNodeID]; // Queue simulation
 
-        // 2. 探索を進める (1ステップあたりのノード数は少なめにし、レスポンス性を確保)
-        // キュー文字列が空だとC++側でエラーになるかもしれないのでチェック
-        if (currentQueueStr && currentQueueStr.length >= 2) {
-            Module.searchStep(50000, currentQueueStr); 
+    const newRootNode = { ...nodeMap.get(chosenNodeID) };
+    const newRootID = "";
+    newRootNode.parentID = undefined; 
+    
+    const newChildrenIDs = [];
+    for (const oldChildID of newRootNode.childrenIDs) {
+        if (nodeMap.has(oldChildID)) {
+            newChildrenIDs.push(oldChildID.substring(chosenNodeID.length));
         }
+    }
+    newRootNode.childrenIDs = newChildrenIDs;
+    new_nodeMap.set(newRootID, newRootNode);
 
-        // 3. 手を返す条件を満たしているかチェック
-        //    条件: 「手を要求されている(shouldReply)」かつ「(予測が当たって再利用中) または (リセット後の最低探索数を満たした)」
-        if (self.shouldReply) {
-            // リセット直後(予測外れ)の場合、ある程度回す必要がある。
-            // 簡易的にフレームカウントで待機させる。
-            
-            if (self.isReuseMatch || self.thinkFrameCount > 5) {
-                // 答えを返す
-                sendBestMove();
-                self.shouldReply = false; // 返答済み
-                self.thinkFrameCount = 0;
-            } else {
-                self.thinkFrameCount++;
+    while (q.length > 0) {
+        const oldParentID = q.shift();
+        const oldParentNode = nodeMap.get(oldParentID);
+
+        for (const oldChildID of oldParentNode.childrenIDs) {
+            if (!nodeMap.has(oldChildID)) {
+                continue;
             }
+            
+            const newChildID = oldChildID.substring(chosenNodeID.length);
+            const newParentID = oldParentID.substring(chosenNodeID.length);
+            
+            const newNode = { ...nodeMap.get(oldChildID) };
+            newNode.parentID = newParentID;
+            
+            const newGrandChildrenIDs = [];
+            for(const oldGrandChildID of newNode.childrenIDs) {
+                 if (nodeMap.has(oldGrandChildID)) {
+                    newGrandChildrenIDs.push(oldGrandChildID.substring(chosenNodeID.length));
+                }
+            }
+            newNode.childrenIDs = newGrandChildrenIDs;
+            
+            new_nodeMap.set(newChildID, newNode);
+            
+            q.push(oldChildID);
         }
-
-    } catch(e) {
-        errorLog('Ponder Error: ' + e);
-        // エラーが出ても止まらず再開を試みる
     }
     
-    // 次のループへ (setTimeout 0 で常時稼働)
-    setTimeout(ponderLoop, 0);
+
+    nodeMap = new_nodeMap;
 }
 
-function processRequest(data) {
-    const { boardString, nextString, holdPiece, isB2B, ren } = data;
-    try {
-        const layout = JSON.parse(boardString);
-        const boardRows = convertBoard(layout);
-        currentQueueStr = nextString;
-        let holdId = -1;
-        if (holdPiece && MINO_MAP[holdPiece] !== undefined) {
-            holdId = MINO_MAP[holdPiece];
+function boardsAreEqual(board1, board2) {
+    if (!board1 || !board2) return false;
+    for (let i = 0; i < TetrisBoard.HEIGHT; i++) {
+        if (board1.rows[i] !== board2.rows[i]) {
+            return false;
         }
-        
-        // initSearchを実行し、木が再利用されたか(予測的中か)を取得
-        // C++側で bool を返すように変更済みであることが前提
-        const isReuse = Module.initSearch(boardRows, currentQueueStr, holdId, !!isB2B, ren || 0);
-        
-        self.isReuseMatch = isReuse;
-        self.shouldReply = true; // このリクエストに対して返答が必要
-        self.thinkFrameCount = 0;
-
-        if (isReuse) {
-            // postDebug("Prediction HIT! Reusing tree.");
-        } else {
-            // postDebug("Prediction MISS. Resetting tree.");
-        }
-
-    } catch (err) {
-        errorLog('Process Request Error: ' + err.message);
     }
+    return true;
 }
 
-function sendBestMove() {
-    if (!Module) return;
-    try {
-        const result = Module.getBestMove(); // ここで内部的に pruneAndReroot も呼ばれる (JSバインディングの実装による)
-        
-        if (result) {
-            let finalX = result.x;
-            if (result.piece === 'I') finalX -= 1;
-            
-            self.postMessage({
-                type: 'move', // メッセージタイプを明示
-                piece: result.piece, 
-                x: finalX, 
-                y: result.y, 
-                rotation: result.rotation,
-                isReuse: self.isReuseMatch
-            });
+let isThinking = false;
+let currentMinoSequence = [];
 
-            // 手を決定した後、C++側のルートは「その手を打った後の状態」に進んでいる(pruneAndRerootにより)。
-            // なので、キュー文字列も1つ進めて、次の手(Pondering)に備える。
-            if (currentQueueStr.length > 0) {
-                currentQueueStr = currentQueueStr.substring(1);
+function thinkingLoop() {
+    if (!isThinking) return;
+
+    for (let i = 0; i < 100; i++) {
+        const rootID = "";
+        let selectedNodeID = rootID;
+        let depthOfSelectedNode = 0;
+        let placementsToSelectedNode = [];
+        let usedMinosOnPath = [];
+        while (nodeMap.has(selectedNodeID) && nodeMap.get(selectedNodeID).expanded) {
+            if (depthOfSelectedNode >= MAX_SEARCH_DEPTH) {
+                break;
             }
-        } else {
-            self.postMessage({ type: 'move', data: null });
+            const childNodeID = select(selectedNodeID);
+            if (childNodeID === "" || !nodeMap.has(childNodeID)) {
+                break;
+            }
+            placementsToSelectedNode.push(nodeMap.get(childNodeID).place);
+            usedMinosOnPath.push(nodeMap.get(childNodeID).place.pieceType);
+            selectedNodeID = childNodeID;
+            depthOfSelectedNode++;
         }
-    } catch(err) {
-        errorLog('Send Move Error: ' + err);
+        
+        const selectedNode = nodeMap.get(selectedNodeID);
+        if (selectedNode && !selectedNode.expanded) {
+            if (depthOfSelectedNode < MAX_SEARCH_DEPTH) {
+                const boardStateForExpansion = selectedNode.board;
+                const availableMinosForExpand = judgeAvailableMinos(currentMinoSequence, usedMinosOnPath);
+                if (availableMinosForExpand.length > 0) {
+                    for (const pieceForExpansion of availableMinosForExpand) {
+                        expand(selectedNodeID, boardStateForExpansion, pieceForExpansion, placementsToSelectedNode);
+}
+                }
+            }
+        }
     }
+
+    self.postMessage({ type: 'nodeCount', count: nodeMap.size });
+    setTimeout(thinkingLoop, 0);
 }
 
 self.onmessage = (e) => {
-    const { type } = e.data;
-    // 'start' を 'requestMove' として扱う
-    if (type === 'start') {
-        pendingRequest = e.data;
+    const { type, boardString, nextString, isB2B, ren } = e.data;
+if (type === 'start') {
+        const createBoardFromLayout = (layout) => {
+            const board = new TetrisBoard();
+            const layoutHeight = layout.length;
+            const boardHeight = TetrisBoard.HEIGHT;
+            const width = TetrisBoard.WIDTH;
+            for (let layoutY = 0; layoutY < layoutHeight; layoutY++) {
+                const boardY = (boardHeight - 1) - layoutY;
+                if (boardY < 0) continue;
+
+                let rowValue = 0;
+                const layoutRow = layout[layoutY];
+                if (!layoutRow || !Array.isArray(layoutRow)) {
+                    continue;
+                }
+
+                for (let x = 0; x < width; x++) {
+                    if (layoutRow[x] !== null) {
+                        rowValue |= (1 << x);
+                    }
+                }
+                board.rows[boardY] = rowValue;
+            }
+            return board;
+        };
+        
+        let initialLayout;
+        try {
+            initialLayout = JSON.parse(boardString);
+        } catch (e) {
+            console.error("Failed to parse boardString:", e);
+            initialLayout = Array(TetrisBoard.HEIGHT).fill(null).map(() => Array(TetrisBoard.WIDTH).fill(null));
+        }
+        
+                const board = createBoardFromLayout(initialLayout);
+        
+        const chosenNodeID = bestNodeIDAtDepth1;
+        pruneAndReroot(chosenNodeID);
+
+        const rootNode = nodeMap.get("");
+        if (rootNode && rootNode.board && boardsAreEqual(rootNode.board, board)) {
+            self.postMessage({type: 'debug', message: '探索木を引き継ぎました'});
+        } else {
+            nodeMap.clear();
+            self.postMessage({type: 'debug', message: '探索木をリセットしました'});
+        }
+        currentMinoSequence = nextString.split('');
+        runAI(board, currentMinoSequence, isB2B, ren);
+        
+        if (!isThinking) {
+            isThinking = true;
+            thinkingLoop();
+        }
+
+
+} else if (type === 'stop') {
+        let bestMove = null;
+        if (bestNodeIDAtDepth1 !== "" && nodeMap.has(bestNodeIDAtDepth1)) {
+            bestMove = nodeMap.get(bestNodeIDAtDepth1).place;
+            
+            const rootNode = nodeMap.get("");
+            if (rootNode) {
+                for (const childId of rootNode.childrenIDs) {
+                    if (nodeMap.has(childId)) {
+                        const childNode = nodeMap.get(childId);
+                        if (childId === bestNodeIDAtDepth1) {
+                            childNode.acc_eval += 999999;
+                        } else {
+                            childNode.acc_eval -= 999999;
+                        }
+                    }
+                }
+            }
+        } else {
+            const rootNode = nodeMap.get("");
+            if (rootNode && rootNode.childrenIDs.length > 0) {
+                let bestFallbackID = "";
+                let maxEvalFallback = -Number.MAX_VALUE;
+                for(const childID of rootNode.childrenIDs){
+                    if(nodeMap.has(childID)){
+                        const child_node = nodeMap.get(childID);
+                        const current_total_eval = child_node.acc_eval + child_node.transient_eval;
+                        if(current_total_eval > maxEvalFallback){
+                            maxEvalFallback = current_total_eval;
+                            bestFallbackID = childID;
+                        }
+                    }
+                }
+                if(bestFallbackID !== ""){
+                    bestMove = nodeMap.get(bestFallbackID).place;
+                }
+            }
+        }
+        
+        if (bestMove && bestMove.pieceType !== ' ') {
+            let finalX;
+            let finalY;
+            if (bestMove.pieceType === 'I' && bestMove.rotation === 1) {
+                finalX = bestMove.x - 2;
+                finalY = 37 - bestMove.y;
+            } 
+            else if (bestMove.pieceType === 'Z' && bestMove.rotation === 1) {
+                finalX = bestMove.x - 1;
+                finalY = 39 - bestMove.y;
+            } 
+            else {
+                finalX = bestMove.x;
+                finalY = 39 - bestMove.y;
+            }
+            self.postMessage({
+                piece: bestMove.pieceType,
+                x: finalX,
+                y: finalY,
+                rotation: bestMove.rotation,
+            });
+        } else {
+            self.postMessage(null);
+        }
     }
-    else if (type === 'stop') {
-        // ストップ命令が来たら返答フラグを下ろす
-        self.shouldReply = false;
+
+};
+`;
+
+const aiWorkerScript_Simplified = `
+/* --- AI 6: Cold Clear (Simplified & Optimized) --- */
+/* Optimizations Applied:
+   1. Vectorization: nodeMap uses Array (continuous memory) instead of Object.
+   2. Integer IDs: Replaced string IDs with simple integer counters.
+   3. Zobrist Hashing: Replaced string-based board hashing with XOR-based integer hashing.
+*/
+
+// --- Constants ---
+const WIDTH = 10;
+const BOARD_HEIGHT = 40;
+const SEARCH_ITERATION_LIMIT = 70000; // 最適化により探索数を増やしても高速動作可能
+
+// --- Precomputed Zobrist Table ---
+// 40行 x 1024パターン(10bit) の乱数テーブル
+const ZOBRIST_TABLE = new Int32Array(BOARD_HEIGHT * 1024);
+for (let i = 0; i < ZOBRIST_TABLE.length; i++) {
+    // 32bit signed integer range
+    ZOBRIST_TABLE[i] = (Math.random() * 0xFFFFFFFF) |
+0;
+}
+
+const TEMPLATES = [
+    // 1. 山岳2号右 (1巡目)
+    {
+        name: 'sangaku_2_right_1st',
+        board: [[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,"G","G"],[null,null,"G",null,null,null,null,"G","G","G"],["G","G","G","G","G","G",null,"G","G","G"],["G","G","G","G","G",null,"G","G","G","G"]],
+        moves: [
+            {t:'Z', x:7, y:37, r:1},
+            {t:'I', x:8, y:37, r:1},
+            {t:'T', x:2, y:38, r:1},
+            {t:'O', x:0, y:39, r:0},
+            {t:'S', x:4, y:39, r:0},
+            {t:'L', x:7, y:39, r:0}
+        ],
+        trigger: (board, queue, hold) => {
+            // 1. ミノ列の取得 (Hold + Queueから計7個分)
+            const minos = [];
+            if (hold) minos.push(hold);
+            for (const p of queue) {
+                if (minos.length >= 7) break;
+                minos.push(p);
+            }
+
+            // 2. 重複チェック
+            const counts = {};
+            for (const m of minos) {
+                counts[m] = (counts[m] || 0) + 1;
+                if (counts[m] > 1) return false;
+            }
+
+            // 3. 順序チェック (LがJより先)
+            const lIndex = minos.indexOf('L');
+            const jIndex = minos.indexOf('J');
+            // 両方存在し、かつLのインデックスがJより小さい(速い)場合のみtrue
+            return lIndex !== -1 && jIndex !== -1 && lIndex <= jIndex;
+        }
+    },
+
+    // 2. 山岳2号左 (1巡目)
+    {
+        name: 'sangaku_2_left_1st',
+        board: [[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],["G","G",null,null,null,null,null,null,null,null],["G","G","G",null,null,null,null,"G",null,null],["G","G","G",null,"G","G","G","G","G","G"],["G","G","G","G",null,"G","G","G","G","G"]
+        ],
+        moves: [
+        {t:'I', x:0, y:37, r:3},
+        {t:'S', x:1, y:37, r:1},
+        {t:'T', x:7, y:38, r:3},
+        {t:'J', x:2, y:39, r:0},
+        {t:'Z', x:5, y:39, r:0},
+        {t:'O', x:8, y:39, r:0}
+
+        ],
+        // 条件: 直近でJがLより速い かつ ホールド含めた直近7ミノに重複がない
+        trigger: (board, queue, hold) => {
+            // 1. ミノ列の取得 (Hold + Queueから計7個分)
+            const minos = [];
+            if (hold) minos.push(hold);
+            for (const p of queue) {
+                if (minos.length >= 7) break;
+                minos.push(p);
+            }
+
+            // 2. 重複チェック
+            const counts = {};
+            for (const m of minos) {
+                counts[m] = (counts[m] || 0) + 1;
+                if (counts[m] > 1) return false;
+            }
+
+            // 3. 順序チェック (JがLより先)
+            const jIndex = minos.indexOf('J');
+            const lIndex = minos.indexOf('L');
+            return jIndex !== -1 && lIndex !== -1 && jIndex < lIndex;
+        }
+    },
+
+    // 3. 山岳2号右の二巡目① (Z < O)
+    {
+        name: 'sangaku_2_right_2nd_pattern1',
+        startBoard: [[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,"G","G"],[null,null,"G",null,null,null,null,"G","G","G"],["G","G","G","G","G","G",null,"G","G","G"],["G","G","G","G","G",null,"G","G","G","G"]
+        ],
+        board: [[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,"G","G","G","G"],["G",null,null,"G",null,null,"G","G","G","G"],["G","G","G","G",null,null,null,"G","G","G"],["G","G","G","G","G","G",null,"G","G","G"],["G","G","G","G","G",null,null,"G","G","G"],["G","G","G","G","G","G",null,"G","G","G"],["G","G","G","G","G",null,"G","G","G","G"]
+        
+        ],
+        moves: [ 
+            {t:'J', x:3, y:35, r:3},
+            {t:'O', x:6, y:34, r:0},
+            {t:'L', x:9, y:34, r:3},
+            {t:'I', x:0, y:35, r:3},
+            {t:'Z', x:7, y:35, r:1},
+            {t:'J', x:1, y:36, r:1},
+            {t:'S', x:4, y:37, r:0}
+        ],
+        // 条件: ホールド含めた直近8ミノのうち、ZがOより速い
+        trigger: (board, queue, hold) => {
+            // 1. ミノ列の取得 (Hold + Queueから計8個分)
+            const minos = [];
+            if (hold) minos.push(hold);
+            for (const p of queue) {
+                if (minos.length >= 8) break;
+                minos.push(p);
+            }
+
+            // 2. 順序チェック (ZがOより先)
+            const zIndex = minos.indexOf('Z');
+            const oIndex = minos.indexOf('O');
+            // ※2巡目は盤面形状(startBoard)でフィルタされる前提のため重複チェックは省略し順序のみ判定
+            return zIndex !== -1 && oIndex !== -1 && zIndex < oIndex;
+        }
+    },
+
+    // 4. 山岳2号右の二巡目② (O < Z)
+    {
+        name: 'sangaku_2_right_2nd_pattern2',
+        startBoard: [[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,"G","G"],[null,null,"G",null,null,null,null,"G","G","G"],["G","G","G","G","G","G",null,"G","G","G"],["G","G","G","G","G",null,"G","G","G","G"]
+        ],
+        board: [[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,"G"],[null,null,null,null,null,null,null,null,null,"G"],[null,null,null,null,null,null,null,null,null,"G"],[null,null,null,null,null,null,null,null,null,"G"],[null,null,null,null,null,null,"G","G","G","G"],[null,null,null,null,null,null,"G","G","G","G"],[null,"G","G",null,null,null,null,"G","G","G"],["G","G","G","G","G","G",null,"G","G","G"],["G","G","G","G","G",null,null,"G","G","G"],["G","G","G","G","G","G",null,"G","G","G"],["G","G","G","G","G",null,"G","G","G","G"]],
+        moves: [
+            {t:'J', x:9, y:34, r:3},
+            {t:'O', x:0, y:37, r:0},
+            {t:'L', x:7, y:33, r:2},
+            {t:'L', x:7, y:35, r:3},
+            {t:'J', x:7, y:35, r:1},
+            {t:'J', x:7, y:33, r:2},
+            {t:'Z', x:2, y:36, r:0},
+            {t:'S', x:4, y:37, r:0},
+            {t:'I', x:8, y:30, r:1}
+        ],
+        // 条件: ホールド含めた直近8ミノのうち、OがZより速い
+        trigger: (board, queue, hold) => {
+            // 1. ミノ列の取得 (Hold + Queueから計8個分)
+            const minos = [];
+            if (hold) minos.push(hold);
+            for (const p of queue) {
+                if (minos.length >= 8) break;
+                minos.push(p);
+            }
+            
+    const oIndex = minos.indexOf('O');
+    const zIndex = minos.indexOf('Z');
+    const iIndex = minos.indexOf('I');
+
+    return oIndex !== -1 && zIndex !== -1 && iIndex !== -1 &&
+           oIndex < zIndex && iIndex < oIndex;
+
+        }
+    },
+
+        // 4. 山岳2号右の二巡目3 (O < Z)
+    {
+        name: 'sangaku_2_right_2nd_pattern3',
+        startBoard: [[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,"G","G"],[null,null,"G",null,null,null,null,"G","G","G"],["G","G","G","G","G","G",null,"G","G","G"],["G","G","G","G","G",null,"G","G","G","G"]
+        ],
+        board: [[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],["G",null,null,null,null,null,null,null,null,null],["G",null,null,null,null,null,"G","G","G","G"],["G",null,null,null,null,null,"G","G","G","G"],["G","G","G",null,null,null,null,"G","G","G"],["G","G","G","G","G","G",null,"G","G","G"],["G","G","G","G","G",null,null,"G","G","G"],["G","G","G","G","G","G",null,"G","G","G"],["G","G","G","G","G",null,"G","G","G","G"]],
+        moves: [
+            {t:'J', x:9, y:34, r:3},
+            {t:'O', x:0, y:37, r:0},
+            {t:'L', x:7, y:33, r:2},
+            {t:'L', x:7, y:35, r:3},
+            {t:'J', x:7, y:35, r:1},
+            {t:'J', x:7, y:33, r:2},
+            {t:'Z', x:2, y:36, r:0},
+            {t:'S', x:4, y:37, r:0},
+            {t:'I', x:0, y:33, r:3}
+        ],
+        // 条件: ホールド含めた直近8ミノのうち、OがZより速い
+        trigger: (board, queue, hold) => {
+            // 1. ミノ列の取得 (Hold + Queueから計8個分)
+            const minos = [];
+            if (hold) minos.push(hold);
+            for (const p of queue) {
+                if (minos.length >= 8) break;
+                minos.push(p);
+            }
+
+
+    const oIndex = minos.indexOf('O');
+    const zIndex = minos.indexOf('Z');
+    const iIndex = minos.indexOf('I');
+                // 3. 順序チェック
+    // すべてのミノが存在し、かつ O < Z と O < I を満たす
+    return oIndex !== -1 && zIndex !== -1 && iIndex !== -1 && oIndex < zIndex && oIndex < iIndex;
+        }
+    },
+
+    // 5. 山岳2号左の二巡目① (S < O)
+    {
+        name: 'sangaku_2_left_2nd_pattern1',
+        startBoard:[[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],["G","G",null,null,null,null,null,null,null,null],["G","G","G",null,null,null,null,"G",null,null],["G","G","G",null,"G","G","G","G","G","G"],["G","G","G","G",null,"G","G","G","G","G"]],
+        board: [[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],["G","G","G","G",null,null,null,null,null,null],["G","G","G","G",null,null,"G",null,null,"G"],["G","G","G",null,null,null,"G","G","G","G"],["G","G","G",null,"G","G","G","G","G","G"],["G","G","G",null,null,"G","G","G","G","G"],["G","G","G",null,"G","G","G","G","G","G"],["G","G","G","G",null,"G","G","G","G","G"]],
+        moves: [
+            {t:'Z', x:5, y:37, r:0},
+            {t:'S', x:1, y:35, r:1},
+            {t:'L', x:6, y:35, r:1},
+            {t:'J', x:0, y:34, r:1},
+            {t:'O', x:2, y:34, r:0},
+            {t:'I', x:8, y:35, r:1},
+            {t:'L', x:8, y:36, r:3}     
+        ],
+        // 条件: ホールド含めた直近8ミノのうち、SがOより速い
+        trigger: (board, queue, hold) => {
+            // 1. ミノ列の取得 (Hold + Queueから計8個分)
+            const minos = [];
+            if (hold) minos.push(hold);
+            for (const p of queue) {
+                if (minos.length >= 8) break;
+                minos.push(p);
+            }
+
+            // 2. 順序チェック (SがOより先)
+            const sIndex = minos.indexOf('S');
+            const oIndex = minos.indexOf('O');
+            return sIndex !== -1 && oIndex !== -1 && sIndex < oIndex;
+        }
+    },
+
+    // 6. 山岳2号左の二巡目② (O < S)
+    {
+        name: 'sangaku_2_left_2nd_pattern2',
+        startBoard:[[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],["G","G",null,null,null,null,null,null,null,null],["G","G","G",null,null,null,null,"G",null,null],["G","G","G",null,"G","G","G","G","G","G"],["G","G","G","G",null,"G","G","G","G","G"]],
+        board:[[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],["G",null,null,null,null,null,null,null,null,null],["G",null,null,null,null,null,null,null,null,null],["G",null,null,null,null,null,null,null,null,null],["G",null,null,null,null,null,null,null,null,null],["G","G","G","G",null,null,null,null,null,null],["G","G","G","G",null,null,null,null,null,null],["G","G","G",null,null,null,null,"G","G",null],["G","G","G",null,"G","G","G","G","G","G"],["G","G","G",null,null,"G","G","G","G","G"],["G","G","G",null,"G","G","G","G","G","G"],["G","G","G","G",null,"G","G","G","G","G"]],
+        moves: [
+            {t:'L', x:0, y:34, r:1},
+            {t:'O', x:8, y:37, r:0},
+            {t:'L', x:2, y:35, r:3},
+            {t:'L', x:2, y:33, r:2},
+            {t:'J', x:2, y:33, r:2},
+            {t:'J', x:2, y:35, r:1},
+            {t:'Z', x:5, y:37, r:0},
+            {t:'S', x:7, y:36, r:0},
+            {t:'I', x:0, y:30, r:3}
+        ],
+        // 条件: ホールド含めた直近8ミノのうち、OがSより速い
+        trigger: (board, queue, hold) => {
+            // 1. ミノ列の取得 (Hold + Queueから計8個分)
+            const minos = [];
+            if (hold) minos.push(hold);
+            for (const p of queue) {
+                if (minos.length >= 8) break;
+                minos.push(p);
+            }
+
+            const oIndex = minos.indexOf('O');
+            const sIndex = minos.indexOf('S');
+            const iIndex = minos.indexOf('I');
+            return oIndex !== -1 && sIndex !== -1 && iIndex !== -1 && oIndex < sIndex && oIndex > iIndex;
+            
+        }
+    },
+    {
+        name: 'sangaku_2_left_2nd_pattern3',
+        startBoard:[[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],["G","G",null,null,null,null,null,null,null,null],["G","G","G",null,null,null,null,"G",null,null],["G","G","G",null,"G","G","G","G","G","G"],["G","G","G","G",null,"G","G","G","G","G"]],
+        board: [[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,null],[null,null,null,null,null,null,null,null,null,"G"],["G","G","G","G",null,null,null,null,null,"G"],["G","G","G","G",null,null,null,null,null,"G"],["G","G","G",null,null,null,null,"G","G","G"],["G","G","G",null,"G","G","G","G","G","G"],["G","G","G",null,null,"G","G","G","G","G"],["G","G","G",null,"G","G","G","G","G","G"],["G","G","G","G",null,"G","G","G","G","G"]],
+        moves: [
+            {t:'L', x:0, y:34, r:1},
+            {t:'O', x:8, y:37, r:0},
+            {t:'L', x:2, y:35, r:3},
+            {t:'L', x:2, y:33, r:2},
+            {t:'J', x:2, y:33, r:2},
+            {t:'J', x:2, y:35, r:1},
+            {t:'Z', x:5, y:37, r:0},
+            {t:'S', x:7, y:36, r:0},
+            {t:'I', x:8, y:33, r:1}
+        ],
+        // 条件: ホールド含めた直近8ミノのうち、OがSより速い
+        trigger: (board, queue, hold) => {
+            // 1. ミノ列の取得 (Hold + Queueから計8個分)
+            const minos = [];
+            if (hold) minos.push(hold);
+            for (const p of queue) {
+                if (minos.length >= 8) break;
+                minos.push(p);
+            }
+
+            const oIndex = minos.indexOf('O');
+            const sIndex = minos.indexOf('S');
+            const iIndex = minos.indexOf('I');
+            return oIndex !== -1 && sIndex !== -1 && iIndex !== -1 && oIndex < sIndex && oIndex < iIndex;
+        }
+    }
+];
+
+// --- Mino Definitions ---
+const MINO_DEFS = {
+    'I': [[[0,0], [-1,0], [1,0], [2,0]], [[1,0], [1,-1], [1,1], [1,2]], [[0,1], [-1,1], [1,1], [2,1]], [[0,0], [0,-1], [0,1], [0,2]]],
+    'O': [[[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]]],
+    'T': [[[0,0], [-1,0], [1,0], [0,-1]], [[0,0], [0,-1], [1,0], [0,1]], [[0,0], [1,0], [-1,0], [0,1]], [[0,0], [0,1], [-1,0], [0,-1]]],
+    'S': [[[0,0], [-1,0], [0,-1], [1,-1]], [[0,0], [0,-1], [1,0], [1,1]], [[0,0], [1,0], [0,1], [-1,1]], [[0,0], [0,1], [-1,0], [-1,-1]]],
+    'Z': [[[0,0], [1,0], [0,-1], [-1,-1]], [[0,0], [0,1], [1,0], [1,-1]], [[0,0], [-1,0], [0,1], [1,1]], [[0,0], [0,-1], [-1,0], [-1,1]]],
+    'J': [[[0,0], [-1,0], [1,0], [-1,-1]], [[0,0], [0,-1], [0,1], [1,-1]], [[0,0], [1,0], [-1,0], [1,1]], [[0,0], [0,1], [0,-1], [-1,1]]],
+    'L': [[[0,0], [1,0], [-1,0], [1,-1]], [[0,0], [0,1], [0,-1], [1,1]], [[0,0], [-1,0], [1,0], [-1,1]], [[0,0], [0,-1], [0,1], [-1,-1]]]
+};
+const SRS_OFFSETS_RAW = {
+    common: {
+        '0->1': [[0,0], [-1,0], [-1,1], [0,-2], [-1,-2]], '1->0': [[0,0], [1,0], [1,-1], [0,2], [1,2]],
+        '1->2': [[0,0], [1,0], [1,-1], [0,2], [1,2]], '2->1': [[0,0], [-1,0], [-1,1], [0,-2], [-1,-2]],
+        '2->3': [[0,0], [1,0], [1,1], [0,-2], [1,-2]], '3->2': [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]],
+        '3->0': [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]], '0->3': [[0,0], [1,0], [1,1], [0,-2], [1,-2]],
+    },
+    I: {
+        '0->1': [[0,0], [-2,0], [1,0], [-2,-1], [1,2]], '1->0': [[0,0], [2,0], [-1,0], [2,1], [-1,-2]],
+        '1->2': [[0,0], [-1,0], [2,0], [-1,2], [2,-1]], '2->1': [[0,0], [1,0], [-2,0], [1,-2], [-2,1]],
+        '2->3': [[0,0], [2,0], [-1,0], [2,1], [-1,-2]], '3->2': [[0,0], [-2,0], [1,0], [-2,-1], [1,2]],
+        '3->0': [[0,0], [1,0], [-2,0], [1,-2], [-2,1]], '0->3': [[0,0], [-1,0], [2,0], [-1,2], [2,-1]],
+    }
+};
+const SPAWN_X = 4;
+const SPAWN_Y = 19;
+const SPAWN_ROT = 0;
+
+// グローバルキャッシュ (Mapキーを整数にするため高速)
+let lfgCache = new Map();
+let evaluationCache = new Map();
+
+// --- Classes ---
+class StandardWeights {
+    constructor() {
+        this.back_to_back = 52;
+        this.bumpiness = -24;
+        this.bumpiness_sq = -7;
+        this.row_transitions = -5;
+        this.height = -39;
+        this.top_half = -150;
+        this.top_quarter = -511;
+        this.jeopardy = -11;
+        this.cavity_cells = -173;
+        this.cavity_cells_sq = -3;
+        this.overhang_cells = -34;
+        this.overhang_cells_sq = -1;
+        this.covered_cells = -17;
+        this.covered_cells_sq = -1;
+        this.tslot = [8, 148, 192, 407];
+        this.well_depth = 57;
+        this.max_well_depth = 17;
+        this.well_column = [20, 23, 20, 50, 59, 21, 59, 10, -10, 24];
+        this.b2b_clear = 104;
+        this.clear1 = -263;
+        this.clear2 = -220;
+        this.clear3 = -178;
+        this.clear4 = 270;
+        this.tspin1 = 1;
+        this.tspin2 = 290;
+        this.tspin3 = 482;
+        this.mini_tspin1 = -158;
+        this.mini_tspin2 = -93;
+        this.perfect_clear = 999;
+        this.combo_garbage = 150;
+        this.wasted_t = -152;
+        this.COMBO_GARBAGE = [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5];
+    }
+}
+
+class TetrisBoard {
+    constructor(baseBoard = null) {
+        if (baseBoard) {
+            // 高速コピー
+            this.rows = baseBoard.rows.slice();
+        } else {
+            this.rows = new Array(BOARD_HEIGHT).fill(0);
+        }
+        this.zobristHash = 0; // ハッシュをキャッシュする場合はここで保持も可能だが、計算が速いので都度計算する
+    }
+
+    static fromSimulatorBoard(layout) {
+        const board = new TetrisBoard();
+        const layoutHeight = layout.length;
+        const width = WIDTH;
+        for (let y = 0; y < layoutHeight; y++) {
+            const internalY = y + (BOARD_HEIGHT - layoutHeight);
+            if (internalY < 0) continue;
+            let rowValue = 0;
+            const row = layout[y];
+            for (let x = 0; x < width; x++) {
+                if (row[x] !== null && row[x] !== 'null') {
+                    rowValue |= (1 << x);
+                }
+            }
+            board.rows[internalY] = rowValue;
+        }
+        return board;
+    }
+
+    // Zobrist Hashing Implementation
+    getHash() {
+        let h = 0;
+        for (let y = 0; y < BOARD_HEIGHT; y++) {
+            // rows[y] は 0-1023 の整数。
+            // ZOBRIST_TABLE は 1次元配列なので、y * 1024 + rowValue でインデックス計算
+            h ^= ZOBRIST_TABLE[(y << 10) + this.rows[y]];
+        }
+        return h;
+    }
+
+    isFilled(row, col) {
+        if (col < 0 || col >= WIDTH) return true;
+        if (row < 0) return false; 
+        if (row >= BOARD_HEIGHT) return true;
+        return (this.rows[row] & (1 << col)) !== 0;
+    }
+    
+    isFilledXY(x, y) { return this.isFilled(y, x); }
+
+    placeMino(placement) {
+        const newBoard = new TetrisBoard(this);
+        const shapeCoords = getMinoCoords(placement.pieceType, placement.rotation);
+        for (const [dx, dy] of shapeCoords) {
+            const boardX = placement.x + dx;
+            const boardY = placement.y + dy;
+            if (boardY >= 0 && boardY < BOARD_HEIGHT && boardX >= 0 && boardX < WIDTH) {
+                newBoard.rows[boardY] |= (1 << boardX);
+            }
+        }
+        return newBoard;
+    }
+
+    clearLines() {
+        let newBoard = new TetrisBoard(null); // 空作成
+        let linesCleared = 0;
+        // 高速化のため直接配列操作
+        let writePtr = BOARD_HEIGHT - 1;
+        const fullLineMask = (1 << WIDTH) - 1;
+        
+        for (let readPtr = BOARD_HEIGHT - 1; readPtr >= 0; readPtr--) {
+            const row = this.rows[readPtr];
+            if (row === fullLineMask) {
+                linesCleared++;
+            } else {
+                newBoard.rows[writePtr--] = row;
+            }
+        }
+        // 残りは0で埋める (constructorで0埋めされているが、writePtrより上は0のままなのでOK)
+        return { newBoard, linesCleared };
+    }
+
+    getColumnHeights() {
+        const heights = new Int8Array(WIDTH).fill(0); // Int8Arrayでメモリ削減
+        for (let c = 0; c < WIDTH; c++) {
+            for (let y = 0; y < BOARD_HEIGHT; y++) {
+                if ((this.rows[y] & (1 << c)) !== 0) {
+                    heights[c] = BOARD_HEIGHT - y;
+                    break;
+                }
+            }
+        }
+        return heights;
+    }
+
+    getBumpiness(wellColumn, heights) {
+        let bumpiness_val = 0;
+        let bumpiness_sq_val = 0;
+        let prev_col_idx = (wellColumn === 0) ? 1 : 0;
+        while (prev_col_idx < WIDTH && prev_col_idx === wellColumn) prev_col_idx++;
+        if (prev_col_idx >= WIDTH) return { bumpiness: 0, bumpiness_sq: 0 };
+        let current_height = heights[prev_col_idx];
+        for (let i = prev_col_idx + 1; i < WIDTH; ++i) {
+            if (i === wellColumn) continue;
+            const dh = Math.abs(heights[i] - current_height);
+            bumpiness_val += dh;
+            bumpiness_sq_val += dh * dh;
+            current_height = heights[i];
+        }
+        return { bumpiness: bumpiness_val, bumpiness_sq: bumpiness_sq_val };
+    }
+
+    getCavitiesAndOverhangs(heights) {
+        let cavities = 0;
+        let overhangs = 0;
+        let max_board_height = 0;
+        for(let i=0; i<WIDTH; i++) if(heights[i] > max_board_height) max_board_height = heights[i];
+        
+        if (max_board_height === 0) return { cavities: 0, overhangs: 0 };
+        
+        for (let y_cpp = 0; y_cpp < max_board_height; ++y_cpp) {
+            const y_js = BOARD_HEIGHT - 1 - y_cpp;
+            for (let x = 0; x < WIDTH; ++x) {
+                if (this.isFilledXY(x, y_js) || y_cpp >= heights[x]) continue;
+                let counted_as_overhang = false;
+                if (x > 1) {
+                    if (heights[x - 1] <= y_cpp && heights[x - 2] <= (y_cpp + 1)) {
+                        overhangs++;
+                        counted_as_overhang = true;
+                    }
+                }
+                if (counted_as_overhang) continue;
+                if (x < WIDTH - 2) {
+                    if (heights[x + 1] <= y_cpp && heights[x + 2] <= (y_cpp + 1)) {
+                        overhangs++;
+                        counted_as_overhang = true;
+                    }
+                }
+                if (counted_as_overhang) continue;
+                cavities++;
+            }
+        }
+        return { cavities, overhangs };
+    }
+
+    getCoveredCells(heights) {
+        let covered = 0;
+        let covered_sq = 0;
+        for (let x = 0; x < WIDTH; ++x) {
+            if (heights[x] <= 1) continue;
+            for (let y_cpp = heights[x] - 2; y_cpp >= 0; --y_cpp) {
+                const y_js = BOARD_HEIGHT - 1 - y_cpp;
+                if (!this.isFilledXY(x, y_js)) {
+                    const cells_above_hole = heights[x] - (y_cpp + 1);
+                    const actual_cells_counted = Math.min(6, cells_above_hole);
+                    covered += actual_cells_counted;
+                    covered_sq += actual_cells_counted * actual_cells_counted;
+                }
+            }
+        }
+        return { covered, covered_sq };
+    }
+
+    getWell(weights, heights) {
+        let well_col = -1;
+        let min_h = BOARD_HEIGHT + 1;
+        for (let c = 0; c < WIDTH; ++c) {
+            if (heights[c] < min_h) { min_h = heights[c]; well_col = c; }
+        }
+        let depth = 0;
+        if (well_col !== -1) {
+            const start_y_cpp = heights[well_col];
+            for (let y_cpp = start_y_cpp; y_cpp < BOARD_HEIGHT; ++y_cpp) {
+                const y_js = BOARD_HEIGHT - 1 - y_cpp;
+                if (y_js < 0) break;
+                let is_well_row = true;
+                for (let x = 0; x < WIDTH; ++x) {
+                    if (x !== well_col && !this.isFilledXY(x, y_js)) { is_well_row = false; break; }
+                }
+                if (is_well_row) depth++;
+                else break;
+            }
+        }
+        depth = Math.min(depth, weights.max_well_depth);
+        return { depth, well_col };
+    }
+    
+    check_sides(x, y_js) {
+        for (let dx = 1; dx <= 9; ++dx) {
+            if (x - dx < 0 || x + dx >= WIDTH) return false;
+            if (!this.isFilledXY(x - dx, y_js) || !this.isFilledXY(x + dx, y_js)) return false;
+        }
+        return true;
+    }
+    
+    check_top(x, y_js) {
+        const y_limit_js = BOARD_HEIGHT - 1 - 25;
+        for (let check_y_js = y_js - 1; check_y_js >= y_limit_js; --check_y_js) {
+            if (check_y_js < 0) break;
+            if (this.isFilledXY(x, check_y_js)) return false;
+        }
+        return true;
+    }
+
+    getTslotsAndRowTransitions(weights) {
+        let t_slot_score = 0.0;
+        let rowTransitions = 0; 
+        for (let y_js = 0; y_js < BOARD_HEIGHT; ++y_js) {
+            const r = this.rows[y_js];
+            const d = (r | (1 << WIDTH)) ^ (1 | (r << 1));
+            // Population Count
+            let count = 0;
+            let n = d;
+            while (n > 0) { n &= (n - 1); count++; }
+            rowTransitions += count;
+
+            // T-Slot Detection
+            for (let x = 0; x < WIDTH; ++x) {
+                // Inline isFilled logic for speed
+                const is_filled = (dx, dy) => {
+                    const ny = y_js + dy;
+                    if (ny < 0 || ny >= BOARD_HEIGHT) return true;
+                    const nx = x + dx;
+                    if (nx < 0 || nx >= WIDTH) return true;
+                    return (this.rows[ny] & (1 << nx)) !== 0;
+                };
+
+                if (!is_filled(-1, 0) && is_filled(1, 1) && is_filled(-1, 1) && is_filled(-1, -1)) {
+                    if (this.check_top(x, y_js) && this.check_top(x + 1, y_js)) {
+                        let c = 0;
+                        if (this.check_sides(x, y_js)) c++;
+                        if (this.check_sides(x, y_js - 1)) c++;
+                        t_slot_score += (c == 2) ? weights.tslot[2] : ((c == 1) ? weights.tslot[1] : weights.tslot[0]);
+                    }
+                }
+                if (!is_filled(1, 0) && is_filled(1, 1) && is_filled(-1, 1) && is_filled(1, -1)) {
+                     if (this.check_top(x, y_js) && this.check_top(x - 1, y_js)) {
+                        let c = 0;
+                        if (this.check_sides(x, y_js)) c++;
+                        if (this.check_sides(x, y_js - 1)) c++;
+                        t_slot_score += (c == 2) ? weights.tslot[2] : ((c == 1) ? weights.tslot[1] : weights.tslot[0]);
+                    }
+                }
+            }
+        }
+        return { t_slot_score, rowTransitions };
+    }
+    
+    isPerfectClear() { return this.rows[BOARD_HEIGHT - 1] === 0; }
+}
+
+class Placement {
+    constructor(x, y, rotation, pieceType, isTspin = false, isMiniTspin = false) {
+        this.x = x;
+        this.y = y; 
+        this.rotation = rotation; 
+        this.pieceType = pieceType;
+        this.isTspin = isTspin; 
+        this.isMiniTspin = isMiniTspin;
+    }
+}
+
+class Node {
+    // Integer IDs for vector-like access
+    constructor(id, board, place, parentID, depth, comboCount = 0, b2b = false, holdPiece = null, holdUsedThisTurn = false) {
+        this.id = id; // Integer
+        this.board = board; 
+        this.place = place; 
+        this.parentID = parentID; // Integer (or -1 for null)
+        this.depth = depth;
+        this.acc_eval = 0; 
+        this.transient_eval = 0;
+        this.expanded = false; 
+        this.childrenIDs = []; // Array of Integers
+        this.comboCount = comboCount; 
+        this.b2b = b2b;
+        this.holdPiece = holdPiece; 
+        this.holdUsedThisTurn = holdUsedThisTurn;
+    }
+    getTotalEval() { return this.acc_eval + this.transient_eval; }
+}
+
+// --- LFG Helpers ---
+// 既存のまま、ビットボード演算による高速化がされている
+const LFG_WIDTH = WIDTH; 
+const LFG_HEIGHT = BOARD_HEIGHT;
+const LFG_FULL_WIDTH_MASK = (1 << LFG_WIDTH) - 1;
+function lfg_create() { return new Int32Array(LFG_HEIGHT).fill(0); } // TypedArray
+function lfg_clone(board) { return new Int32Array(board); }
+function lfg_set(board, x, y, value = true) { 
+    if (y < 0 || y >= LFG_HEIGHT || x < 0 || x >= LFG_WIDTH) return;
+    if (value) board[y] |= (1 << x); else board[y] &= ~(1 << x);
+}
+function lfg_get(board, x, y) { 
+    if (y < 0 || y >= LFG_HEIGHT || x < 0 || x >= LFG_WIDTH) return false;
+    return (board[y] & (1 << x)) !== 0; 
+}
+function lfg_shiftLeft(board) { const nb = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = (board[y] >> 1); return nb; }
+function lfg_shiftRight(board) { const nb = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = (board[y] << 1) & LFG_FULL_WIDTH_MASK; return nb; }
+function lfg_shiftDown(board) { 
+    const nb = lfg_create();
+    nb[0] = 0;
+    for(let y=1; y<LFG_HEIGHT; y++) nb[y] = board[y-1];
+    return nb;
+}
+function lfg_shiftUp(board) { 
+    const nb = lfg_create();
+    for(let y=0; y<LFG_HEIGHT-1; y++) nb[y] = board[y+1];
+    nb[LFG_HEIGHT-1] = 0;
+    return nb;
+}
+function lfg_shift(board, dx, dy) {
+    let nb = lfg_clone(board);
+    if (dy > 0) for (let i = 0; i < dy; i++) nb = lfg_shiftDown(nb);
+    if (dy < 0) for (let i = 0; i < -dy; i++) nb = lfg_shiftUp(nb);
+    if (dx > 0) for (let i = 0; i < dx; i++) nb = lfg_shiftRight(nb);
+    if (dx < 0) for (let i = 0; i < -dx; i++) nb = lfg_shiftLeft(nb);
+    return nb;
+}
+function lfg_and(a, b) { const nb = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = a[y] & b[y]; return nb; }
+function lfg_or(a, b) { const nb = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = a[y] | b[y]; return nb; }
+function lfg_not(b) { const nb = lfg_create(); for (let y = 0; y < LFG_HEIGHT; y++) nb[y] = (~b[y]) & LFG_FULL_WIDTH_MASK; return nb; }
+function lfg_equals(a, b) { for (let y = 0; y < LFG_HEIGHT; y++) if (a[y] !== b[y]) return false; return true; }
+function lfg_isEmpty(b) { for (let y = 0; y < LFG_HEIGHT; y++) if (b[y] !== 0) return false; return true; }
+
+function getMinoCoords(type, rot) { return MINO_DEFS[type][rot]; }
+function getSrsOffsets(type, r1, r2) {
+    const key = r1 + "->" + r2;
+    const source = (type === 'I' || type === 'O') ? SRS_OFFSETS_RAW.I : SRS_OFFSETS_RAW.common;
+    if (type === 'O') return [[0,0]];
+    const offsets = source[key];
+    if (!offsets) return [[0,0]];
+    return offsets.map(([dx, dy]) => [dx, -dy]);
+}
+
+function applySrsRotation(sourceBits, targetPrecomputed, srsOffsets) {
+    let currentTestBits = lfg_clone(sourceBits);
+    let newTargetBits = lfg_create();
+    for (const [dx, dy] of srsOffsets) {
+        if (lfg_isEmpty(currentTestBits)) break;
+        const shiftedSource = lfg_shift(currentTestBits, dx, dy);
+        const successful = lfg_and(shiftedSource, targetPrecomputed);
+        newTargetBits = lfg_or(newTargetBits, successful);
+        const successfulOriginal = lfg_shift(successful, -dx, -dy);
+        currentTestBits = lfg_and(currentTestBits, lfg_not(successfulOriginal));
+    }
+    return newTargetBits;
+}
+
+function findLegalMoves(gameBoard, minoType, spawnX, spawnY, spawnRot) {
+    const precomputed = [lfg_create(), lfg_create(), lfg_create(), lfg_create()];
+    for (let r = 0; r < 4; r++) {
+        const coords = getMinoCoords(minoType, r);
+        for (let y = 0; y < BOARD_HEIGHT; y++) {
+            for (let x = 0; x < WIDTH; x++) {
+                let collision = false;
+                for (const [dx, dy] of coords) {
+                    if (gameBoard.isFilled(y + dy, x + dx)) { collision = true; break; }
+                }
+                if (!collision) lfg_set(precomputed[r], x, y);
+            }
+        }
+    }
+
+    let reachable = [lfg_create(), lfg_create(), lfg_create(), lfg_create()];
+    if (lfg_get(precomputed[spawnRot], spawnX, spawnY)) {
+         lfg_set(reachable[spawnRot], spawnX, spawnY);
+    }
+
+    let iteration = 0;
+    while (true) {
+        iteration++;
+        let changed = false;
+        let nextReachable = reachable.map(b => lfg_clone(b));
+        const currentReachableForRotation = reachable.map(b => lfg_clone(b));
+        for (let r = 0; r < 4; r++) {
+            const r_left = lfg_and(lfg_shiftLeft(reachable[r]), precomputed[r]);
+            const r_right = lfg_and(lfg_shiftRight(reachable[r]), precomputed[r]);
+            const r_down = lfg_and(lfg_shiftDown(reachable[r]), precomputed[r]);
+            nextReachable[r] = lfg_or(nextReachable[r], lfg_or(r_left, lfg_or(r_right, r_down)));
+        }
+        
+        for (let r_from = 0; r_from < 4; r_from++) {
+            if (lfg_isEmpty(currentReachableForRotation[r_from])) continue;
+            const r_to_cw = (r_from + 1) % 4;
+            const srs_cw = getSrsOffsets(minoType, r_from, r_to_cw);
+            const new_cw_bits = applySrsRotation(currentReachableForRotation[r_from], precomputed[r_to_cw], srs_cw);
+            nextReachable[r_to_cw] = lfg_or(nextReachable[r_to_cw], new_cw_bits);
+
+            const r_to_ccw = (r_from + 3) % 4;
+            const srs_ccw = getSrsOffsets(minoType, r_from, r_to_ccw);
+            const new_ccw_bits = applySrsRotation(currentReachableForRotation[r_from], precomputed[r_to_ccw], srs_ccw);
+            nextReachable[r_to_ccw] = lfg_or(nextReachable[r_to_ccw], new_ccw_bits);
+        }
+
+        for (let r = 0; r < 4; r++) {
+            if (!lfg_equals(reachable[r], nextReachable[r])) { changed = true; break; }
+        }
+        reachable = nextReachable;
+        if (!changed || iteration > (WIDTH * BOARD_HEIGHT)) break;
+    }
+
+    const landed = [lfg_create(), lfg_create(), lfg_create(), lfg_create()];
+    for (let r = 0; r < 4; r++) {
+        const canMoveDown = lfg_and(lfg_shiftDown(reachable[r]), precomputed[r]);
+        const canMoveDown_ShiftedUp = lfg_shiftUp(canMoveDown);
+        landed[r] = lfg_and(reachable[r], lfg_not(canMoveDown_ShiftedUp));
+    }
+
+    const landed_tspin = [lfg_create(), lfg_create(), lfg_create(), lfg_create()];
+    if (minoType === 'T') {
+        for (let r = 0; r < 4; r++) {
+            if (lfg_isEmpty(landed[r])) continue;
+            for (let y = 0; y < BOARD_HEIGHT; y++) {
+                for (let x = 0; x < WIDTH; x++) {
+                    if (lfg_get(landed[r], x, y)) {
+                        const corners = [
+                             gameBoard.isFilled(y - 1, x - 1), gameBoard.isFilled(y - 1, x + 1),
+                             gameBoard.isFilled(y + 1, x - 1), gameBoard.isFilled(y + 1, x + 1)
+                        ];
+                        const filledCorners = corners.filter(Boolean).length;
+                        if (filledCorners >= 3) {
+                            let frontCornersFilled = false;
+                            switch (r) {
+                                case 0: frontCornersFilled = corners[0] && corners[1]; break;
+                                case 1: frontCornersFilled = corners[1] && corners[3]; break;
+                                case 2: frontCornersFilled = corners[2] && corners[3]; break;
+                                case 3: frontCornersFilled = corners[0] && corners[2]; break;
+                            }
+                            if (frontCornersFilled) {
+                                lfg_set(landed_tspin[r], x, y);
+                                lfg_set(landed[r], x, y, false);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return { reachable, landed, landed_tspin };
+}
+
+class AIAgent {
+    constructor() {
+        this.weights = new StandardWeights();
+        // Vectorization: Fixed size array for node storage (faster than Object)
+        this.nodeMap = new Array(SEARCH_ITERATION_LIMIT + 1000);
+        this.nodeIdCounter = 0;
+        this.rootID = -1;
+        this.totalNodesInSearch = 0;
+        this.bestNodeIDAtDepth1 = -1;
+        
+        this.activeTemplate = null; // 現在有効なテンプレート
+    }
+
+    // makeID: Simple integer increment
+    makeID() { return this.nodeIdCounter++; }
+    
+    // Cache clearing
+    clearCaches() {
+        lfgCache.clear();
+            evaluationCache.clear();
+    }
+
+        initSearch(currentBoard, pieceQueue, currentHoldPiece, isB2B, combo) {
+        const wasTemplateActive = this.activeTemplate !== null;
+        if (this.activeTemplate) {
+            let valid = true;
+            let completed = true;
+            let hasTargets = false;
+            const tempBoard = this.activeTemplate.board;
+            if (tempBoard && tempBoard.length === BOARD_HEIGHT) {
+                for (let y = 0; y < BOARD_HEIGHT; y++) {
+                    const row = currentBoard.rows[y];
+                    for (let x = 0; x < WIDTH; x++) {
+                        const isFilled = (row & (1 << x)) !== 0;
+                        if (tempBoard[y][x] === null) {
+                            if (isFilled) valid = false;
+                        } else {
+                            hasTargets = true;
+                            if (!isFilled) completed = false;
+                        }
+                    }
+                }
+            }
+            if (!valid) {
+                this.activeTemplate = null;
+                self.postMessage({ type: 'debug', message: 'Template: Cancelled (Block detected in null area)' });
+            } else if (hasTargets && completed) {
+                this.activeTemplate = null;
+                self.postMessage({ type: 'debug', message: 'Template: Completed' });
+            }
+        }
+
+        if (!this.activeTemplate) {
+            for (const temp of TEMPLATES) {
+                let match = true;
+                
+                // A. 開始盤面パターン (startBoard) のチェック
+                if (temp.startBoard) {
+                    // startBoardがある場合: パターン完全一致チェック
+                    for (let y = 0; y < BOARD_HEIGHT; y++) {
+                        if (!match) break;
+                        const row = currentBoard.rows[y];
+                        for (let x = 0; x < WIDTH; x++) {
+                            const isFilled = (row & (1 << x)) !== 0;
+                            // nullなら空、それ以外(G等)ならブロックがあること
+                            const isPatternNull = temp.startBoard[y][x] === null;
+                            if (isPatternNull && isFilled) { match = false; break; }
+                            if (!isPatternNull && !isFilled) { match = false; break; }
+                        }
+                    }
+                } else {
+                    // B. startBoardがない場合 (略記法): 「盤面が空」であることを条件とする
+                    for (let y = 0; y < BOARD_HEIGHT; y++) {
+                        if (currentBoard.rows[y] !== 0) { match = false; break; }
+                    }
+                }
+
+                // C. 追加条件 (trigger関数) のチェック
+                if (match && temp.trigger) {
+                    if (!temp.trigger(currentBoard, pieceQueue, currentHoldPiece)) {
+                        match = false;
+                    }
+                }
+
+                if (match) {
+                    this.activeTemplate = temp;
+                    self.postMessage({ type: 'debug', message: 'Template: Active (' + temp.name + ')' });
+                    break;
+                }
+            }
+        }
+        
+        // ----------------------
+
+        let reuseTree = false;
+        // 探索木の再利用チェック
+        // テンプレートが「現在アクティブ」または「直前までアクティブだった」場合はリセットする
+        if (!this.activeTemplate && !wasTemplateActive && this.rootID !== -1 && this.nodeMap[this.rootID]) {
+            const rootNode = this.nodeMap[this.rootID];
+            // Zobrist Hash Compare
+            const hashCurrent = currentBoard.getHash();
+            const hashRoot = rootNode.board.getHash();
+            
+            if (hashCurrent === hashRoot && rootNode.holdPiece === currentHoldPiece) {
+                reuseTree = true;
+                rootNode.b2b = isB2B;
+                rootNode.comboCount = combo;
+            }
+        }
+
+        if (!reuseTree) {
+            // Reset Vector
+            this.nodeIdCounter = 0;
+            this.rootID = this.makeID();
+            
+            const rootNode = new Node(this.rootID, currentBoard, null, -1, 0, combo, isB2B, currentHoldPiece, false);
+            this.nodeMap[this.rootID] = rootNode;
+            
+            const { transient_eval } = this.evaluate(rootNode, { 
+                linesCleared: 0, isTspin: false, isMiniTspin: false, 
+                b2bActive: isB2B, combo: combo, holdUsed: false, wastedT: false, 
+                perfectClear: rootNode.board.isPerfectClear() 
+            });
+            rootNode.transient_eval = transient_eval;
+            
+            this.clearCaches();
+            this.totalNodesInSearch = 1;
+            self.postMessage({ type: 'debug', message: 'Tree RESET (New Search)' });
+        } else {
+            self.postMessage({ type: 'debug', message: 'Tree REUSED (Continuing)' });
+            // nodeMapの有効な要素数を数え直すのはコストが高いので概算またはそのまま
+            // pruneAndRerootでtotalNodesはリセットされているはず
+        }
+        
+        const rootNode = this.nodeMap[this.rootID];
+        if (!rootNode.expanded && pieceQueue.length >= 2) {
+            this.expand(this.rootID, pieceQueue[0], pieceQueue[1]);
+        }
+        
+        // 配列なのでlengthではなくCounterを使う
+        this.totalNodesInSearch = this.nodeIdCounter;
+    }
+
+    searchStep(iterations, pieceQueue) {
+        if (this.rootID === -1 || !this.nodeMap[this.rootID]) return;
+        let count = 0;
+        while (count < iterations && this.totalNodesInSearch < SEARCH_ITERATION_LIMIT) {
+            const selectedNode = this.select(this.rootID);
+            
+            // テンプレートモード時は深さ1以上（ルートの子ノード以降）を展開しない
+            if (this.activeTemplate && selectedNode.depth >= 1) break;
+
+            if (selectedNode.expanded) break; 
+            
+            const depth = selectedNode.depth;
+            const pieceForExpand = pieceQueue[depth];
+            const nextPieceForExpand = pieceQueue[depth + 1];
+            if (pieceForExpand && nextPieceForExpand) {
+                this.expand(selectedNode.id, pieceForExpand, nextPieceForExpand);
+            } else {
+                break;
+            }
+            count++;
+        }
+    }
+    
+    getBestMove() {
+        this.bestNodeIDAtDepth1 = this.findBestChildNodeID(this.rootID);
+        if (this.bestNodeIDAtDepth1 === -1) {
+            const root = this.nodeMap[this.rootID];
+            if (root && root.childrenIDs.length > 0) {
+                return this.nodeMap[root.childrenIDs[0]].place;
+            }
+            return null;
+        }
+        return this.nodeMap[this.bestNodeIDAtDepth1].place;
+    }
+    
+    advanceTreeToBestMove() {
+        if (this.bestNodeIDAtDepth1 !== -1) {
+            this.pruneAndReroot(this.bestNodeIDAtDepth1);
+        }
+    }
+
+    expand(nodeID, pieceToPlace, nextPiece) {
+        const parentNode = this.nodeMap[nodeID];
+        if (!parentNode || parentNode.expanded || !pieceToPlace || !nextPiece) return;
+        parentNode.expanded = true;
+        
+        let nodesAddedThisExpand = 0;
+        const { placements: placementsNoHold } = this.getLegalPlacements(parentNode.board, pieceToPlace);
+        for (const placement of placementsNoHold) {
+            this.createAndAddChildNode(parentNode, placement, false, parentNode.holdPiece);
+            nodesAddedThisExpand++;
+        }
+
+        if (parentNode.holdUsedThisTurn) {
+            this.totalNodesInSearch += nodesAddedThisExpand;
+            return; 
+        }
+
+        let pieceForHoldMove = null;
+        let newHoldPiece = null;
+        if (parentNode.holdPiece === null) {
+            pieceForHoldMove = nextPiece;
+            newHoldPiece = pieceToPlace;
+        } else {
+            pieceForHoldMove = parentNode.holdPiece;
+            newHoldPiece = pieceToPlace;
+        }
+
+        const { placements: placementsHold } = this.getLegalPlacements(parentNode.board, pieceForHoldMove);
+        for (const placement of placementsHold) {
+            this.createAndAddChildNode(parentNode, placement, true, newHoldPiece);
+            nodesAddedThisExpand++;
+        }
+        this.totalNodesInSearch += nodesAddedThisExpand;
+    }
+
+    createAndAddChildNode(parentNode, placement, holdUsed, newHoldPiece) {
+        const boardAfterPlace = parentNode.board.placeMino(placement);
+        const { newBoard, linesCleared } = boardAfterPlace.clearLines();
+
+        const isTspin = placement.isTspin;
+        const isMiniTspin = placement.isMiniTspin;
+        const combo = linesCleared > 0 ? parentNode.comboCount + 1 : 0;
+        const moveWasSpecialForB2B = (isTspin && linesCleared > 0) || (linesCleared >= 4);
+        let b2b_after_move = parentNode.b2b;
+        if (moveWasSpecialForB2B) b2b_after_move = true;
+        else if (linesCleared > 0) b2b_after_move = false;
+
+        const placementResult = {
+            linesCleared: linesCleared, isTspin: isTspin, isMiniTspin: isMiniTspin,
+            b2bActive: parentNode.b2b, combo: combo, holdUsed: holdUsed,
+            wastedT: (placement.pieceType === 'T' && (linesCleared === 0 || !(isTspin || isMiniTspin))),
+            perfectClear: newBoard.isPerfectClear()
+        };
+        
+        // Create Node with Integer ID
+        const newNodeID = this.makeID();
+        const newNode = new Node(newNodeID, newBoard, placement, parentNode.id, parentNode.depth + 1, combo, b2b_after_move, newHoldPiece, holdUsed);
+        
+        const { acc_eval, transient_eval } = this.evaluate(newNode, placementResult);
+        newNode.acc_eval = parentNode.acc_eval + acc_eval;
+        newNode.transient_eval = transient_eval;
+
+        this.nodeMap[newNodeID] = newNode;
+        parentNode.childrenIDs.push(newNodeID);
+        this.propagateEvaluation(newNodeID);
+    }
+
+    evaluate(node, placementResult) {
+        let acc_eval = 0;
+        const board = node.board;
+        const weights = this.weights;
+        
+        if (placementResult.perfectClear) acc_eval += weights.perfect_clear;
+        if (true) { 
+            if (placementResult.b2bActive && placementResult.linesCleared > 0) acc_eval += weights.b2b_clear;
+            if (placementResult.combo > 0) {
+                const combo_idx = Math.min(placementResult.combo, weights.COMBO_GARBAGE.length - 1);
+                acc_eval += weights.combo_garbage * weights.COMBO_GARBAGE[combo_idx];
+            }
+            if (placementResult.isTspin) {
+                if (placementResult.linesCleared === 1) acc_eval += weights.tspin1;
+                else if (placementResult.linesCleared === 2) acc_eval += weights.tspin2;
+                else if (placementResult.linesCleared === 3) acc_eval += weights.tspin3;
+            } else if (placementResult.isMiniTspin) {
+                if (placementResult.linesCleared === 1) acc_eval += weights.mini_tspin1;
+                else if (placementResult.linesCleared === 2) acc_eval += weights.mini_tspin2;
+            } else {
+                if (placementResult.linesCleared === 1) acc_eval += weights.clear1;
+                else if (placementResult.linesCleared === 2) acc_eval += weights.clear2;
+                else if (placementResult.linesCleared === 3) acc_eval += weights.clear3;
+                else if (placementResult.linesCleared === 4) acc_eval += weights.clear4;
+            }
+        }
+        if (placementResult.wastedT) acc_eval += weights.wasted_t;
+        // --- Template Bonus ---
+        if (this.activeTemplate && node.place) {
+            const p = node.place;
+            // リスト内のいずれかの手と一致するかチェック (上から優先)
+            for (let i = 0; i < this.activeTemplate.moves.length; i++) {
+                const move = this.activeTemplate.moves[i];
+                if (move.t === p.pieceType && move.x === p.x && move.y === p.y && move.r === p.rotation) {
+                    // 一致する手があれば超高評価。リストの上位(iが小さい)ほど点数を高くする
+                    acc_eval += 1000000000 - (i * 10000);
+                    break; 
+                }
+            }
+        }
+        // ----------------------
+
+        // Cache Check (Zobrist Hash = Integer)
+        const boardHash = board.getHash();
+        if (evaluationCache.has(boardHash)) {
+            const transient_eval = evaluationCache.get(boardHash);
+            return { acc_eval, transient_eval };
+        }
+
+        let transient_eval = 0;
+        if (node.b2b) transient_eval += weights.back_to_back;
+
+        const heights = board.getColumnHeights();
+        const highest_point = Math.max(0, ...heights);
+        transient_eval += weights.top_quarter * Math.max(0, highest_point - 15);
+        transient_eval += weights.top_half * Math.max(0, highest_point - 10);
+        transient_eval += weights.height * highest_point;
+        transient_eval += weights.jeopardy * Math.max(0, highest_point - 10); 
+        
+        const { t_slot_score, rowTransitions } = board.getTslotsAndRowTransitions(weights);
+        transient_eval += t_slot_score;
+        transient_eval += weights.row_transitions * rowTransitions;
+
+        const { depth: well_d, well_col } = board.getWell(weights, heights);
+        transient_eval += weights.well_depth * well_d;
+        if (well_d > 0 && well_col >= 0 && well_col < weights.well_column.length) transient_eval += weights.well_column[well_col];
+        const { bumpiness, bumpiness_sq } = board.getBumpiness(well_col, heights);
+        transient_eval += bumpiness * weights.bumpiness;
+        transient_eval += bumpiness_sq * weights.bumpiness_sq;
+        const { cavities, overhangs } = board.getCavitiesAndOverhangs(heights);
+        transient_eval += weights.cavity_cells * cavities;
+        transient_eval += weights.cavity_cells_sq * cavities * cavities;
+        transient_eval += weights.overhang_cells * overhangs;
+        transient_eval += weights.overhang_cells_sq * overhangs * overhangs;
+
+        const { covered, covered_sq } = board.getCoveredCells(heights);
+        transient_eval += weights.covered_cells * covered;
+        transient_eval += weights.covered_cells_sq * covered_sq;
+
+        evaluationCache.set(boardHash, transient_eval);
+        return { acc_eval, transient_eval };
+    }
+
+    propagateEvaluation(startNodeID) {
+        let currentNode = this.nodeMap[startNodeID];
+        if (!currentNode) return;
+        let parentID = currentNode.parentID;
+
+        while (parentID !== -1) {
+            const parentNode = this.nodeMap[parentID];
+            if (!parentNode) break; 
+            let maxChildEval = -Infinity;
+            // childrenIDs is array of integers
+            for (const childID of parentNode.childrenIDs) {
+                const childNode = this.nodeMap[childID];
+                if (childNode) maxChildEval = Math.max(maxChildEval, childNode.getTotalEval());
+            }
+            if (maxChildEval === -Infinity) break;
+            const newTransient = maxChildEval - parentNode.acc_eval;
+            if (newTransient > parentNode.transient_eval) {
+                parentNode.transient_eval = newTransient;
+                if (parentNode.parentID === this.rootID) this.updateBestDepth1Node(parentNode.id);
+                parentID = parentNode.parentID;
+            } else {
+                break;
+            }
+        }
+    }
+    
+    updateBestDepth1Node(depth1NodeID) {
+        if(this.bestNodeIDAtDepth1 === -1) { this.bestNodeIDAtDepth1 = depth1NodeID; return; }
+        const currentBest = this.nodeMap[this.bestNodeIDAtDepth1];
+        const newCandidate = this.nodeMap[depth1NodeID];
+        if (!currentBest || !newCandidate) return; 
+        if (newCandidate.getTotalEval() > currentBest.getTotalEval()) this.bestNodeIDAtDepth1 = depth1NodeID;
+    }
+    
+    findBestChildNodeID(nodeID) {
+        const parentNode = this.nodeMap[nodeID];
+        if (!parentNode || parentNode.childrenIDs.length === 0) return -1;
+        let bestChildID = -1;
+        let maxEval = -Infinity;
+        for (const childID of parentNode.childrenIDs) {
+            const childNode = this.nodeMap[childID];
+            if (childNode) {
+                const evalSum = childNode.getTotalEval();
+                if (evalSum > maxEval) { maxEval = evalSum; bestChildID = childID; }
+            }
+        }
+        return bestChildID;
+    }
+
+    select(nodeID) {
+        let currentNode = this.nodeMap[nodeID];
+        while (currentNode.expanded) {
+            if (currentNode.childrenIDs.length === 0) return currentNode;
+            const children = currentNode.childrenIDs.map(id => this.nodeMap[id]).filter(Boolean); 
+            if (children.length === 0) return currentNode; 
+            
+            const evals = children.map(c => c.getTotalEval());
+            const Emin = Math.min(...evals);
+            const indexedEvals = evals.map((e, i) => ({ eval: e, index: i }));
+            indexedEvals.sort((a, b) => b.eval - a.eval); 
+            const ranks = new Int32Array(children.length);
+            indexedEvals.forEach((item, rank_minus_1) => { ranks[item.index] = rank_minus_1 + 1; });
+
+            let totalWeight = 0;
+            const weights = children.map((child, i) => {
+                const E_I = evals[i];
+                const rank_I = ranks[i];
+                const eval_part = Math.pow(E_I - Emin + 1.0, 2) + 10.0;
+                const rank_part = Math.pow(rank_I - 1.0, 2) + 1.0;
+                const weight = eval_part / rank_part;
+                totalWeight += weight;
+                return weight;
+            });
+            let rand = Math.random() * totalWeight;
+            let selectedChild = null;
+            for (let i = 0; i < weights.length; i++) {
+                rand -= weights[i];
+                if (rand <= 0) { selectedChild = children[i]; break; }
+            }
+            if (!selectedChild) selectedChild = children[children.length - 1];
+            currentNode = selectedChild;
+        }
+        return currentNode;
+    }
+
+    // Prune and Reroot: Vectorized optimization
+    pruneAndReroot(chosenNodeID) {
+        const oldRootNode = this.nodeMap[chosenNodeID];
+        if (!oldRootNode) {
+            // Reset if invalid
+            this.nodeMap = new Array(SEARCH_ITERATION_LIMIT + 1000);
+            this.nodeIdCounter = 0;
+            this.rootID = -1; 
+            return;
+        }
+        
+        // Create a NEW array to serve as vector
+        const new_nodeMap = new Array(SEARCH_ITERATION_LIMIT + 1000);
+        let newIdCounter = 0;
+
+        // Queue for BFS copying
+        // stores { oldID, newID, newDepth }
+        const queue = [{ oldID: chosenNodeID, newID: newIdCounter++, newDepth: 0 }];
+        
+        // Map old IDs to new IDs to fix parent/child references
+        const idMapping = new Map();
+        
+        while (queue.length > 0) {
+            const { oldID, newID, newDepth } = queue.shift();
+            const oldNode = this.nodeMap[oldID];
+            if (!oldNode) continue;
+
+            idMapping.set(oldID, newID);
+            
+            // Shallow copy node properties
+            const newNode = new Node(
+                newID, oldNode.board, oldNode.place, 
+                -1, // parentID fixed later 
+                newDepth, oldNode.comboCount, oldNode.b2b, oldNode.holdPiece, oldNode.holdUsedThisTurn
+            );
+            newNode.acc_eval = oldNode.acc_eval;
+            newNode.transient_eval = oldNode.transient_eval;
+            newNode.expanded = oldNode.expanded;
+            newNode.childrenIDs = []; // Will fill
+
+            new_nodeMap[newID] = newNode;
+
+            // Process children
+            for (const oldChildID of oldNode.childrenIDs) {
+                if (this.nodeMap[oldChildID] !== undefined) {
+                    const newChildID = newIdCounter++;
+                    queue.push({ oldID: oldChildID, newID: newChildID, newDepth: newDepth + 1 });
+                    newNode.childrenIDs.push(newChildID);
+                }
+            }
+        }
+
+        // Fix parent IDs
+        for(let i=0; i<newIdCounter; i++) {
+            const node = new_nodeMap[i];
+            // If it was the chosen node (now root 0), parent is -1.
+            // Otherwise, look up new parent ID.
+            // Note: We only copied the chosen branch. The old parent of chosenNode is not in mapping.
+            // We need a way to find parent. But BFS guarantees we visit parent first.
+            // Actually simpler: We can just set parentID inside the loop if we pass it in queue.
+        }
+        // Re-loop to fix parents using mapping (slower but correct)
+        // Optimization: Pass parentID in queue
+        // Let's re-do the queue slightly to handle parentID efficiently
+        
+        // Clear and Reset
+        // Simple approach: Just reset mapping logic. 
+        // Since we construct childrenIDs in the loop above, we just need to set parentID.
+        // The Root (0) has parent -1.
+        for(let i=0; i<newIdCounter; i++) {
+            const node = new_nodeMap[i];
+            for(const childID of node.childrenIDs) {
+                new_nodeMap[childID].parentID = node.id;
+            }
+        }
+        new_nodeMap[0].parentID = -1;
+
+        this.nodeMap = new_nodeMap;
+        this.nodeIdCounter = newIdCounter;
+        this.rootID = 0; // New root is always at index 0
+        this.bestNodeIDAtDepth1 = -1; // Reset best choice
+    }
+
+    getLegalPlacements(board, pieceType) {
+        // Zobrist Hash for Cache Key
+        const boardHash = board.getHash();
+        const cacheKey = pieceType + ':' + boardHash;
+
+        if (lfgCache.has(cacheKey)) return lfgCache.get(cacheKey);
+
+        const placements = [];
+        const { landed, landed_tspin } = findLegalMoves(board, pieceType, SPAWN_X, SPAWN_Y, SPAWN_ROT);
+        for (let r = 0; r < 4; r++) {
+            if (lfg_isEmpty(landed[r])) continue;
+            for (let y = 0; y < BOARD_HEIGHT; y++) {
+                for (let x = 0; x < WIDTH; x++) {
+                    if (lfg_get(landed[r], x, y)) placements.push(new Placement(x, y, r, pieceType, false, false));
+                }
+            }
+        }
+        for (let r = 0; r < 4; r++) {
+            if (lfg_isEmpty(landed_tspin[r])) continue;
+            for (let y = 0; y < BOARD_HEIGHT; y++) {
+                for (let x = 0; x < WIDTH; x++) {
+                    if (lfg_get(landed_tspin[r], x, y)) placements.push(new Placement(x, y, r, pieceType, true, false));
+                }
+            }
+        }
+        
+        const result = { placements };
+        lfgCache.set(cacheKey, result);
+        return result;
+    }
+}
+
+// --- Worker Logic ---
+let isThinking = false;
+let aiAgent = new AIAgent();
+let currentQueue = [];
+
+function thinkingLoop() {
+    if (!isThinking) return;
+    aiAgent.searchStep(200, currentQueue);
+    self.postMessage({ 
+        type: 'nodeCount', 
+        count: aiAgent.totalNodesInSearch,
+        template: aiAgent.activeTemplate ? aiAgent.activeTemplate.name : null
+    });
+    setTimeout(thinkingLoop, 0);
+}
+
+self.onmessage = (e) => {
+    const { type, boardString, nextString, holdPiece, canHold, isB2B, ren } = e.data;
+    if (type === 'start') {
+        try {
+            const layout = JSON.parse(boardString);
+            const board = TetrisBoard.fromSimulatorBoard(layout);
+            
+            currentQueue = nextString.split('');
+            let hold = null;
+            if (holdPiece !== undefined) {
+                hold = holdPiece;
+            } else if (aiAgent.rootID !== -1 && aiAgent.nodeMap[aiAgent.rootID]) {
+                hold = aiAgent.nodeMap[aiAgent.rootID].holdPiece;
+            }
+
+            aiAgent.initSearch(board, currentQueue, hold, isB2B, ren);
+            if (canHold !== undefined && aiAgent.rootID !== -1 && aiAgent.nodeMap[aiAgent.rootID]) {
+                aiAgent.nodeMap[aiAgent.rootID].holdUsedThisTurn = !canHold;
+            }
+
+            if (!isThinking) {
+                isThinking = true;
+                thinkingLoop();
+            }
+        } catch (err) {
+            console.error("AI Worker Error (start):", err);
+        }
+
+    } else if (type === 'stop') {
+        const bestPlacement = aiAgent.getBestMove();
+        if (bestPlacement) {
+            let finalX = bestPlacement.x;
+            if (bestPlacement.pieceType === 'I') {
+                finalX -= 1;
+            }
+            self.postMessage({
+                type: 'debug',
+                message: 'Move: ' + bestPlacement.pieceType + ' (x:' + finalX + ', y:' + bestPlacement.y + ', r:' + bestPlacement.rotation + ')'
+            });
+            self.postMessage({
+                piece: bestPlacement.pieceType,
+                x: finalX,
+                y: bestPlacement.y,
+                rotation: bestPlacement.rotation,
+            });
+            aiAgent.advanceTreeToBestMove();
+            if (currentQueue.length > 0) {
+                currentQueue.shift();
+            }
+        } else {
+            self.postMessage(null);
+            isThinking = false;
+        }
     }
 };
 `;
@@ -1233,92 +3644,48 @@ function* createMinoGenerator(customQueue) {
 }
 
 class Player {
-constructor(id, offsetX, keyBindings, padIndex, isAi = false) {
+    constructor(id, offsetX, keyBindings, padIndex, isAi = false) {
         this.id = id;
         this.offsetX = offsetX; this.keyBindings = keyBindings; this.padIndex = padIndex;
         this.isAi = isAi;
         this.isAiThinking = false;
         this.aiWorker = null;
+        
         this.aiType = gameSettings.aiType || 'simplified'; 
 
-if (this.isAi) {
-            // --- 修正箇所: AIタイプの分岐ロジック ---
-            
+        if (this.isAi) {
+            // AIタイプによって読み込むスクリプトを変える
+            let scriptToLoad = aiWorkerScript_Simplified;
             if (this.aiType === 'default') {
-                // 1. 'default' の場合: 元のJS版AI (aiWorkerScript) を使用
-                const blob = new Blob([aiWorkerScript], { type: 'application/javascript' });
-                this.aiWorker = new Worker(URL.createObjectURL(blob));
-                
-            } else {
-                // 2. それ以外 ('simplified') の場合: 今回のWasm版AIを使用
-                
-                // 現在のページのURLベースを取得して絶対パスを作成
-                const baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1);
-                const jsUrl = baseUrl + 'tetris_ai.js';
-                const wasmUrl = baseUrl + 'tetris_ai.wasm';
-                // Workerスクリプトの先頭にパス変数を注入
-                const header = `
-                    self.wasmScriptUrl = "${jsUrl}";
-                    self.wasmBinaryUrl = "${wasmUrl}";
-                `;
-
-                // 前回作成したデバッグ版Wasmラッパー (aiWorkerScript_Simplified) を使用
-                const blob = new Blob([header + aiWorkerScript_Simplified], { type: 'application/javascript' });
-                this.aiWorker = new Worker(URL.createObjectURL(blob));
+                scriptToLoad = aiWorkerScript;//strongly simplified
             }
 
+            const blob = new Blob([scriptToLoad], { type: 'application/javascript' });
+            this.aiWorker = new Worker(URL.createObjectURL(blob));
+
             this.aiWorker.onmessage = (e) => {
-                const data = e.data;
-                if (!data) return;
-
-                const treeDisplay = document.getElementById('ai-tree-debug-display');
-
-                // 共通の初期化処理（コンテナ構造を作る）
-                const initTreeDisplay = () => {
-                    if (treeDisplay && !document.getElementById('ai-tree-log')) {
-                        treeDisplay.style.display = 'block';
-                        treeDisplay.style.fontFamily = '"Orbitron", monospace';
-                        treeDisplay.style.fontSize = '14px';
-                        treeDisplay.innerHTML = `
-                            <div>AI Nodes: <span id="ai-node-count" style="color: #00ff00;">0</span></div>
-                            <div id="ai-tree-log" style="max-height: 300px; overflow-y: auto; font-size: 12px; margin-top: 5px; padding-top: 5px; border-top: 1px solid #555; font-family: monospace;"></div>
-                        `;
+                if (e.data && e.data.type === 'debug') {
+                    const debugDisplay = document.getElementById('ai-tree-debug-display');
+                    if (debugDisplay) {
+                        debugDisplay.dataset.status = e.data.message;
+                        const count = debugDisplay.dataset.count || 0;
+                        
+                        debugDisplay.style.display = 'block';
+                        debugDisplay.innerHTML = `Status: <span style="color: ${e.data.message.includes('RESET') ? '#ff4444' : '#44ff44'}">${e.data.message}</span><br>Nodes: ${count}`;
                     }
-                };
-
-                if (data.type === 'nodeCount') {
-                    if (treeDisplay) {
-                        initTreeDisplay();
-                        const countSpan = document.getElementById('ai-node-count');
-                        if (countSpan) {
-                            countSpan.textContent = data.count.toLocaleString();
-                        }
+                } else if (e.data && e.data.type === 'nodeCount') {
+                    const debugDisplay = document.getElementById('ai-tree-debug-display');
+                    if (debugDisplay) {
+                        debugDisplay.dataset.count = e.data.count;
+                        const status = debugDisplay.dataset.status || 'Waiting...';
+                        
+                        debugDisplay.style.display = 'block';
+                        const color = status.includes('RESET') ? '#ff4444' : (status.includes('REUSED') ? '#44ff44' : 'white');
+                        const templateInfo = e.data.template ? `<br>Template: <span style="color: #00ffff">${e.data.template}</span>` : '';
+                        debugDisplay.innerHTML = `Status: <span style="color: ${color}">${status}</span><br>Nodes: ${e.data.count}${templateInfo}`;
                     }
-                } 
-                // ★変更点: 'debug' メッセージを画面左上の既存ウィンドウ(ai-tree-debug-display)に出す
-                else if (data.type === 'debug') {
-                    // console.log("[AI Log]", data.message);
-                    if (treeDisplay) {
-                        initTreeDisplay();
-                        const logContainer = document.getElementById('ai-tree-log');
-                        if (logContainer) {
-                            const msgDiv = document.createElement('div');
-                            msgDiv.textContent = "> " + data.message;
-                            msgDiv.style.borderBottom = "1px solid #333";
-                            msgDiv.style.whiteSpace = "pre-wrap";
-                            // 新しいメッセージを上に追加
-                            logContainer.insertBefore(msgDiv, logContainer.firstChild);
-                            
-                            // ログが増えすぎないように古いものを削除 (最大50件)
-                            if (logContainer.children.length > 50) {
-                                logContainer.removeChild(logContainer.lastChild);
-                            }
-                        }
-                    }
-                } 
-                // ★変更点: 思考結果 (type: 'move') を受け取って移動を実行
-                else if ((data.type === 'move' || (!data.type && data.piece)) && gameState === 'PLAYING' && this.isAiThinking) {
-                    this.executeAiMove(data);
+                } else if (gameState === 'PLAYING' && this.isAiThinking) {
+                    this.executeAiMove(e.data);
                 }
             };
         }
@@ -2147,7 +4514,7 @@ requestAiMove() {
         }
         if (this.aiWorker) {
             this.aiWorker.postMessage(aiWorkerStartPayload);
-            //this.aiWorker.postMessage({ type: 'stop' });
+            this.aiWorker.postMessage({ type: 'stop' });
         }
     }
 
