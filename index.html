@@ -1750,19 +1750,12 @@ const TEMPLATES = [
             {t:'Z', x:2, y:35, r:1}
         ],
         trigger: (board, queue, hold) => {
-            // 1. ミノ列の取得 (Hold + Queueから計7個分)
+            // 1. ミノ列の取得 (Hold + Queueから計8個分)
             const minos = [];
             if (hold) minos.push(hold);
             for (const p of queue) {
-                if (minos.length >= 7) break;
+                if (minos.length >= 8) break;
                 minos.push(p);
-            }
-
-            // 2. 重複チェック
-            const counts = {};
-            for (const m of minos) {
-                counts[m] = (counts[m] || 0) + 1;
-                if (counts[m] > 1) return false;
             }
 
     const jIndex = minos.indexOf('J');
