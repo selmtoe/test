@@ -2622,7 +2622,9 @@ class AIAgent {
         this.totalNodesInSearch = 0;
         this.bestNodeIDAtDepth1 = -1;
         
-        this.activeTemplate = null; // 現在有効なテンプレート
+        this.activeTemplate = null;
+        this.activeTemplateOffset = 0;
+        // 現在有効なテンプレート
     }
 
     // makeID: Simple integer increment
@@ -2634,37 +2636,68 @@ class AIAgent {
             evaluationCache.clear();
     }
 
-        initSearch(currentBoard, pieceQueue, currentHoldPiece, isB2B, combo) {
+            initSearch(currentBoard, pieceQueue, currentHoldPiece, isB2B, combo) {
         const wasTemplateActive = this.activeTemplate !== null;
         if (this.activeTemplate) {
-            let valid = true;
-            let completed = true;
-            let hasTargets = false;
-            const tempBoard = this.activeTemplate.board;
-            if (tempBoard && tempBoard.length === BOARD_HEIGHT) {
-                for (let y = 0; y < BOARD_HEIGHT; y++) {
-                    const row = currentBoard.rows[y];
-                    for (let x = 0; x < WIDTH; x++) {
-                        const isFilled = (row & (1 << x)) !== 0;
-                        if (tempBoard[y][x] === null) {
-                            if (isFilled) valid = false;
-                        } else {
-                            hasTargets = true;
-                            if (!isFilled) completed = false;
+            let foundValidOffset = -1;
+            let isCompleted = false;
+
+            for (let offset = 0; offset <= 12; offset++) {
+                let valid = true;
+                let completed = true;
+                let hasTargets = false;
+                const tempBoard = this.activeTemplate.board;
+
+                if (tempBoard && tempBoard.length === BOARD_HEIGHT) {
+                    for (let y = 0; y < BOARD_HEIGHT; y++) {
+                        const templateY = y + offset;
+                        const row = currentBoard.rows[y];
+
+                        if (templateY >= BOARD_HEIGHT) continue;
+
+                        for (let x = 0; x < WIDTH; x++) {
+                            const isFilled = (row & (1 << x)) !== 0;
+                            const tempCell = tempBoard[templateY][x];
+
+                            if (tempCell === null) {
+                                if (isFilled) valid = false;
+                            } else {
+                                hasTargets = true;
+                                if (!isFilled) completed = false;
+                            }
                         }
+                        if (!valid) break;
                     }
                 }
+
+                if (valid) {
+                    if (hasTargets && completed) {
+                        isCompleted = true;
+                        foundValidOffset = -1;
+                    } else {
+                        foundValidOffset = offset;
+                    }
+                    break;
+                }
             }
-            if (!valid) {
+
+            if (isCompleted) {
                 this.activeTemplate = null;
-                self.postMessage({ type: 'debug', message: 'Template: Cancelled (Block detected in null area)' });
-            } else if (hasTargets && completed) {
-                this.activeTemplate = null;
+                this.activeTemplateOffset = 0;
                 self.postMessage({ type: 'debug', message: 'Template: Completed' });
+            } else if (foundValidOffset !== -1) {
+                this.activeTemplateOffset = foundValidOffset;
+                const offsetMsg = foundValidOffset > 0 ? ' (Offset: ' + foundValidOffset + ')' : '';
+                self.postMessage({ type: 'debug', message: 'Template: Cont. ' + this.activeTemplate.name + offsetMsg });
+            } else {
+                this.activeTemplate = null;
+                this.activeTemplateOffset = 0;
+                self.postMessage({ type: 'debug', message: 'Template: Cancelled (Mismatch)' });
             }
         }
 
         if (!this.activeTemplate) {
+            this.activeTemplateOffset = 0;
             for (const temp of TEMPLATES) {
                 let match = true;
                 
@@ -2896,10 +2929,13 @@ class AIAgent {
             // リスト内のいずれかの手と一致するかチェック (上から優先)
             for (let i = 0; i < this.activeTemplate.moves.length; i++) {
                 const move = this.activeTemplate.moves[i];
-                if (move.t === p.pieceType && move.x === p.x && move.y === p.y && move.r === p.rotation) {
-                    // 一致する手があれば超高評価。リストの上位(iが小さい)ほど点数を高くする
-                    acc_eval += 1000000000 - (i * 10000);
-                    break; 
+                const targetY = move.y - this.activeTemplateOffset;
+                if (move.t === p.pieceType && move.x === p.x && targetY === p.y && move.r === p.rotation) {
+                    if (targetY >= 0) {
+                        // 一致する手があれば超高評価。リストの上位(iが小さい)ほど点数を高くする
+                        acc_eval += 1000000000 - (i * 10000);
+                        break; 
+                    }
                 }
             }
         }
