@@ -5009,29 +5009,31 @@ const path = this.findShortestPath_forAI(startState, targetState, minoType, path
 
         if (path) {
             for (const action of path) {
-                switch (action) {
+                                switch (action) {
                     case '←': this.player.x--;
-                        break;
+break;
                     case '→': this.player.x++; break;
                     case '↓': this.player.y++; break;
                     case 'R': {
-                        const newState = this.tryRotate_forAI(minoType, this.player.x, this.player.y, this.player.rotation, 1, pathfinderBoard);
-                        if (newState) {
-                            this.player.x = newState.x;
-                            this.player.y = newState.y;
+                        const offset = minoType === 'I' ? 1 : 0;
+                        const newState = this.tryRotate_forAI(minoType, this.player.x + offset, this.player.y, this.player.rotation, 1, pathfinderBoard);
+if (newState) {
+                            this.player.x = newState.x - offset;
+this.player.y = newState.y;
                             this.player.rotation = newState.r;
                         }
                         break;
-                    }
+}
                     case 'L': {
-                        const newState = this.tryRotate_forAI(minoType, this.player.x, this.player.y, this.player.rotation, -1, pathfinderBoard);
-                        if (newState) {
-                            this.player.x = newState.x;
-                            this.player.y = newState.y;
+                        const offset = minoType === 'I' ? 1 : 0;
+                        const newState = this.tryRotate_forAI(minoType, this.player.x + offset, this.player.y, this.player.rotation, -1, pathfinderBoard);
+if (newState) {
+                            this.player.x = newState.x - offset;
+this.player.y = newState.y;
                             this.player.rotation = newState.r;
                         }
                         break;
-                    }
+}
                     case '↑':
                         this.player.y = this.getGhostY();
                         break;
