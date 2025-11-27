@@ -4717,14 +4717,12 @@ if (this.linesClearedLastLock > 0) { this.isClearingLine = true; this.lineClearD
         }
     }
     
-    drawSpecialMoveText(bSize) {
+        drawSpecialMoveText(bSize) {
         if (this.specialMoveTextTimer <= 0 || this.specialMoveText.length === 0 || !gameSettings.showEffects) return;
-        const layout = gameSettings.layout;
-        const pLayout = (this.id === '1') ? layout.p1 : layout.p2;
         
-        // 盤面中央
-        const centerX = pLayout.board.x + (BOARD_WIDTH * bSize) / 2;
-        const startY = pLayout.board.y + (BOARD_VISIBLE_HEIGHT * bSize) / 2 - (this.specialMoveText.length * 18);
+        // 盤面中央（ctx.translateで盤面左上が(0,0)になっているため、相対座標を使用）
+        const centerX = (BOARD_WIDTH * bSize) / 2;
+        const startY = (BOARD_VISIBLE_HEIGHT * bSize) / 2 - (this.specialMoveText.length * 18);
         
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -4744,20 +4742,19 @@ if (this.linesClearedLastLock > 0) { this.isClearingLine = true; this.lineClearD
         ctx.textBaseline = 'alphabetic';
     }
 
-    drawMessage(t, bSize) { 
-        const layout = gameSettings.layout;
-        const pLayout = (this.id === '1') ? layout.p1 : layout.p2;
-        const cX = pLayout.board.x + (BOARD_WIDTH * bSize) / 2;
-        const cY = pLayout.board.y + (BOARD_VISIBLE_HEIGHT * bSize) / 2;
+        drawMessage(t, bSize) { 
+        // 盤面中央（ctx.translateで盤面左上が(0,0)になっているため、相対座標を使用）
+        const cX = (BOARD_WIDTH * bSize) / 2;
+        const cY = (BOARD_VISIBLE_HEIGHT * bSize) / 2;
         
         ctx.fillStyle = 'rgba(0,0,0,0.75)';
-        ctx.fillRect(pLayout.board.x, pLayout.board.y, BOARD_WIDTH * bSize, BOARD_VISIBLE_HEIGHT * bSize); 
+        ctx.fillRect(0, 0, BOARD_WIDTH * bSize, BOARD_VISIBLE_HEIGHT * bSize); 
         ctx.fillStyle = '#FFF'; 
         ctx.textAlign = 'center'; 
-        ctx.textBaseline = 'middle'; 
+        ctx.textBaseline = 'middle';
         ctx.font = `bold ${bSize * 1.5}px "Orbitron"`;
         ctx.fillText(t, cX, cY); 
-        ctx.textBaseline = 'alphabetic'; 
+        ctx.textBaseline = 'alphabetic';
     }
 
 requestAiMove() {
