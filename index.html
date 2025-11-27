@@ -3652,28 +3652,28 @@ const AI_TEMPLATE_CONFIG = [
     { id: 'meisou', label: '迷走砲' },
     { id: 'sangaku_2', label: '山岳積み2号' }
 ];
-
 // デフォルトのレイアウト生成関数
 function generateDefaultLayout() {
-    const blockSize = 28;
-    // 従来の定数計算に基づく配置
-    const p1OriginX = 0;
-    const p2OriginX = (5 * blockSize + 10 * blockSize + 5 * blockSize + 20 * 2); // PLAYER_CANVAS_WIDTH
-
-    const createPlayerLayout = (offsetX) => ({
-        board: { x: offsetX + (5 * blockSize + 20), y: 0.5 * blockSize }, // PLAYFIELD_X_OFFSET, 0.5 offset
-        hold: { x: offsetX + (5 * blockSize / 2), y: 70 }, // HOLD_AREA_WIDTH / 2, approximate Y
-        next: Array.from({ length: 8 }).map((_, i) => ({
-                    x: offsetX + (5 * blockSize + 20 + 10 * blockSize + 20 + 5 * blockSize / 2), // Next area center
-            y: 70 + (i * blockSize * 2.5)
-        }))
-    });
     return {
         backgroundImage: null, // 画像URLまたはImageオブジェクト。設定されている場合、個別背景やUIラベルを描画しない
-        blockSize: blockSize,
-        uiBlockSize: blockSize,
-        p1: createPlayerLayout(p1OriginX),
-        p2: createPlayerLayout(p2OriginX)
+        blockSize: 23,
+        uiBlockSize: 12,
+        p1: {
+            board: { x: 183, y: 45 },
+            hold: { x: 140, y: 90 },
+            next: Array.from({ length: 8 }).map((_, i) => ({
+                x: 450,
+                y: 60 + (i * 50)
+            }))
+        },
+        p2: {
+            board: { x: 786, y: 45 },
+            hold: { x: 740, y: 90 },
+            next: Array.from({ length: 8 }).map((_, i) => ({
+                x: 1060,
+                y: 60 + (i * 50)
+            }))
+        }
     };
 }  
 
