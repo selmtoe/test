@@ -6110,25 +6110,9 @@ if (!gameSettings.layout) {
     skinItem.append(skinLabel, skinInput, skinResetButton);
     list.appendChild(skinItem);
 
-    // --- Reset Layout Button ---
-    const resetLayoutBtn = document.createElement('button');
-    resetLayoutBtn.className = 'button';
-    resetLayoutBtn.style.width = '100%';
-    resetLayoutBtn.style.marginBottom = '20px';
-    resetLayoutBtn.style.backgroundColor = '#ff4444';
-    resetLayoutBtn.textContent = 'レイアウト設定を初期化';
-    resetLayoutBtn.onclick = () => {
-        if (confirm('レイアウト設定を全て初期状態に戻しますか？')) {
-            gameSettings.layout = generateDefaultLayout();
-            updateScale();
-            populateLayoutSettingsTab(); // UI Refresh
-        }
-    };
-    list.appendChild(resetLayoutBtn);
-
     // --- Dangerous Area Header ---
     const dangerousHeader = document.createElement('h3');
-    dangerousHeader.textContent = '危険領域';
+    dangerousHeader.textContent = '危険な領域';
     dangerousHeader.style.marginTop = '20px';
     dangerousHeader.style.color = '#ff4444';
     dangerousHeader.style.borderBottom = '1px solid #ff4444';
@@ -6272,6 +6256,21 @@ pLayout.next = Array.from({ length: 8 }).map((_, i) => ({
         nextDiv.append(nextTitle, nxLabel, nxInput, nyLabel, nyInput, offsetYLabel, offsetYInput);
         list.appendChild(nextDiv);
     });
+
+    // --- Reset Layout Button (Moved to bottom) ---
+    const resetLayoutBtn = document.createElement('button');
+    resetLayoutBtn.className = 'button';
+    resetLayoutBtn.style.width = '100%';
+    resetLayoutBtn.style.marginTop = '20px';
+    resetLayoutBtn.textContent = 'レイアウト設定を全て初期化';
+    resetLayoutBtn.onclick = () => {
+        if (confirm('レイアウト設定を全て初期状態に戻しますか？')) {
+            gameSettings.layout = generateDefaultLayout();
+            updateScale();
+            populateLayoutSettingsTab(); // UI Refresh
+        }
+    };
+    list.appendChild(resetLayoutBtn);
 }
 
 function openUnifiedSettingsModal(initialTab = 'general') {
