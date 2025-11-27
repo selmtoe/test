@@ -3664,18 +3664,18 @@ function generateDefaultLayout() {
         board: { x: offsetX + (5 * blockSize + 20), y: 0.5 * blockSize }, // PLAYFIELD_X_OFFSET, 0.5 offset
         hold: { x: offsetX + (5 * blockSize / 2), y: 70 }, // HOLD_AREA_WIDTH / 2, approximate Y
         next: Array.from({ length: 8 }).map((_, i) => ({
-            x: offsetX + (5 * blockSize + 20 + 10 * blockSize + 20 + 5 * blockSize / 2), // Next area center
+                    x: offsetX + (5 * blockSize + 20 + 10 * blockSize + 20 + 5 * blockSize / 2), // Next area center
             y: 70 + (i * blockSize * 2.5)
         }))
     });
-
     return {
         backgroundImage: null, // 画像URLまたはImageオブジェクト。設定されている場合、個別背景やUIラベルを描画しない
         blockSize: blockSize,
+        uiBlockSize: blockSize,
         p1: createPlayerLayout(p1OriginX),
         p2: createPlayerLayout(p2OriginX)
     };
-}
+}  
 
 let gameSettings = {
     das: 140,
@@ -4163,18 +4163,16 @@ if (this.isActionPressed('softDrop')) {
             }
         }
     }
-draw() {
+    draw() {
         const layout = gameSettings.layout;
         const pLayout = (this.id === '1') ? layout.p1 : layout.p2;
         const bSize = layout.blockSize;
+        const uiBSize = layout.uiBlockSize || bSize;
         const useCustomBG = !!layout.backgroundImage;
-
         // UI描画 (Hold, Next)
-        this.drawUI(pLayout, bSize, useCustomBG);
-
+        this.drawUI(pLayout, uiBSize, useCustomBG);
         // 盤面の描画位置へ移動
         // 従来は translate(this.offsetX + PLAYFIELD_X_OFFSET, 0.5 * BLOCK_SIZE) だったものを
-        // pLayout.board.x, pLayout.board.y に置き換える
         ctx.save();
         ctx.translate(pLayout.board.x, pLayout.board.y);
 
@@ -6111,10 +6109,20 @@ function populateLayoutSettingsTab() {
     blockSizeItem.className = 'setting-item';
     const bsLabel = document.createElement('span'); bsLabel.textContent = 'ブロックサイズ (px)';
     const bsInput = document.createElement('input'); bsInput.type = 'number';
-    bsInput.value = layout.blockSize; bsInput.min = 10; bsInput.max = 100;
+    bsInput.value = layout.blockSize;     bsInput.min = 10; bsInput.max = 100;
     bsInput.onchange = (e) => { layout.blockSize = parseInt(e.target.value, 10); updateScale(); };
     blockSizeItem.append(bsLabel, bsInput);
     list.appendChild(blockSizeItem);
+
+    const uiBlockSizeItem = document.createElement('div');
+    uiBlockSizeItem.className = 'setting-item';
+    const uibsLabel = document.createElement('span'); uibsLabel.textContent = 'UIブロックサイズ (px)';
+    const uibsInput = document.createElement('input'); uibsInput.type = 'number';
+    uibsInput.value = layout.uiBlockSize || layout.blockSize;
+    uibsInput.min = 10; uibsInput.max = 100;
+    uibsInput.onchange = (e) => { layout.uiBlockSize = parseInt(e.target.value, 10); updateScale(); };
+    uiBlockSizeItem.append(uibsLabel, uibsInput);
+    list.appendChild(uiBlockSizeItem);
 
     // Background Image
     const bgItem = document.createElement('div');
