@@ -3209,7 +3209,7 @@ let currentQueue = [];
 
 function thinkingLoop() {
     if (!isThinking) return;
-    aiAgent.searchStep(5000, currentQueue);
+    aiAgent.searchStep(50000, currentQueue);
     self.postMessage({ 
         type: 'nodeCount', 
         count: aiAgent.totalNodesInSearch,
