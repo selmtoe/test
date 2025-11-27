@@ -4802,7 +4802,7 @@ requestAiMove() {
                 boardString: boardString,
                 nextString: nextString,
                 holdPiece: holdPieceToSend,
-                canHold: this.canHold,
+                             canHold: this.canHold,
                 isB2B: this.isB2B,
                 ren: this.ren + 1,
                 activeTemplates: gameSettings.aiTemplates
@@ -4810,12 +4810,17 @@ requestAiMove() {
         }
         if (this.aiWorker) {
             this.aiWorker.postMessage(aiWorkerStartPayload);
-            this.aiWorker.postMessage({ type: 'stop' });
+            setTimeout(() => {
+                if (this.aiWorker) {
+                    this.aiWorker.postMessage({ type: 'stop' });
+                }
+            }, gameSettings.aiMoveDelay || 30);
         }
     }
 
 
     getMinoShape_forAI(type, rotation) {
+                
         rotation = rotation % 4;
         switch (type) {
             case 'I':
