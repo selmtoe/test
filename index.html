@@ -387,10 +387,9 @@ position: fixed; top: 10px; right: 10px; z-index: 160; gap: 10px;">
 <div id="settings-modal">
     <div class="modal-content">
 <div class="modal-tabs">
-            <button class="tab-button active" data-tab="general">基本設定</button>
+            <button class="tab-button active" data-tab="general">諸設定</button>
             <button class="tab-button" data-tab="p1-keys">1P操作設定</button>
             <button class="tab-button" data-tab="p2-keys" id="p2-keys-tab-btn" style="display: none;">2P操作設定</button>
-            <button class="tab-button" data-tab="layout-settings">描画設定</button>
             <button class="tab-button" data-tab="ai-settings">AI設定</button>
         </div>
 
@@ -428,15 +427,9 @@ justify-content: center; gap: 10px; flex-wrap: wrap;">
         </div>
         
         <div class="tab-content" id="tab-content-p2-keys">
-         <h2 style="margin-top: 20px;">PLAYER 2 - 操作設定</h2>
+            <h2 style="margin-top: 20px;">PLAYER 2 - 操作設定</h2>
             <p></p>
             <div id="p2-key-config-list" class="key-config-list-container"></div>
-        </div>
-
-        <div class="tab-content" id="tab-content-layout-settings">
-            <h2 style="margin-top: 20px;">描画設定</h2>
-            <p></p>
-            <div id="layout-settings-list" class="key-config-list-container"></div>
         </div>
 
         <div class="tab-content" id="tab-content-ai-settings">
@@ -1697,7 +1690,7 @@ const aiWorkerScript_Simplified = `
 // --- Constants ---
 const WIDTH = 10;
 const BOARD_HEIGHT = 40;
-const SEARCH_ITERATION_LIMIT = 500000; // 最適化により探索数を増やしても高速動作可能
+const SEARCH_ITERATION_LIMIT = 70000; // 最適化により探索数を増やしても高速動作可能
 
 // --- Precomputed Zobrist Table ---
 // 40行 x 1024パターン(10bit) の乱数テーブル
@@ -3213,14 +3206,14 @@ function thinkingLoop() {
 
     // ★修正: 回数固定ではなく、時間いっぱいまで計算を回す
     const start = performance.now();
-    while (performance.now() - start < 50) {
+    while (performance.now() - start < 80) {
         aiAgent.searchStep(2000, currentQueue); // 小分けに実行
         if (aiAgent.totalNodesInSearch >= SEARCH_ITERATION_LIMIT) break;
     }
 
-    // ★修正: 画面更新用のメッセージは 50ms に1回だけ送る (通信負荷の削減)
+    // ★修正: 画面更新用のメッセージは  に1回だけ送る (通信負荷の削減)
     const now = performance.now();
-    if (now - lastUpdateTime > 50) {
+    if (now - lastUpdateTime > 200) {
         self.postMessage({ 
             type: 'nodeCount', 
             count: aiAgent.totalNodesInSearch,
@@ -3666,31 +3659,6 @@ const AI_TEMPLATE_CONFIG = [
     { id: 'meisou', label: '迷走砲' },
     { id: 'sangaku_2', label: '山岳積み2号' }
 ];
-// デフォルトのレイアウト生成関数
-function generateDefaultLayout() {
-    const blockSize = 28;
-    // 従来の定数計算に基づく配置
-    const p1OriginX = 0;
-    const p2OriginX = (5 * blockSize + 10 * blockSize + 5 * blockSize + 20 * 2);
-    // PLAYER_CANVAS_WIDTH
-
-    const createPlayerLayout = (offsetX) => ({
-        board: { x: offsetX + (5 * blockSize + 20), y: 0.5 * blockSize }, // PLAYFIELD_X_OFFSET, 0.5 offset
-        hold: { x: offsetX + (5 * blockSize / 2), y: 70 }, // HOLD_AREA_WIDTH / 2, approximate Y
-        next: Array.from({ length: 8 }).map((_, i) => ({
-                    x: offsetX + 
-(5 * blockSize + 20 + 10 * blockSize + 20 + 5 * blockSize / 2), // Next area center
-            y: 70 + (i * blockSize * 2.5)
-        }))
-    });
-    return {
-        backgroundImage: null, // 画像URLまたはImageオブジェクト。設定されている場合、個別背景やUIラベルを描画しない
-        blockSize: blockSize,
-        uiBlockSize: blockSize,
-        p1: createPlayerLayout(p1OriginX),
-        p2: createPlayerLayout(p2OriginX)
-    };
-}  
 
 let gameSettings = {
     das: 140,
@@ -3709,11 +3677,9 @@ let gameSettings = {
     aiMoveDelay: 30,
     aiSdfDelay: 30,
     drawMoveDelay: 30,
-    aiTemplates: { meisou: true, sangaku_2: true },
-    debugEnabled: true, // デバッグ表示の切り替え (true: 表示, false: 非表示)
-   
- layout: generateDefaultLayout() // レイアウト設定を追加
+    aiTemplates: { meisou: true, sangaku_2: true }
 };
+
 const DRAW_SHAPE_MAP = {
     "1,0;2,0;3,0": { type: "I", rot: 0, offset: [0, 0] },
     "0,1;0,2;0,3": { type: "I", rot: 1, offset: [2, -1] },
@@ -3780,8 +3746,9 @@ let gameHistoryLog = [];
 function updateAiDebugDisplay(payload) {
     const display = document.getElementById('ai-debug-display');
 
-    if (!display || !gameSettings.debugEnabled) return;
-// 盤面データをJavaScriptの2D配列形式の文字列に変換します
+    if (!display) return;
+
+    // 盤面データをJavaScriptの2D配列形式の文字列に変換します
     let boardArrayString = '[\n';
     for (let y = 0; y < payload.board.length; y++) {
         const row = payload.board[y];
@@ -3810,38 +3777,29 @@ function updateAiDebugDisplay(payload) {
 }
 
 let keyBindings = {
-        p1: {
+    p1: {
         left:      { type: 'key', value: 'a',           label: 'a' },
         right:     { type: 'key', value: 'd',           label: 'd' },
         softDrop:  { type: 'key', value: 's',           label: 's' },
-    
         hardDrop:  { type: 'key', value: ' ',           label: 'Space' },
         rotateCW:  { type: 'key', value: 'e',           label: 'e' },
         rotateCCW: { type: 'key', value: 'q',           label: 'q' },
-        hold:      { type: 'key', value: 'w',     
-      label: 'w' },
-        retry:     { type: 'key', value: 'r',           label: 'r' },
-        exit:      { type: 'key', value: 'escape',      label: 'Esc' },
+        hold:      { type: 'key', value: 'w',           label: 'w' },
     },
     p2: {
         left:      { type: 'key', value: 'arrowleft',   label: 'ArrowLeft' },
         right:     { type: 'key', value: 'arrowright',  label: 'ArrowRight' },
         softDrop:  { type: 'key', value: 'arrowdown',   label: 'ArrowDown' },
-        hardDrop:  { type: 'key', value: 'enter',      
- label: 'Enter' },
+        hardDrop:  { type: 'key', value: 'enter',       label: 'Enter' },
         rotateCW:  { type: 'key', value: 'arrowup',     label: 'ArrowUp' },
-        rotateCCW: { type: 'key', value: '.',           label: '.'
-},
+        rotateCCW: { type: 'key', value: '.',           label: '.' },
         hold:      { type: 'key', value: '/',           label: '/' },
-        retry:     { type: 'key', value: 'backspace',   label: 'BackSpace' },
-        exit:      { type: 'key', value: 'delete',      label: 'Del' },
     }
 };
 const keyActionLabels = {
     left: '左移動', right: '右移動', softDrop: 'ソフトドロップ',
     rotateCW: '右回転', rotateCCW: '左回転',
-    hardDrop: 'ハードドロップ', hold: 'ホールド',
-    retry: 'リトライ', exit: '中断'
+    hardDrop: 'ハードドロップ', hold: 'ホールド'
 };
 let isBindingKey = false, bindingPlayer = null, bindingAction = null;
 let gamepads = {}, prevGamepads = {};
@@ -3893,21 +3851,21 @@ class Player {
             const blob = new Blob([scriptToLoad], { type: 'application/javascript' });
             this.aiWorker = new Worker(URL.createObjectURL(blob));
 
-                        this.aiWorker.onmessage = (e) => {
+            this.aiWorker.onmessage = (e) => {
                 if (e.data && e.data.type === 'debug') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
-if (debugDisplay && gameSettings.debugEnabled) {
+                    if (debugDisplay) {
                         debugDisplay.dataset.status = e.data.message;
-const count = debugDisplay.dataset.count || 0;
+                        const count = debugDisplay.dataset.count || 0;
                         
                         debugDisplay.style.display = 'block';
                         debugDisplay.innerHTML = `Status: <span style="color: ${e.data.message.includes('RESET') ? '#ff4444' : '#44ff44'}">${e.data.message}</span><br>Nodes: ${count}`;
                     }
-                                } else if (e.data && e.data.type === 'nodeCount') {
+                } else if (e.data && e.data.type === 'nodeCount') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
-if (debugDisplay && gameSettings.debugEnabled) {
+                    if (debugDisplay) {
                         debugDisplay.dataset.count = e.data.count;
-const status = debugDisplay.dataset.status || 'Waiting...';
+                        const status = debugDisplay.dataset.status || 'Waiting...';
                         
                         debugDisplay.style.display = 'block';
                         const color = status.includes('RESET') ? '#ff4444' : (status.includes('REUSED') ? '#44ff44' : 'white');
@@ -4022,10 +3980,8 @@ this.gravityTimer = gameSettings.gravity; this.lockTimer = 0;
 
         return false;
     }
-    handlePress(action) {
-        if (action === 'retry') { document.getElementById('retryBtn').click(); return; }
-        if (action === 'exit') { document.getElementById('backToEditorBtn').click(); return; }
 
+    handlePress(action) {
         if (this.gameOver || this.isClearingLine || this.isExecutingSequence) return;
 switch (action) {
             case 'rotateCCW': this.rotate(-1); break;
@@ -4033,9 +3989,8 @@ case 'rotateCW':  this.rotate(1); break;
 
             case 'hardDrop':  this.hardDrop(); break;
             case 'hold':      this.hold(); break;
+        }
 }
-}
-    
 update(dt) {
         if (gameStartTime > 0) {
             const totalMilliseconds = performance.now() - gameStartTime;
@@ -4187,133 +4142,106 @@ if (this.isActionPressed('softDrop')) {
                     }
                  } else { 
                     this.player.y = this.getGhostY();
- }
+                 }
             }
         }
     }
-    draw() {
-        const layout = gameSettings.layout;
-        const pLayout = (this.id === '1') ? layout.p1 : layout.p2;
-        const bSize = layout.blockSize;
-        const uiBSize = layout.uiBlockSize || bSize;
-        const useCustomBG = !!layout.backgroundImage;
-        // UI描画 (Hold, Next)
-        this.drawUI(pLayout, uiBSize, useCustomBG);
-        // 盤面の描画位置へ移動
-        // 従来は translate(this.offsetX + PLAYFIELD_X_OFFSET, 0.5 * BLOCK_SIZE) だったものを
+draw() {
         ctx.save();
-        ctx.translate(pLayout.board.x, pLayout.board.y);
+ctx.translate(this.offsetX, 0);
+        this.drawUI();
 
-        // 背景描画: グローバル背景画像がある場合は、盤面の背景(黒半透明)を描画しないか、あるいは薄くするなどの制御が可能
-        // ここでは「背景画像設定時はデフォルトのUI描画(枠線や背景)をスキップする」という要望に沿う形にするが、
-        // 盤面が見えなくなるのを防ぐため、グリッド等は残すか、完全にユーザー任せにする。
-        // リクエスト通り「背景画像を設定...HoldとかNextなどの描画は全てしなくなる(枠など)」とするため、
-        // boardの背景や枠線も useCustomBG が true ならスキップする
-        
-        if (!useCustomBG) {
-            if (activeSkin['BG'] && activeSkin['BG'].src) {
-                ctx.fillStyle = 'rgba(0,0,0,0.5)';
-                ctx.fillRect(0, 0, BOARD_WIDTH * bSize, BOARD_VISIBLE_HEIGHT * bSize);
-                
-                for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) {
-                    for (let x = 0; x < BOARD_WIDTH; x++) {
-                        ctx.drawImage(activeSkin['BG'], x * bSize, y * bSize, bSize, bSize);
-                    }
-                }
-            } else {
-                ctx.fillStyle = 'rgba(0,0,0,0.5)';
-                ctx.fillRect(0, 0, BOARD_WIDTH * bSize, BOARD_VISIBLE_HEIGHT * bSize);
-            }
+        ctx.save(); ctx.translate(PLAYFIELD_X_OFFSET, 0.5 * BLOCK_SIZE);
+        if (activeSkin['BG'] && activeSkin['BG'].src) {
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(0, 0, PLAYFIELD_WIDTH, CANVAS_HEIGHT);
             
-            // Grid
-            ctx.strokeStyle = '#444';
-            ctx.lineWidth = 0.5;
             for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) {
                 for (let x = 0; x < BOARD_WIDTH; x++) {
-                    ctx.strokeRect(x * bSize, y * bSize, bSize, bSize);
+                    ctx.drawImage(activeSkin['BG'], x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
                 }
             }
-            // Border
-            ctx.strokeStyle = '#4b4b7c';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(0, 0, BOARD_WIDTH * bSize, BOARD_VISIBLE_HEIGHT * bSize);
-        }
+        } else {
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
 
-        // Blocks
+            ctx.fillRect(0, 0, PLAYFIELD_WIDTH, CANVAS_HEIGHT);
+        }
+        ctx.strokeStyle = '#444';
+ctx.lineWidth = 0.5;
         for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) {
             for (let x = 0; x < BOARD_WIDTH; x++) {
-                const boardY = y + this.viewY;
-                if (this.board[boardY]?.[x]) {
-                    this.drawBlock(this.board[boardY][x], x * bSize, y * bSize, 1.0, bSize);
-                }
+                ctx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
             }
         }
+        ctx.strokeStyle = '#4b4b7c'; ctx.lineWidth = 2; ctx.strokeRect(1, 1, PLAYFIELD_WIDTH - 2, CANVAS_HEIGHT - 2);
+        for (let y = 0; y < BOARD_VISIBLE_HEIGHT; y++) { for (let x = 0; x < BOARD_WIDTH; x++) { const boardY = y + this.viewY; if (this.board[boardY]?.[x]) { this.drawBlock(this.board[boardY][x], x * BLOCK_SIZE, y * BLOCK_SIZE); } } }
 
         const occupiedCells = new Set();
         let shape, ghostY;
+
         if (!this.gameOver && !this.gameClear && !this.isClearingLine && this.player.pieceType) { 
             shape = this.getShape(this.player.pieceType, this.player.rotation);
-            ghostY = this.getGhostY(); 
+ghostY = this.getGhostY(); 
             
             if (ghostY > this.player.y) {
-                // Ghost
-                this.drawPiece(shape, this.player.x, ghostY, this.player.pieceType, 0.4, bSize);
-                shape.forEach(b => {
+                this.drawPiece(shape, this.player.x, ghostY, this.player.pieceType, 0.4);
+shape.forEach(b => {
                     const bx = Math.floor(this.player.x + b[0]);
                     const by = Math.floor(ghostY + b[1]);
                     occupiedCells.add(`${bx},${by}`);
                 });
-            }
+}
             
-            // Active Piece
-            this.drawPiece(shape, this.player.x, this.player.y, this.player.pieceType, 1.0, bSize);
-            shape.forEach(b => {
+            this.drawPiece(shape, this.player.x, this.player.y, this.player.pieceType, 1.0);
+shape.forEach(b => {
                 const bx = Math.floor(this.player.x + b[0]);
                 const by = Math.floor(this.player.y + b[1]);
                 occupiedCells.add(`${bx},${by}`);
             });
-        }
+}
 
-        // Custom Ghosts
         if (this.customGhosts.length > 0) {
             const ghostMap = new Map();
-            this.customGhosts.forEach(ghost => {
+this.customGhosts.forEach(ghost => {
                 const key = `${ghost.x},${ghost.y}`;
                 ghostMap.set(key, ghost.pieceType);
             });
-            ghostMap.forEach((pieceType, key) => {
+ghostMap.forEach((pieceType, key) => {
                 const [x, y] = key.split(',').map(Number);
+
                 if (occupiedCells.has(key) || (y >= 0 && y < BOARD_HEIGHT && this.board[y][x])) {
                     return;
                 }
-                const screenY = y - this.viewY;
-                if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
-                    this.drawBlock(pieceType, x * bSize, screenY * bSize, 0.2, bSize);
-                }
-            });
-        }
 
-        // Drawn Blocks
+             
+   const screenY = y - this.viewY;
+                if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
+                    this.drawBlock(pieceType, x * BLOCK_SIZE, screenY * BLOCK_SIZE, 0.2);
+                }
+     
+       });
+}
+
         if (this.drawnBlocks.size > 0) {
             ctx.fillStyle = '#FFFFFF';
-            ctx.globalAlpha = 0.8;
+ctx.globalAlpha = 0.8;
             for (const key of this.drawnBlocks.keys()) {
+
                 const [x, y] = key.split(',').map(Number);
                 const screenY = y - this.viewY;
                 if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
-                    ctx.fillRect(x * bSize, screenY * bSize, bSize, bSize);
+                    ctx.fillRect(x * BLOCK_SIZE, screenY * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
                 }
             }
             ctx.globalAlpha = 1.0;
         }
-        
-        this.drawSpecialMoveText(bSize);
-        if (this.gameOver) this.drawMessage("GAME OVER", bSize);
-        else if (this.gameClear) this.drawMessage("CLEAR!", bSize);
-        ctx.restore();
-}
+        this.drawSpecialMoveText();
+        if (this.gameOver) this.drawMessage("GAME OVER");
+        else if (this.gameClear) this.drawMessage("CLEAR!");
+        ctx.restore(); ctx.restore();
+    }
     
-    getShape(p, r) { if(!p) return []; const o=TETROMINOS[p].shape; if(r===0||p==='O')return o; const c=TETROMINOS[p].center;return o.map(b=>{let [x,y]=[b[0]-c[0],b[1]-c[1]]; for(let i=0;i<r;i++){[x,y]=[-y,x];} return [x+c[0]+(p==='O'?0.5:0),y+c[1]+(p==='O'?0.5:0)];});}
+    getShape(p, r) { if(!p) return []; const o=TETROMINOS[p].shape; if(r===0||p==='O')return o; const c=TETROMINOS[p].center; return o.map(b=>{let [x,y]=[b[0]-c[0],b[1]-c[1]]; for(let i=0;i<r;i++){[x,y]=[-y,x];} return [x+c[0]+(p==='O'?0.5:0),y+c[1]+(p==='O'?0.5:0)];});}
     checkCollision(x,y,s) { for(const b of s) { const bx=Math.floor(x+b[0]), by=Math.floor(y+b[1]); if(bx<0||bx>=BOARD_WIDTH||by>=BOARD_HEIGHT||(by>=0&&this.board[by]?.[bx])) return true; } return false; }
     rotate(d) { if(this.gameOver||!this.player.pieceType||this.player.pieceType==='O')return; const oR=this.player.rotation, nR=(oR+d+4)%4; const oD=(this.player.pieceType==='I'?SRS_OFFSETS.I:SRS_OFFSETS.JLSTZ)[`${oR}_${nR}`]; const nS=this.getShape(this.player.pieceType,nR); for(let i=0;i<oD.length;i++){const t=oD[i];const oX=t[0],oY=-t[1]; if(!this.checkCollision(this.player.x+oX,this.player.y+oY,nS)){this.player.x+=oX;this.player.y+=oY;this.player.rotation=nR;this.lockTimer=0;this.lastMoveWasRotation=true;this.lastSrsKickIndex=i;return;}}}
     move(dx,dy,isPlayer=true) { if(this.gameOver||!this.player.pieceType)return; const s=this.getShape(this.player.pieceType,this.player.rotation); if(!this.checkCollision(this.player.x+dx,this.player.y+dy,s)){this.player.x+=dx;this.player.y+=dy;if(isPlayer){this.lockTimer=0;this.lastMoveWasRotation=false;}}}
@@ -4608,124 +4536,88 @@ if (this.linesClearedLastLock > 0) { this.isClearingLine = true; this.lineClearD
             this.board.push(newRow);
         }
         this.pendingGarbage = 0;
+    }
 
+    drawBlock(p,x,y,alpha=1.0) {
+        if(y<-BLOCK_SIZE)return;
+        const skinImage = activeSkin[p];
+        ctx.globalAlpha=alpha;
+if (skinImage && skinImage.src) {
+            ctx.drawImage(skinImage, x, y, BLOCK_SIZE, BLOCK_SIZE);
+} else {
+            ctx.fillStyle=activeSkinColors[p]||'#FFF';
+            ctx.fillRect(x,y,BLOCK_SIZE,BLOCK_SIZE);
+}
+        ctx.strokeStyle = '#444';
+ctx.lineWidth = 0.5;
+        ctx.strokeRect(x,y,BLOCK_SIZE,BLOCK_SIZE);
+        ctx.globalAlpha=1.0;
 }
 
-    drawBlock(p, x, y, alpha = 1.0, bSize = BLOCK_SIZE) {
-        if (y < -bSize) return;
-        const skinImage = activeSkin[p];
-        ctx.globalAlpha = alpha;
-        if (skinImage && skinImage.src) {
-            ctx.drawImage(skinImage, x, y, bSize, bSize);
-        } else {
-            ctx.fillStyle = activeSkinColors[p] || '#FFF';
-            ctx.fillRect(x, y, bSize, bSize);
-        }
-        ctx.strokeStyle = '#444';
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(x, y, bSize, bSize);
-        ctx.globalAlpha = 1.0;
-    }
-
-    drawPiece(s, x, y, p, alpha, bSize) {
-        s.forEach(b => {
-            const px = Math.floor(x + b[0]) * bSize;
-            const py = (Math.floor(y + b[1]) - this.viewY) * bSize;
-            this.drawBlock(p, px, py, alpha, bSize);
-        });
-    }
-
-    drawUI(layout, bSize, useCustomBG) {
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#FFF'; 
-        ctx.font = `bold ${bSize * 0.8}px "Orbitron"`;
-
-        // HOLD
+drawPiece(s,x,y,p,alpha) {s.forEach(b=>{const px=Math.floor(x+b[0])*BLOCK_SIZE, py=(Math.floor(y+b[1])-this.viewY)*BLOCK_SIZE; this.drawBlock(p,px,py,alpha);});}
+    drawUI() {
+        ctx.textAlign = 'center'; ctx.fillStyle = '#FFF'; ctx.font = `bold ${BLOCK_SIZE * 0.8}px "Orbitron"`;
         if (!this.holdDisabled) {
-            if (!useCustomBG) ctx.fillText('HOLD', layout.hold.x, layout.hold.y - bSize);
-            if (this.holdPiece) {
-                const s = this.getShape(this.holdPiece, 0);
-                s.forEach(b => {
-                    // 中心合わせ
-                    const cx = layout.hold.x;
-                    const cy = layout.hold.y;
-                    const px = cx - (TETROMINOS[this.holdPiece].center[0] * bSize) + (b[0] * bSize);
-                    const py = cy - (TETROMINOS[this.holdPiece].center[1] * bSize) + (b[1] * bSize);
-                    this.drawBlock(this.holdPiece, px, py, 1.0, bSize);
-                });
-            }
+            ctx.fillText('HOLD', HOLD_AREA_WIDTH / 2, 40);
+            if (this.holdPiece) { const s = this.getShape(this.holdPiece, 0); s.forEach(b => { const px = (HOLD_AREA_WIDTH / 2) - (TETROMINOS[this.holdPiece].center[0] * BLOCK_SIZE) + (b[0] * BLOCK_SIZE), py = 70 - (TETROMINOS[this.holdPiece].center[1] * BLOCK_SIZE) + (b[1] * BLOCK_SIZE); this.drawBlock(this.holdPiece, px, py); }); }
         }
-
-        // Garbage Meter (盤面の左横)
-        // カスタム背景時は描画しない、または位置調整が必要だが、ここでは標準位置(盤面左)依存とする
-        if (!useCustomBG) {
-            const meterX = layout.board.x - 12;
-            const meterWidth = 8; 
-            const meterMaxHeight = BOARD_VISIBLE_HEIGHT * bSize;
-            const pendingHeight = Math.min(this.pendingGarbage, BOARD_VISIBLE_HEIGHT) * bSize;
-            
-            if (pendingHeight > 0) { 
-                ctx.fillStyle = 'red'; 
-                ctx.fillRect(meterX, layout.board.y + meterMaxHeight - pendingHeight, meterWidth, pendingHeight);
-            }
-            const queuedLines = this.garbageQueue.reduce((sum, g) => sum + g.lines, 0);
-            const queuedHeight = Math.min(queuedLines, BOARD_VISIBLE_HEIGHT - this.pendingGarbage) * bSize;
-            if (queuedHeight > 0) { 
-                ctx.fillStyle = 'yellow';
-                ctx.fillRect(meterX, layout.board.y + meterMaxHeight - pendingHeight - queuedHeight, meterWidth, queuedHeight);
-            }
-        }
-
-        // Custom UI Text
-        if (this.customUIText !== null) {
-            ctx.font = `bold ${bSize * 1.6}px "Orbitron"`;
-            ctx.fillStyle = '#FFFFFF';
-            // 盤面中央付近などに表示
-            ctx.fillText(this.customUIText, layout.board.x + (BOARD_WIDTH * bSize)/2, layout.board.y + 150);
-        }
-
-        // Timer
-        if (gameSettings.showTimer && !useCustomBG) {
-            ctx.fillStyle = '#FFFFFF';
-            ctx.font = `bold ${bSize * 0.8}px "Orbitron"`;
-            const charSpacing = bSize * 0.6;
-            const totalWidth = this.elapsedTimeText.length * charSpacing;
-            let startX = layout.hold.x - (totalWidth / 2); // Holdの下あたり？
-            const timerY = layout.board.y + (BOARD_VISIBLE_HEIGHT * bSize) + 20;
-            for (let i = 0; i < this.elapsedTimeText.length - 1; i++) {
-                const char = this.elapsedTimeText[i];
-                const charX = startX + (i * charSpacing);
-                ctx.fillText(char, charX, timerY);
-            }
-        }
-
-        // NEXT
-        ctx.fillStyle = '#FFF';
-        if (!useCustomBG) ctx.fillText('NEXT', layout.next[0].x, layout.next[0].y - bSize);
         
-        for (let i = 0; i < Math.min(gameSettings.maxNext, layout.next.length); i++) {
+const meterX = PLAYFIELD_X_OFFSET - 12;
+        const meterWidth = 8; const meterMaxHeight = BOARD_VISIBLE_HEIGHT * BLOCK_SIZE;
+        const pendingHeight = Math.min(this.pendingGarbage, BOARD_VISIBLE_HEIGHT) * BLOCK_SIZE;
+        if (pendingHeight > 0) { ctx.fillStyle = 'red'; ctx.fillRect(meterX, meterMaxHeight - pendingHeight + (0.5 * BLOCK_SIZE), meterWidth, pendingHeight);
+        }
+        const queuedLines = this.garbageQueue.reduce((sum, g) => sum + g.lines, 0);
+        const queuedHeight = Math.min(queuedLines, BOARD_VISIBLE_HEIGHT - this.pendingGarbage) * BLOCK_SIZE;
+        if (queuedHeight > 0) { ctx.fillStyle = 'yellow';
+
+ctx.fillRect(meterX, meterMaxHeight - pendingHeight - queuedHeight + (0.5*BLOCK_SIZE), meterWidth, queuedHeight);
+}
+                if (this.customUIText !== null) {
+            ctx.font = `bold ${BLOCK_SIZE * 1.6}px "Orbitron"`;
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillText(this.customUIText, HOLD_AREA_WIDTH / 2, 300);
+            ctx.font = `bold ${BLOCK_SIZE * 1.2}px "Orbitron"`;
+        }
+
+        if (gameSettings.showTimer) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = `bold ${BLOCK_SIZE * 0.8}px "Orbitron"`;
+const charSpacing = BLOCK_SIZE * 0.6;
+            const totalWidth = this.elapsedTimeText.length * charSpacing;
+let startX = (HOLD_AREA_WIDTH / 2) - (totalWidth / 2) + 15;
+for (let i = 0; i < this.elapsedTimeText.length - 1; i++) {
+                const char = this.elapsedTimeText[i];
+const charX = startX + (i * charSpacing) + (charSpacing / 2);
+                ctx.fillText(char, charX, CANVAS_HEIGHT - 20);
+}
+        }
+
+        ctx.fillStyle = '#FFF';
+const rX = PLAYFIELD_X_OFFSET + PLAYFIELD_WIDTH + PADDING + NEXT_AREA_WIDTH / 2;
+
+        ctx.fillText('NEXT', rX, 40);
+
+
+
+        for (let i = 0; i < gameSettings.maxNext; i++) {
             const pT = this.nextQueue[i];
             if (!pT) continue;
             if (pT === 'E') break;
             const s = this.getShape(pT, 0);
-            const pos = layout.next[i];
             s.forEach(b => {
-                const px = pos.x - (TETROMINOS[pT].center[0] * bSize) + (b[0] * bSize);
-                const py = pos.y - (TETROMINOS[pT].center[1] * bSize) + (b[1] * bSize);
-                this.drawBlock(pT, px, py, 1.0, bSize);
+                const px = rX - (TETROMINOS[pT].center[0] * BLOCK_SIZE) + (b[0] * BLOCK_SIZE);
+                const py = 70 + (i * BLOCK_SIZE * 2.5) - (TETROMINOS[pT].center[1] * BLOCK_SIZE) + (b[1] * BLOCK_SIZE);
+                this.drawBlock(pT, px, py);
             });
         }
     }
     
-    drawSpecialMoveText(bSize) {
+    drawSpecialMoveText() {
         if (this.specialMoveTextTimer <= 0 || this.specialMoveText.length === 0 || !gameSettings.showEffects) return;
-        const layout = gameSettings.layout;
-        const pLayout = (this.id === '1') ? layout.p1 : layout.p2;
         
-        // 盤面中央
-        const centerX = pLayout.board.x + (BOARD_WIDTH * bSize) / 2;
-        const startY = pLayout.board.y + (BOARD_VISIBLE_HEIGHT * bSize) / 2 - (this.specialMoveText.length * 18);
-        
+        const centerX = PLAYFIELD_WIDTH / 2;
+        const startY = CANVAS_HEIGHT / 2 - (this.specialMoveText.length * 18);
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         
@@ -4733,7 +4625,7 @@ if (this.linesClearedLastLock > 0) { this.isClearingLine = true; this.lineClearD
             const text = this.specialMoveText[i];
             const y = startY + (i * 35);
             
-            ctx.font = `bold ${bSize}px "Orbitron"`;
+            ctx.font = `bold ${BLOCK_SIZE}px "Orbitron"`;
             ctx.fillStyle = '#FFFFFF';
             ctx.strokeStyle = 'black';
             ctx.lineWidth = 4;
@@ -4744,21 +4636,7 @@ if (this.linesClearedLastLock > 0) { this.isClearingLine = true; this.lineClearD
         ctx.textBaseline = 'alphabetic';
     }
 
-    drawMessage(t, bSize) { 
-        const layout = gameSettings.layout;
-        const pLayout = (this.id === '1') ? layout.p1 : layout.p2;
-        const cX = pLayout.board.x + (BOARD_WIDTH * bSize) / 2;
-        const cY = pLayout.board.y + (BOARD_VISIBLE_HEIGHT * bSize) / 2;
-        
-        ctx.fillStyle = 'rgba(0,0,0,0.75)';
-        ctx.fillRect(pLayout.board.x, pLayout.board.y, BOARD_WIDTH * bSize, BOARD_VISIBLE_HEIGHT * bSize); 
-        ctx.fillStyle = '#FFF'; 
-        ctx.textAlign = 'center'; 
-        ctx.textBaseline = 'middle'; 
-        ctx.font = `bold ${bSize * 1.5}px "Orbitron"`;
-        ctx.fillText(t, cX, cY); 
-        ctx.textBaseline = 'alphabetic'; 
-    }
+drawMessage(t) { const cX = PLAYFIELD_WIDTH / 2; const cY = CANVAS_HEIGHT / 2; ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(0, -0.5*BLOCK_SIZE, PLAYFIELD_WIDTH, CANVAS_HEIGHT); ctx.fillStyle = '#FFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `bold ${BLOCK_SIZE * 1.5}px "Orbitron"`; ctx.fillText(t, cX, cY); ctx.textBaseline = 'alphabetic'; }
 
 requestAiMove() {
         this.isAiThinking = true; 
@@ -5154,10 +5032,10 @@ if (minoType === 'I') {
 startState.x += 1;
         }
         
-                const debugDisplay = document.getElementById('ai-tree-debug-display');
-if (debugDisplay && gameSettings.debugEnabled) {
+        const debugDisplay = document.getElementById('ai-tree-debug-display');
+        if (debugDisplay) {
             debugDisplay.style.display = 'block';
-debugDisplay.innerHTML += `<br><span style="color:#ff88ff">AI Path: ${minoType} ${startState.x},${startState.y},${startState.r} -> ${targetState.x},${targetState.y},${targetState.r}</span>`;
+            debugDisplay.innerHTML += `<br><span style="color:#ff88ff">AI Path: ${minoType} ${startState.x},${startState.y},${startState.r} -> ${targetState.x},${targetState.y},${targetState.r}</span>`;
         }
 
         const pathfinderBoard = this.board.map(row => row.map(cell => (cell === null ? 0 : 1)));
@@ -5343,10 +5221,10 @@ if (!shapeInfo) return;
 targetState.x += 1;
             }
 
-                        const debugDisplay = document.getElementById('ai-tree-debug-display');
-if (debugDisplay) {
+            const debugDisplay = document.getElementById('ai-tree-debug-display');
+            if (debugDisplay) {
                 debugDisplay.style.display = 'block';
-debugDisplay.innerHTML = `<span style="color:#88ffff">Draw Path: ${pieceForPathfinding} ${startState.x},${startState.y},${startState.r} -> ${targetState.x},${targetState.y},${targetState.r}</span>`;
+                debugDisplay.innerHTML = `<span style="color:#88ffff">Draw Path: ${pieceForPathfinding} ${startState.x},${startState.y},${startState.r} -> ${targetState.x},${targetState.y},${targetState.r}</span>`;
             }
             
             const pathfinderBoard = this.board.map(row => row.map(cell => (cell === null ? 0 : 1)));
@@ -5893,12 +5771,12 @@ function populateGeneralSettingsTab() {
         das: { label: 'DAS (ms)', min: 0, max: 500, step: 10 },
         arr: { label: 'ARR (ms)', min: 0, max: 100, step: 1 },
         sdf: { label: 'SDF (ms)', min: 0, max: 100, step: 1 },
-        lineClearDelay: { label: 'ライン消去時間 (ms)', min: 0, max: 2000, step: 50 },
-        gravity: { label: '落下間隔時間 (ms)', min: 0, max: 9999999, step: 50 },
-        lockDelay: { label: '設置猶予時間 (ms)', min: 0, max: 9999999, step: 50 },
-        maxNext: { label: 'ネクスト表示数', min: 1, max: 8, step: 1 },
-        garbageGrace: { label: 'おじゃま猶予時間 (ms)', min: 0, max: 5000, step: 100 },
-        garbageRandomness: { label: '穴バラ率 (%)', min: 0, max: 100, step: 1 }
+        lineClearDelay: { label: 'Line Clear Delay (ms)', min: 0, max: 2000, step: 50 },
+        gravity: { label: 'Gravity Interval (ms)', min: 0, max: 9999999, step: 50 },
+        lockDelay: { label: 'Lock Delay (ms)', min: 0, max: 9999999, step: 50 },
+        maxNext: { label: 'Max NEXT Display', min: 1, max: 8, step: 1 },
+        garbageGrace: { label: 'Garbage Grace (ms)', min: 0, max: 5000, step: 100 },
+        garbageRandomness: { label: 'Garbage Hole Randomness (%)', min: 0, max: 100, step: 1 }
     };
     Object.keys(settingDetails).forEach(key => {
         const item = document.createElement('div'); item.className = 'setting-item';
@@ -5917,7 +5795,7 @@ function populateGeneralSettingsTab() {
     });
     
     const checkboxSettings = { showEffects: 'エフェクトを表示する', showTimer: 'タイマーを表示する', touchControlsEnabled: 'タッチ操作を有効にする (P1)' };
-    Object.entries(checkboxSettings).forEach(([key, text], index) => {
+Object.entries(checkboxSettings).forEach(([key, text], index) => {
         const item = document.createElement('div'); item.className = 'setting-item';
         if (index === 0) { item.style.cssText = 'margin-top:20px; border-top:1px solid var(--primary-color); padding-top:15px;'; }
         const label = document.createElement('label'); const checkbox = document.createElement('input');
@@ -5928,7 +5806,73 @@ function populateGeneralSettingsTab() {
 
        label.append(checkbox, span); item.appendChild(label); list.appendChild(item);
     });
+    
+    const skinItem = document.createElement('div');
+    skinItem.className = 'setting-item';
+    skinItem.style.cssText = 'margin-top:20px; border-top:1px solid var(--primary-color); padding-top:15px; flex-direction: column; align-items: flex-start; gap: 10px;';
+    
+    const skinLabel = document.createElement('label');
+skinLabel.textContent = 'カスタムスキン (I,O,T,L,J,S,Z,G,BG.png)';
+    
+    const skinInput = document.createElement('input');
+    skinInput.type = 'file';
+    skinInput.multiple = true;
+    skinInput.accept = 'image/*';
+    skinInput.style.display = 'block';
+    skinInput.style.minWidth = '0';
+    
+    skinInput.addEventListener('change', (e) => {
+        const files = e.target.files;
+        if (!files) return;
+        
+        let filesLoaded = 0;
+        const totalFiles = files.length;
+        
+        const redrawEditors = () => {
+            if (++filesLoaded === totalFiles) {
+                ['p1', 'p2'].forEach(setupPlayerEditor);
+                ['p1', 'p2'].forEach(updateNextQueueDisplay);
+                ['p1', 'p2'].forEach(drawEditorField);
+                alert(`${totalFiles}個のスキンを読み込みました。`);
+            }
+        };
+        
+        for (const file of files) {
+            const pieceType = file.name.split('.')[0].toUpperCase();
+            const validTypes = ['I', 'O', 'T', 'L', 'J', 'S', 'Z', 'G', 'E', 'BG'];
+            
+            if (validTypes.includes(pieceType)) {
+                const reader = new FileReader();
+              
+  reader.onload = (re) => {
+                    activeSkin[pieceType].src = re.target.result;
+                    activeSkin[pieceType].onload = () => {
+                        redrawEditors();
+                        saveSkinsToLocalStorage();
+                    };
+activeSkin[pieceType].onerror = () => {
+                        redrawEditors();
+                        saveSkinsToLocalStorage();
+                    };
+                };
+                reader.onerror = redrawEditors;
+                reader.readAsDataURL(file);
+            } else {
+                redrawEditors();
 }
+        }
+    });
+    
+    const skinResetButton = document.createElement('button');
+    skinResetButton.className = 'button';
+    skinResetButton.textContent = 'カスタムスキンをリセット';
+    skinResetButton.style.marginTop = '10px';
+    skinResetButton.onclick = resetSkins;
+    
+    skinItem.append(skinLabel, skinInput, skinResetButton);
+    list.appendChild(skinItem);
+}
+
 
 function populateKeyConfigTab(playerId) {
     const list = document.getElementById(`${playerId}-key-config-list`);
@@ -6051,245 +5995,23 @@ function populateAiSettingsTab() {
     });
 }
 
-function populateLayoutSettingsTab() {
-    const list = document.getElementById('layout-settings-list');
-    list.innerHTML = '';
-if (!gameSettings.layout) {
-        gameSettings.layout = generateDefaultLayout();
-}
-    const layout = gameSettings.layout;
-
-    // --- Custom Skins (Moved from General) ---
-    const skinItem = document.createElement('div');
-    skinItem.className = 'setting-item';
-    skinItem.style.cssText = 'flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 20px;';
-    
-    const skinLabel = document.createElement('label');
-    skinLabel.textContent = 'カスタムスキン (I,O,T,L,J,S,Z,G,BG.png)';
-    
-    const skinInput = document.createElement('input');
-    skinInput.type = 'file';
-    skinInput.multiple = true;
-    skinInput.accept = 'image/*';
-    skinInput.style.display = 'block';
-    skinInput.style.minWidth = '0';
-    
-    skinInput.addEventListener('change', (e) => {
-        const files = e.target.files;
-        if (!files) return;
-        
-        let filesLoaded = 0;
-        const totalFiles = files.length;
-        
-        const redrawEditors = () => {
-            if (++filesLoaded === totalFiles) {
-                 ['p1', 'p2'].forEach(setupPlayerEditor);
-                ['p1', 'p2'].forEach(updateNextQueueDisplay);
-                ['p1', 'p2'].forEach(drawEditorField);
-                alert(`${totalFiles}個のスキンを読み込みました。`);
-            }
-        };
-        
-        for (const file of files) {
-            const pieceType = file.name.split('.')[0].toUpperCase();
-            const validTypes = ['I', 'O', 'T', 'L', 'J', 'S', 'Z', 'G', 'E', 'BG'];
-            
-            if (validTypes.includes(pieceType)) {
-                const reader = new FileReader();
-                reader.onload = (re) => {
-                    activeSkin[pieceType].src = re.target.result;
-                    activeSkin[pieceType].onload = () => {
-                        redrawEditors();
-                        saveSkinsToLocalStorage();
-                    };
-                    activeSkin[pieceType].onerror = () => {
-                        redrawEditors();
-                        saveSkinsToLocalStorage();
-                    };
-                };
-                reader.onerror = redrawEditors;
-                reader.readAsDataURL(file);
-            } else {
-                redrawEditors();
-            }
-        }
-    });
-    
-    const skinResetButton = document.createElement('button');
-    skinResetButton.className = 'button';
-    skinResetButton.textContent = 'カスタムスキンをリセット';
-    skinResetButton.style.marginTop = '10px';
-    skinResetButton.onclick = resetSkins;
-    
-    skinItem.append(skinLabel, skinInput, skinResetButton);
-    list.appendChild(skinItem);
-    // --- Global Settings ---
-    const globalHeader = document.createElement('h3');
-globalHeader.textContent = '全体設定';
-    globalHeader.style.marginTop = '10px';
-    list.appendChild(globalHeader);
-
-    // Block Size
-    const blockSizeItem = document.createElement('div');
-    blockSizeItem.className = 'setting-item';
-const bsLabel = document.createElement('span'); bsLabel.textContent = 'ブロックサイズ (px)';
-    const bsInput = document.createElement('input'); bsInput.type = 'number';
-    bsInput.value = layout.blockSize;
-bsInput.min = 10; bsInput.max = 100;
-    bsInput.onchange = (e) => { layout.blockSize = parseInt(e.target.value, 10); updateScale(); };
-    blockSizeItem.append(bsLabel, bsInput);
-    list.appendChild(blockSizeItem);
-const uiBlockSizeItem = document.createElement('div');
-    uiBlockSizeItem.className = 'setting-item';
-    const uibsLabel = document.createElement('span'); uibsLabel.textContent = 'UIブロックサイズ (px)';
-    const uibsInput = document.createElement('input');
-uibsInput.type = 'number';
-    uibsInput.value = layout.uiBlockSize || layout.blockSize;
-    uibsInput.min = 10; uibsInput.max = 100;
-uibsInput.onchange = (e) => { layout.uiBlockSize = parseInt(e.target.value, 10); updateScale(); };
-    uiBlockSizeItem.append(uibsLabel, uibsInput);
-    list.appendChild(uiBlockSizeItem);
-// Background Image
-    const bgItem = document.createElement('div');
-    bgItem.className = 'setting-item';
-    bgItem.style.flexDirection = 'column'; bgItem.style.alignItems = 'flex-start';
-const bgLabel = document.createElement('span'); bgLabel.textContent = '背景画像';
-    const bgInput = document.createElement('input'); bgInput.type = 'file'; bgInput.accept = 'image/*';
-    bgInput.style.display = 'block';
-// CSSで非表示になっているため明示的に表示
-    bgInput.style.marginTop = '5px';
-    bgInput.onchange = (e) => {
-        const file = e.target.files[0];
-if (file) {
-            const reader = new FileReader();
-reader.onload = (evt) => {
-                layout.backgroundImage = evt.target.result;
-layout._bgImageCache = null;
-                alert('背景画像を設定しました。');
-            };
-            reader.readAsDataURL(file);
-        }
-    };
-    const bgClearBtn = document.createElement('button'); bgClearBtn.className = 'button';
-bgClearBtn.textContent = '背景をクリア'; bgClearBtn.style.marginTop = '5px';
-    bgClearBtn.onclick = () => { layout.backgroundImage = null; alert('背景をクリアしました。'); };
-    
-    bgItem.append(bgLabel, bgInput, bgClearBtn);
-    list.appendChild(bgItem);
-// --- Player Layouts ---
-    const createCoordInputs = (label, obj, keyX, keyY) => {
-        const div = document.createElement('div');
-div.className = 'setting-item';
-        div.style.flexWrap = 'wrap';
-        
-        const title = document.createElement('span');
-        title.textContent = label;
-        title.style.width = '100%';
-        title.style.marginBottom = '5px';
-const xLabel = document.createElement('span'); xLabel.textContent = 'X:';
-        const xInput = document.createElement('input'); xInput.type = 'number';
-        xInput.value = obj[keyX]; xInput.style.width = '60px';
-xInput.onchange = (e) => { obj[keyX] = parseInt(e.target.value, 10); };
-
-        const yLabel = document.createElement('span'); yLabel.textContent = 'Y:';
-const yInput = document.createElement('input'); yInput.type = 'number';
-        yInput.value = obj[keyY]; yInput.style.width = '60px';
-yInput.onchange = (e) => { obj[keyY] = parseInt(e.target.value, 10); };
-
-        div.append(title, xLabel, xInput, yLabel, yInput);
-        return div;
-    };
-const playersList = (gameMode === '1P') ? ['p1'] : ['p1', 'p2'];
-playersList.forEach(pid => {
-        const pHeader = document.createElement('h3');
-        pHeader.textContent = `Player ${pid.replace('p','')}`;
-        list.appendChild(pHeader);
-        const pLayout = layout[pid];
-
-        // Board
-        list.appendChild(createCoordInputs('盤面位置', pLayout.board, 'x', 'y'));
-        
-        // Hold
-        list.appendChild(createCoordInputs('HOLD位置', pLayout.hold, 'x', 'y'));
-
-        // Next (Start + Offset)
-        const nextDiv = document.createElement('div');
-        nextDiv.className = 'setting-item';
-        nextDiv.style.flexWrap = 'wrap';
-        
-        const nextTitle = document.createElement('span');
-        nextTitle.textContent = 'NEXT (開始位置 & 間隔)';
-        nextTitle.style.width = '100%'; nextTitle.style.marginBottom = '5px';
-
-        const nxLabel = document.createElement('span'); nxLabel.textContent = 'Start X:';
-      
-  const nxInput = document.createElement('input'); nxInput.type = 'number';
-        nxInput.value = pLayout.next[0].x;
-nxInput.style.width = '50px';
-
-        const nyLabel = document.createElement('span'); nyLabel.textContent = 'Start Y:';
-        const nyInput = document.createElement('input'); nyInput.type = 'number';
-nyInput.value = pLayout.next[0].y; nyInput.style.width = '50px';
-
-        const offsetYLabel = document.createElement('span'); offsetYLabel.textContent = 'Step Y:';
-        const offsetYInput = document.createElement('input');
-offsetYInput.type = 'number';
-        // 推定オフセット
-        const currentStep = (pLayout.next.length > 1) ?
-(pLayout.next[1].y - pLayout.next[0].y) : (layout.blockSize * 2.5);
-        offsetYInput.value = currentStep; offsetYInput.style.width = '50px';
-const updateNextArray = () => {
-            const startX = parseInt(nxInput.value, 10);
-const startY = parseInt(nyInput.value, 10);
-            const step = parseInt(offsetYInput.value, 10);
-pLayout.next = Array.from({ length: 8 }).map((_, i) => ({
-                x: startX,
-                y: startY + (i * step)
-            }));
-};
-
-        nxInput.onchange = updateNextArray;
-        nyInput.onchange = updateNextArray;
-        offsetYInput.onchange = updateNextArray;
-
-        nextDiv.append(nextTitle, nxLabel, nxInput, nyLabel, nyInput, offsetYLabel, offsetYInput);
-        list.appendChild(nextDiv);
-    });
-
-    // --- Reset Layout Button (Moved to bottom) ---
-    const resetLayoutBtn = document.createElement('button');
-    resetLayoutBtn.className = 'button';
-    resetLayoutBtn.style.width = '100%';
-    resetLayoutBtn.style.marginTop = '20px';
-    resetLayoutBtn.textContent = 'レイアウト設定を全て初期化';
-    resetLayoutBtn.onclick = () => {
-        if (confirm('レイアウト設定を全て初期状態に戻しますか？')) {
-            gameSettings.layout = generateDefaultLayout();
-            updateScale();
-            populateLayoutSettingsTab(); // UI Refresh
-        }
-    };
-    list.appendChild(resetLayoutBtn);
-}
-
 function openUnifiedSettingsModal(initialTab = 'general') {
     const modal = document.getElementById('settings-modal');
     
     const p2TabBtn = document.getElementById('p2-keys-tab-btn');
-if (gameMode === '2P') {
+    if (gameMode === '2P') {
         p2TabBtn.style.display = 'block';
-} else {
+    } else {
         p2TabBtn.style.display = 'none';
         if (initialTab === 'p2-keys') initialTab = 'general';
-}
+    }
 
     populateGeneralSettingsTab();
-    populateLayoutSettingsTab();
     populateKeyConfigTab('p1');
     populateAiSettingsTab();
     if (gameMode === '2P') {
         populateKeyConfigTab('p2');
-}
+    }
 
     const tabs = modal.querySelectorAll('.tab-button');
     const contents = modal.querySelectorAll('.tab-content');
@@ -6835,12 +6557,10 @@ function gameLoop(currentTime) {
     pollGamepads();
     const dt = currentTime - lastTime;
     lastTime = currentTime;
-        ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+    ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
     if (gameState === 'PLAYING') {
-        // ここにあった画像描画処理を削除しました
-        
         players.forEach(p => p.update(dt || 0));
-players.forEach(p => p.draw());
+        players.forEach(p => p.draw());
     } else if (gameState.startsWith('SCAN')) {
         drawScanner();
     }
@@ -7227,32 +6947,10 @@ p.ruleWorker.postMessage({
             }
         }
         
-                const originalSettingsBeforeRun = { ...gameSettings };
+        const originalSettingsBeforeRun = { ...gameSettings };
         if(!editorData.rule.code) {
              Object.assign(gameSettings, currentRunSettings);
         }
-
-        // --- 追加: 背景画像の設定 ---
-        if (gameSettings.layout && gameSettings.layout.backgroundImage) {
-            // bodyに背景画像を設定して全画面表示にする
-            document.body.style.backgroundImage = `url(${gameSettings.layout.backgroundImage})`;
-            document.body.style.backgroundSize = 'cover';
-            document.body.style.backgroundPosition = 'center center';
-            document.body.style.backgroundRepeat = 'no-repeat';
-            
-            // キャンバスの枠線と背景を消す
-            mainCanvas.style.border = 'none';
-            mainCanvas.style.backgroundColor = 'transparent';
-            mainCanvas.style.boxShadow = 'none';
-        } else {
-            // 背景がない場合はデフォルトに戻す（念のため）
-            document.body.style.backgroundImage = '';
-            mainCanvas.style.border = ''; // CSSの定義に戻す
-            mainCanvas.style.backgroundColor = ''; // CSSの定義に戻す
-            mainCanvas.style.boxShadow = '';
-        }
-        // ---------------------------
-
         gameState = 'PLAYING'; 
         document.getElementById('editor-container').style.display = 'none'; 
         document.getElementById('game-container').style.display = 'block';
@@ -7331,16 +7029,8 @@ document.getElementById('backToEditorBtn').addEventListener('click', () => {
             });
         }
         
-                players = [];
+        players = [];
         loadGameSettings();
-
-        // --- 追加: 背景とキャンバススタイルのリセット ---
-        document.body.style.backgroundImage = '';
-        mainCanvas.style.border = ''; // CSSの定義(枠線あり)に戻す
-        mainCanvas.style.backgroundColor = ''; // CSSの定義(背景色あり)に戻す
-        mainCanvas.style.boxShadow = '';
-        // -----------------------------------------
-
         document.getElementById('game-container').style.display = 'none';
         document.getElementById('game-controls').style.display = 'none';
         document.getElementById('editor-container').style.display = 'flex';
