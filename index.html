@@ -387,10 +387,10 @@ position: fixed; top: 10px; right: 10px; z-index: 160; gap: 10px;">
 <div id="settings-modal">
     <div class="modal-content">
 <div class="modal-tabs">
-            <button class="tab-button active" data-tab="general">諸設定</button>
+            <button class="tab-button active" data-tab="general">基本設定</button>
             <button class="tab-button" data-tab="p1-keys">1P操作設定</button>
             <button class="tab-button" data-tab="p2-keys" id="p2-keys-tab-btn" style="display: none;">2P操作設定</button>
-            <button class="tab-button" data-tab="layout-settings">レイアウト</button>
+            <button class="tab-button" data-tab="layout-settings">描画設定</button>
             <button class="tab-button" data-tab="ai-settings">AI設定</button>
         </div>
 
@@ -3827,7 +3827,7 @@ const keyActionLabels = {
     left: '左移動', right: '右移動', softDrop: 'ソフトドロップ',
     rotateCW: '右回転', rotateCCW: '左回転',
     hardDrop: 'ハードドロップ', hold: 'ホールド',
-    retry: 'リトライ', exit: '中断して戻る'
+    retry: 'リトライ', exit: '中断'
 };
 let isBindingKey = false, bindingPlayer = null, bindingAction = null;
 let gamepads = {}, prevGamepads = {};
@@ -5879,12 +5879,12 @@ function populateGeneralSettingsTab() {
         das: { label: 'DAS (ms)', min: 0, max: 500, step: 10 },
         arr: { label: 'ARR (ms)', min: 0, max: 100, step: 1 },
         sdf: { label: 'SDF (ms)', min: 0, max: 100, step: 1 },
-        lineClearDelay: { label: 'Line Clear Delay (ms)', min: 0, max: 2000, step: 50 },
-        gravity: { label: 'Gravity Interval (ms)', min: 0, max: 9999999, step: 50 },
-        lockDelay: { label: 'Lock Delay (ms)', min: 0, max: 9999999, step: 50 },
-        maxNext: { label: 'Max NEXT Display', min: 1, max: 8, step: 1 },
-        garbageGrace: { label: 'Garbage Grace (ms)', min: 0, max: 5000, step: 100 },
-        garbageRandomness: { label: 'Garbage Hole Randomness (%)', min: 0, max: 100, step: 1 }
+        lineClearDelay: { label: 'ライン消去時間 (ms)', min: 0, max: 2000, step: 50 },
+        gravity: { label: '落下間隔時間 (ms)', min: 0, max: 9999999, step: 50 },
+        lockDelay: { label: '設置猶予時間 (ms)', min: 0, max: 9999999, step: 50 },
+        maxNext: { label: '最大ネクスト表示数', min: 1, max: 8, step: 1 },
+        garbageGrace: { label: 'おじゃま猶予時間 (ms)', min: 0, max: 5000, step: 100 },
+        garbageRandomness: { label: '穴バラ率 (%)', min: 0, max: 100, step: 1 }
     };
     Object.keys(settingDetails).forEach(key => {
         const item = document.createElement('div'); item.className = 'setting-item';
