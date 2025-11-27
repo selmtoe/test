@@ -3213,7 +3213,7 @@ function thinkingLoop() {
 
     // ★修正: 回数固定ではなく、時間いっぱいまで計算を回す
     const start = performance.now();
-    while (performance.now() - start < 200) {
+    while (performance.now() - start < 100) {
         aiAgent.searchStep(2000, currentQueue); // 小分けに実行
         if (aiAgent.totalNodesInSearch >= SEARCH_ITERATION_LIMIT) break;
     }
