@@ -3206,15 +3206,29 @@ class AIAgent {
 let isThinking = false;
 let aiAgent = new AIAgent();
 let currentQueue = [];
+let lastUpdateTime = 0; // ★通信間引き用の時間を記録する変数を追加
 
 function thinkingLoop() {
     if (!isThinking) return;
-    aiAgent.searchStep(50000, currentQueue);
-    self.postMessage({ 
-        type: 'nodeCount', 
-        count: aiAgent.totalNodesInSearch,
-        template: aiAgent.activeTemplate ? aiAgent.activeTemplate.name : null
-    });
+
+    // ★修正: 回数固定ではなく、時間(8ms)いっぱいまで計算を回す
+    const start = performance.now();
+    while (performance.now() - start < 8) {
+        aiAgent.searchStep(2000, currentQueue); // 小分けに実行
+        if (aiAgent.totalNodesInSearch >= SEARCH_ITERATION_LIMIT) break;
+    }
+
+    // ★修正: 画面更新用のメッセージは 50ms に1回だけ送る (通信負荷の削減)
+    const now = performance.now();
+    if (now - lastUpdateTime > 50) {
+        self.postMessage({ 
+            type: 'nodeCount', 
+            count: aiAgent.totalNodesInSearch,
+            template: aiAgent.activeTemplate ? aiAgent.activeTemplate.name : null
+        });
+        lastUpdateTime = now;
+    }
+
     setTimeout(thinkingLoop, 0);
 }
 
