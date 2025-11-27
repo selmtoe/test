@@ -6122,9 +6122,11 @@ function populateLayoutSettingsTab() {
     bgItem.style.flexDirection = 'column'; bgItem.style.alignItems = 'flex-start';
     const bgLabel = document.createElement('span'); bgLabel.textContent = '背景画像';
     const bgInput = document.createElement('input'); bgInput.type = 'file'; bgInput.accept = 'image/*';
+    bgInput.style.display = 'block'; // CSSで非表示になっているため明示的に表示
+    bgInput.style.marginTop = '5px';
     bgInput.onchange = (e) => {
         const file = e.target.files[0];
-                if (file) {
+        if (file) {
             const reader = new FileReader();
             reader.onload = (evt) => {
                 layout.backgroundImage = evt.target.result;
