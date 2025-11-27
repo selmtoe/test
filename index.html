@@ -390,6 +390,7 @@ position: fixed; top: 10px; right: 10px; z-index: 160; gap: 10px;">
             <button class="tab-button active" data-tab="general">諸設定</button>
             <button class="tab-button" data-tab="p1-keys">1P操作設定</button>
             <button class="tab-button" data-tab="p2-keys" id="p2-keys-tab-btn" style="display: none;">2P操作設定</button>
+            <button class="tab-button" data-tab="layout-settings">レイアウト</button>
             <button class="tab-button" data-tab="ai-settings">AI設定</button>
         </div>
 
@@ -427,9 +428,15 @@ justify-content: center; gap: 10px; flex-wrap: wrap;">
         </div>
         
         <div class="tab-content" id="tab-content-p2-keys">
-            <h2 style="margin-top: 20px;">PLAYER 2 - 操作設定</h2>
+         <h2 style="margin-top: 20px;">PLAYER 2 - 操作設定</h2>
             <p></p>
             <div id="p2-key-config-list" class="key-config-list-container"></div>
+        </div>
+
+        <div class="tab-content" id="tab-content-layout-settings">
+            <h2 style="margin-top: 20px;">レイアウト・描画設定</h2>
+            <p>背景画像を設定すると、標準の枠線や背景は非表示になります。</p>
+            <div id="layout-settings-list" class="key-config-list-container"></div>
         </div>
 
         <div class="tab-content" id="tab-content-ai-settings">
@@ -6084,23 +6091,158 @@ function populateAiSettingsTab() {
     });
 }
 
+function populateLayoutSettingsTab() {
+    const list = document.getElementById('layout-settings-list');
+    list.innerHTML = '';
+
+    if (!gameSettings.layout) {
+        gameSettings.layout = generateDefaultLayout();
+    }
+    const layout = gameSettings.layout;
+
+    // --- Global Settings ---
+    const globalHeader = document.createElement('h3');
+    globalHeader.textContent = '全体設定';
+    globalHeader.style.marginTop = '0';
+    list.appendChild(globalHeader);
+
+    // Block Size
+    const blockSizeItem = document.createElement('div');
+    blockSizeItem.className = 'setting-item';
+    const bsLabel = document.createElement('span'); bsLabel.textContent = 'ブロックサイズ (px)';
+    const bsInput = document.createElement('input'); bsInput.type = 'number';
+    bsInput.value = layout.blockSize; bsInput.min = 10; bsInput.max = 100;
+    bsInput.onchange = (e) => { layout.blockSize = parseInt(e.target.value, 10); updateScale(); };
+    blockSizeItem.append(bsLabel, bsInput);
+    list.appendChild(blockSizeItem);
+
+    // Background Image
+    const bgItem = document.createElement('div');
+    bgItem.className = 'setting-item';
+    bgItem.style.flexDirection = 'column'; bgItem.style.alignItems = 'flex-start';
+    const bgLabel = document.createElement('span'); bgLabel.textContent = '背景画像';
+    const bgInput = document.createElement('input'); bgInput.type = 'file'; bgInput.accept = 'image/*';
+    bgInput.onchange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                const img = new Image();
+                img.onload = () => {
+                    layout.backgroundImage = img;
+                    alert('背景画像を設定しました。');
+                };
+                img.src = evt.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+    const bgClearBtn = document.createElement('button'); bgClearBtn.className = 'button';
+    bgClearBtn.textContent = '背景をクリア'; bgClearBtn.style.marginTop = '5px';
+    bgClearBtn.onclick = () => { layout.backgroundImage = null; alert('背景をクリアしました。'); };
+    
+    bgItem.append(bgLabel, bgInput, bgClearBtn);
+    list.appendChild(bgItem);
+
+    // --- Player Layouts ---
+    const createCoordInputs = (label, obj, keyX, keyY) => {
+        const div = document.createElement('div');
+        div.className = 'setting-item';
+        div.style.flexWrap = 'wrap';
+        
+        const title = document.createElement('span');
+        title.textContent = label;
+        title.style.width = '100%';
+        title.style.marginBottom = '5px';
+
+        const xLabel = document.createElement('span'); xLabel.textContent = 'X:';
+        const xInput = document.createElement('input'); xInput.type = 'number';
+        xInput.value = obj[keyX]; xInput.style.width = '60px';
+        xInput.onchange = (e) => { obj[keyX] = parseInt(e.target.value, 10); };
+
+        const yLabel = document.createElement('span'); yLabel.textContent = 'Y:';
+        const yInput = document.createElement('input'); yInput.type = 'number';
+        yInput.value = obj[keyY]; yInput.style.width = '60px';
+        yInput.onchange = (e) => { obj[keyY] = parseInt(e.target.value, 10); };
+
+        div.append(title, xLabel, xInput, yLabel, yInput);
+        return div;
+    };
+
+    const playersList = (gameMode === '1P') ? ['p1'] : ['p1', 'p2'];
+    
+    playersList.forEach(pid => {
+        const pHeader = document.createElement('h3');
+        pHeader.textContent = `Player ${pid.replace('p','')}`;
+        list.appendChild(pHeader);
+        const pLayout = layout[pid];
+
+        // Board
+        list.appendChild(createCoordInputs('盤面位置', pLayout.board, 'x', 'y'));
+        
+        // Hold
+        list.appendChild(createCoordInputs('HOLD位置', pLayout.hold, 'x', 'y'));
+
+        // Next (Start + Offset)
+        const nextDiv = document.createElement('div');
+        nextDiv.className = 'setting-item';
+        nextDiv.style.flexWrap = 'wrap';
+        
+        const nextTitle = document.createElement('span');
+        nextTitle.textContent = 'NEXT (開始位置 & 間隔)';
+        nextTitle.style.width = '100%'; nextTitle.style.marginBottom = '5px';
+
+        const nxLabel = document.createElement('span'); nxLabel.textContent = 'Start X:';
+        const nxInput = document.createElement('input'); nxInput.type = 'number';
+        nxInput.value = pLayout.next[0].x; nxInput.style.width = '50px';
+
+        const nyLabel = document.createElement('span'); nyLabel.textContent = 'Start Y:';
+        const nyInput = document.createElement('input'); nyInput.type = 'number';
+        nyInput.value = pLayout.next[0].y; nyInput.style.width = '50px';
+
+        const offsetYLabel = document.createElement('span'); offsetYLabel.textContent = 'Step Y:';
+        const offsetYInput = document.createElement('input'); offsetYInput.type = 'number';
+        // 推定オフセット
+        const currentStep = (pLayout.next.length > 1) ? (pLayout.next[1].y - pLayout.next[0].y) : (layout.blockSize * 2.5);
+        offsetYInput.value = currentStep; offsetYInput.style.width = '50px';
+
+        const updateNextArray = () => {
+            const startX = parseInt(nxInput.value, 10);
+            const startY = parseInt(nyInput.value, 10);
+            const step = parseInt(offsetYInput.value, 10);
+            pLayout.next = Array.from({ length: 8 }).map((_, i) => ({
+                x: startX,
+                y: startY + (i * step)
+            }));
+        };
+
+        nxInput.onchange = updateNextArray;
+        nyInput.onchange = updateNextArray;
+        offsetYInput.onchange = updateNextArray;
+
+        nextDiv.append(nextTitle, nxLabel, nxInput, nyLabel, nyInput, offsetYLabel, offsetYInput);
+        list.appendChild(nextDiv);
+    });
+}
+
 function openUnifiedSettingsModal(initialTab = 'general') {
     const modal = document.getElementById('settings-modal');
     
     const p2TabBtn = document.getElementById('p2-keys-tab-btn');
-    if (gameMode === '2P') {
+if (gameMode === '2P') {
         p2TabBtn.style.display = 'block';
-    } else {
+} else {
         p2TabBtn.style.display = 'none';
         if (initialTab === 'p2-keys') initialTab = 'general';
-    }
+}
 
     populateGeneralSettingsTab();
+    populateLayoutSettingsTab();
     populateKeyConfigTab('p1');
     populateAiSettingsTab();
     if (gameMode === '2P') {
         populateKeyConfigTab('p2');
-    }
+}
 
     const tabs = modal.querySelectorAll('.tab-button');
     const contents = modal.querySelectorAll('.tab-content');
