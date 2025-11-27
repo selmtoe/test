@@ -6789,18 +6789,8 @@ function gameLoop(currentTime) {
     lastTime = currentTime;
         ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
     if (gameState === 'PLAYING') {
-        // グローバル背景画像の描画 (設定されている場合)
-        if (gameSettings.layout && gameSettings.layout.backgroundImage) {
-            if (!gameSettings.layout._bgImageCache || gameSettings.layout._bgImageCache.src !== gameSettings.layout.backgroundImage) {
-                const img = new Image();
-                img.src = gameSettings.layout.backgroundImage;
-                gameSettings.layout._bgImageCache = img;
-            }
-            if (gameSettings.layout._bgImageCache && gameSettings.layout._bgImageCache.complete && gameSettings.layout._bgImageCache.naturalWidth !== 0) {
-                ctx.drawImage(gameSettings.layout._bgImageCache, 0, 0, mainCanvas.width, mainCanvas.height);
-            }
-        }
-
+        // ここにあった画像描画処理を削除しました
+        
         players.forEach(p => p.update(dt || 0));
 players.forEach(p => p.draw());
     } else if (gameState.startsWith('SCAN')) {
@@ -7189,10 +7179,32 @@ p.ruleWorker.postMessage({
             }
         }
         
-        const originalSettingsBeforeRun = { ...gameSettings };
+                const originalSettingsBeforeRun = { ...gameSettings };
         if(!editorData.rule.code) {
              Object.assign(gameSettings, currentRunSettings);
         }
+
+        // --- 追加: 背景画像の設定 ---
+        if (gameSettings.layout && gameSettings.layout.backgroundImage) {
+            // bodyに背景画像を設定して全画面表示にする
+            document.body.style.backgroundImage = `url(${gameSettings.layout.backgroundImage})`;
+            document.body.style.backgroundSize = 'cover';
+            document.body.style.backgroundPosition = 'center center';
+            document.body.style.backgroundRepeat = 'no-repeat';
+            
+            // キャンバスの枠線と背景を消す
+            mainCanvas.style.border = 'none';
+            mainCanvas.style.backgroundColor = 'transparent';
+            mainCanvas.style.boxShadow = 'none';
+        } else {
+            // 背景がない場合はデフォルトに戻す（念のため）
+            document.body.style.backgroundImage = '';
+            mainCanvas.style.border = ''; // CSSの定義に戻す
+            mainCanvas.style.backgroundColor = ''; // CSSの定義に戻す
+            mainCanvas.style.boxShadow = '';
+        }
+        // ---------------------------
+
         gameState = 'PLAYING'; 
         document.getElementById('editor-container').style.display = 'none'; 
         document.getElementById('game-container').style.display = 'block';
@@ -7271,8 +7283,16 @@ document.getElementById('backToEditorBtn').addEventListener('click', () => {
             });
         }
         
-        players = [];
+                players = [];
         loadGameSettings();
+
+        // --- 追加: 背景とキャンバススタイルのリセット ---
+        document.body.style.backgroundImage = '';
+        mainCanvas.style.border = ''; // CSSの定義(枠線あり)に戻す
+        mainCanvas.style.backgroundColor = ''; // CSSの定義(背景色あり)に戻す
+        mainCanvas.style.boxShadow = '';
+        // -----------------------------------------
+
         document.getElementById('game-container').style.display = 'none';
         document.getElementById('game-controls').style.display = 'none';
         document.getElementById('editor-container').style.display = 'flex';
