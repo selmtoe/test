@@ -387,10 +387,10 @@ position: fixed; top: 10px; right: 10px; z-index: 160; gap: 10px;">
 <div id="settings-modal">
     <div class="modal-content">
 <div class="modal-tabs">
-            <button class="tab-button active" data-tab="general">諸設定</button>
+            <button class="tab-button active" data-tab="general">基本設定</button>
             <button class="tab-button" data-tab="p1-keys">1P操作設定</button>
             <button class="tab-button" data-tab="p2-keys" id="p2-keys-tab-btn" style="display: none;">2P操作設定</button>
-            <button class="tab-button" data-tab="layout-settings">レイアウト</button>
+            <button class="tab-button" data-tab="layout-settings">描画設定</button>
             <button class="tab-button" data-tab="ai-settings">AI設定</button>
         </div>
 
@@ -434,8 +434,8 @@ justify-content: center; gap: 10px; flex-wrap: wrap;">
         </div>
 
         <div class="tab-content" id="tab-content-layout-settings">
-            <h2 style="margin-top: 20px;">レイアウト・描画設定</h2>
-            <p>背景画像を設定すると、標準の枠線や背景は非表示になります。</p>
+            <h2 style="margin-top: 20px;">描画設定</h2>
+            <p></p>
             <div id="layout-settings-list" class="key-config-list-container"></div>
         </div>
 
@@ -1697,7 +1697,7 @@ const aiWorkerScript_Simplified = `
 // --- Constants ---
 const WIDTH = 10;
 const BOARD_HEIGHT = 40;
-const SEARCH_ITERATION_LIMIT = 70000; // 最適化により探索数を増やしても高速動作可能
+const SEARCH_ITERATION_LIMIT = 500000; // 最適化により探索数を増やしても高速動作可能
 
 // --- Precomputed Zobrist Table ---
 // 40行 x 1024パターン(10bit) の乱数テーブル
@@ -3206,15 +3206,29 @@ class AIAgent {
 let isThinking = false;
 let aiAgent = new AIAgent();
 let currentQueue = [];
+let lastUpdateTime = 0; // ★通信間引き用の時間を記録する変数を追加
 
 function thinkingLoop() {
     if (!isThinking) return;
-    aiAgent.searchStep(200, currentQueue);
-    self.postMessage({ 
-        type: 'nodeCount', 
-        count: aiAgent.totalNodesInSearch,
-        template: aiAgent.activeTemplate ? aiAgent.activeTemplate.name : null
-    });
+
+    // ★修正: 回数固定ではなく、時間いっぱいまで計算を回す
+    const start = performance.now();
+    while (performance.now() - start < 50) {
+        aiAgent.searchStep(2000, currentQueue); // 小分けに実行
+        if (aiAgent.totalNodesInSearch >= SEARCH_ITERATION_LIMIT) break;
+    }
+
+    // ★修正: 画面更新用のメッセージは 50ms に1回だけ送る (通信負荷の削減)
+    const now = performance.now();
+    if (now - lastUpdateTime > 50) {
+        self.postMessage({ 
+            type: 'nodeCount', 
+            count: aiAgent.totalNodesInSearch,
+            template: aiAgent.activeTemplate ? aiAgent.activeTemplate.name : null
+        });
+        lastUpdateTime = now;
+    }
+
     setTimeout(thinkingLoop, 0);
 }
 
@@ -3654,12 +3668,33 @@ const AI_TEMPLATE_CONFIG = [
 ];
 // デフォルトのレイアウト生成関数
 function generateDefaultLayout() {
+    const blockSize = 28;
+    // 従来の定数計算に基づく配置
+    const p1OriginX = 0;
+    const p2OriginX = (5 * blockSize + 10 * blockSize + 5 * blockSize + 20 * 2);
+    // PLAYER_CANVAS_WIDTH
+
+    const createPlayerLayout = (offsetX) => ({
+        board: { x: offsetX + (5 * blockSize + 20), y: 0.5 * blockSize }, // PLAYFIELD_X_OFFSET, 0.5 offset
+        hold: { x: offsetX + (5 * blockSize / 2), y: 70 }, // HOLD_AREA_WIDTH / 2, approximate Y
+        next: Array.from({ length: 8 }).map((_, i) => ({
+                    x: offsetX + 
+(5 * blockSize + 20 + 10 * blockSize + 20 + 5 * blockSize / 2), // Next area center
+            y: 70 + (i * blockSize * 2.5)
+        }))
+    });
     return {
-        backgroundImage: null, // 画像URLまたはImageオブジェクト。設定されている場合、個別背景やUIラベルを描画しない
+     return {
+         backgroundImage: null, // 画像URLまたはImageオブジェクト。設定されている場合、個別背景やUIラベルを描画しない
+         backgroundImage: null, // 画像URLまたはImageオブジェクト。設定されている場合、個別背景やUIラベルを描画しない
         blockSize: 23,
+        blockSize: blockSize,
         uiBlockSize: 12,
+        uiBlockSize: blockSize,
         p1: {
+        p1: createPlayerLayout(p1OriginX),
             board: { x: 183, y: 45 },
+        p2: createPlayerLayout(p2OriginX)
             hold: { x: 140, y: 90 },
             next: Array.from({ length: 8 }).map((_, i) => ({
                 x: 450,
@@ -3674,8 +3709,9 @@ function generateDefaultLayout() {
                 y: 60 + (i * 50)
             }))
         }
-    };
-}  
+     };
+     };
+ }  
 
 let gameSettings = {
     das: 140,
@@ -3695,7 +3731,7 @@ let gameSettings = {
     aiSdfDelay: 30,
     drawMoveDelay: 30,
     aiTemplates: { meisou: true, sangaku_2: true },
-    debugEnabled: false, // デバッグ表示の切り替え (true: 表示, false: 非表示)
+    debugEnabled: true, // デバッグ表示の切り替え (true: 表示, false: 非表示)
    
  layout: generateDefaultLayout() // レイアウト設定を追加
 };
@@ -3795,29 +3831,38 @@ function updateAiDebugDisplay(payload) {
 }
 
 let keyBindings = {
-    p1: {
+        p1: {
         left:      { type: 'key', value: 'a',           label: 'a' },
         right:     { type: 'key', value: 'd',           label: 'd' },
         softDrop:  { type: 'key', value: 's',           label: 's' },
+    
         hardDrop:  { type: 'key', value: ' ',           label: 'Space' },
         rotateCW:  { type: 'key', value: 'e',           label: 'e' },
         rotateCCW: { type: 'key', value: 'q',           label: 'q' },
-        hold:      { type: 'key', value: 'w',           label: 'w' },
+        hold:      { type: 'key', value: 'w',     
+      label: 'w' },
+        retry:     { type: 'key', value: 'r',           label: 'r' },
+        exit:      { type: 'key', value: 'escape',      label: 'Esc' },
     },
     p2: {
         left:      { type: 'key', value: 'arrowleft',   label: 'ArrowLeft' },
         right:     { type: 'key', value: 'arrowright',  label: 'ArrowRight' },
         softDrop:  { type: 'key', value: 'arrowdown',   label: 'ArrowDown' },
-        hardDrop:  { type: 'key', value: 'enter',       label: 'Enter' },
+        hardDrop:  { type: 'key', value: 'enter',      
+ label: 'Enter' },
         rotateCW:  { type: 'key', value: 'arrowup',     label: 'ArrowUp' },
-        rotateCCW: { type: 'key', value: '.',           label: '.' },
+        rotateCCW: { type: 'key', value: '.',           label: '.'
+},
         hold:      { type: 'key', value: '/',           label: '/' },
+        retry:     { type: 'key', value: 'backspace',   label: 'BackSpace' },
+        exit:      { type: 'key', value: 'delete',      label: 'Del' },
     }
 };
 const keyActionLabels = {
     left: '左移動', right: '右移動', softDrop: 'ソフトドロップ',
     rotateCW: '右回転', rotateCCW: '左回転',
-    hardDrop: 'ハードドロップ', hold: 'ホールド'
+    hardDrop: 'ハードドロップ', hold: 'ホールド',
+    retry: 'リトライ', exit: '中断'
 };
 let isBindingKey = false, bindingPlayer = null, bindingAction = null;
 let gamepads = {}, prevGamepads = {};
@@ -3998,8 +4043,10 @@ this.gravityTimer = gameSettings.gravity; this.lockTimer = 0;
 
         return false;
     }
-
     handlePress(action) {
+        if (action === 'retry') { document.getElementById('retryBtn').click(); return; }
+        if (action === 'exit') { document.getElementById('backToEditorBtn').click(); return; }
+
         if (this.gameOver || this.isClearingLine || this.isExecutingSequence) return;
 switch (action) {
             case 'rotateCCW': this.rotate(-1); break;
@@ -4007,8 +4054,9 @@ case 'rotateCW':  this.rotate(1); break;
 
             case 'hardDrop':  this.hardDrop(); break;
             case 'hold':      this.hold(); break;
-        }
 }
+}
+    
 update(dt) {
         if (gameStartTime > 0) {
             const totalMilliseconds = performance.now() - gameStartTime;
@@ -5866,12 +5914,12 @@ function populateGeneralSettingsTab() {
         das: { label: 'DAS (ms)', min: 0, max: 500, step: 10 },
         arr: { label: 'ARR (ms)', min: 0, max: 100, step: 1 },
         sdf: { label: 'SDF (ms)', min: 0, max: 100, step: 1 },
-        lineClearDelay: { label: 'Line Clear Delay (ms)', min: 0, max: 2000, step: 50 },
-        gravity: { label: 'Gravity Interval (ms)', min: 0, max: 9999999, step: 50 },
-        lockDelay: { label: 'Lock Delay (ms)', min: 0, max: 9999999, step: 50 },
-        maxNext: { label: 'Max NEXT Display', min: 1, max: 8, step: 1 },
-        garbageGrace: { label: 'Garbage Grace (ms)', min: 0, max: 5000, step: 100 },
-        garbageRandomness: { label: 'Garbage Hole Randomness (%)', min: 0, max: 100, step: 1 }
+        lineClearDelay: { label: 'ライン消去時間 (ms)', min: 0, max: 2000, step: 50 },
+        gravity: { label: '落下間隔時間 (ms)', min: 0, max: 9999999, step: 50 },
+        lockDelay: { label: '設置猶予時間 (ms)', min: 0, max: 9999999, step: 50 },
+        maxNext: { label: 'ネクスト表示数', min: 1, max: 8, step: 1 },
+        garbageGrace: { label: 'おじゃま猶予時間 (ms)', min: 0, max: 5000, step: 100 },
+        garbageRandomness: { label: '穴バラ率 (%)', min: 0, max: 100, step: 1 }
     };
     Object.keys(settingDetails).forEach(key => {
         const item = document.createElement('div'); item.className = 'setting-item';
@@ -5890,7 +5938,7 @@ function populateGeneralSettingsTab() {
     });
     
     const checkboxSettings = { showEffects: 'エフェクトを表示する', showTimer: 'タイマーを表示する', touchControlsEnabled: 'タッチ操作を有効にする (P1)' };
-Object.entries(checkboxSettings).forEach(([key, text], index) => {
+    Object.entries(checkboxSettings).forEach(([key, text], index) => {
         const item = document.createElement('div'); item.className = 'setting-item';
         if (index === 0) { item.style.cssText = 'margin-top:20px; border-top:1px solid var(--primary-color); padding-top:15px;'; }
         const label = document.createElement('label'); const checkbox = document.createElement('input');
@@ -5901,73 +5949,7 @@ Object.entries(checkboxSettings).forEach(([key, text], index) => {
 
        label.append(checkbox, span); item.appendChild(label); list.appendChild(item);
     });
-    
-    const skinItem = document.createElement('div');
-    skinItem.className = 'setting-item';
-    skinItem.style.cssText = 'margin-top:20px; border-top:1px solid var(--primary-color); padding-top:15px; flex-direction: column; align-items: flex-start; gap: 10px;';
-    
-    const skinLabel = document.createElement('label');
-skinLabel.textContent = 'カスタムスキン (I,O,T,L,J,S,Z,G,BG.png)';
-    
-    const skinInput = document.createElement('input');
-    skinInput.type = 'file';
-    skinInput.multiple = true;
-    skinInput.accept = 'image/*';
-    skinInput.style.display = 'block';
-    skinInput.style.minWidth = '0';
-    
-    skinInput.addEventListener('change', (e) => {
-        const files = e.target.files;
-        if (!files) return;
-        
-        let filesLoaded = 0;
-        const totalFiles = files.length;
-        
-        const redrawEditors = () => {
-            if (++filesLoaded === totalFiles) {
-                ['p1', 'p2'].forEach(setupPlayerEditor);
-                ['p1', 'p2'].forEach(updateNextQueueDisplay);
-                ['p1', 'p2'].forEach(drawEditorField);
-                alert(`${totalFiles}個のスキンを読み込みました。`);
-            }
-        };
-        
-        for (const file of files) {
-            const pieceType = file.name.split('.')[0].toUpperCase();
-            const validTypes = ['I', 'O', 'T', 'L', 'J', 'S', 'Z', 'G', 'E', 'BG'];
-            
-            if (validTypes.includes(pieceType)) {
-                const reader = new FileReader();
-              
-  reader.onload = (re) => {
-                    activeSkin[pieceType].src = re.target.result;
-                    activeSkin[pieceType].onload = () => {
-                        redrawEditors();
-                        saveSkinsToLocalStorage();
-                    };
-activeSkin[pieceType].onerror = () => {
-                        redrawEditors();
-                        saveSkinsToLocalStorage();
-                    };
-                };
-                reader.onerror = redrawEditors;
-                reader.readAsDataURL(file);
-            } else {
-                redrawEditors();
 }
-        }
-    });
-    
-    const skinResetButton = document.createElement('button');
-    skinResetButton.className = 'button';
-    skinResetButton.textContent = 'カスタムスキンをリセット';
-    skinResetButton.style.marginTop = '10px';
-    skinResetButton.onclick = resetSkins;
-    
-    skinItem.append(skinLabel, skinInput, skinResetButton);
-    list.appendChild(skinItem);
-}
-
 
 function populateKeyConfigTab(playerId) {
     const list = document.getElementById(`${playerId}-key-config-list`);
@@ -6093,93 +6075,153 @@ function populateAiSettingsTab() {
 function populateLayoutSettingsTab() {
     const list = document.getElementById('layout-settings-list');
     list.innerHTML = '';
-
-    if (!gameSettings.layout) {
+if (!gameSettings.layout) {
         gameSettings.layout = generateDefaultLayout();
-    }
+}
     const layout = gameSettings.layout;
 
+    // --- Custom Skins (Moved from General) ---
+    const skinItem = document.createElement('div');
+    skinItem.className = 'setting-item';
+    skinItem.style.cssText = 'flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 20px;';
+    
+    const skinLabel = document.createElement('label');
+    skinLabel.textContent = 'カスタムスキン (I,O,T,L,J,S,Z,G,BG.png)';
+    
+    const skinInput = document.createElement('input');
+    skinInput.type = 'file';
+    skinInput.multiple = true;
+    skinInput.accept = 'image/*';
+    skinInput.style.display = 'block';
+    skinInput.style.minWidth = '0';
+    
+    skinInput.addEventListener('change', (e) => {
+        const files = e.target.files;
+        if (!files) return;
+        
+        let filesLoaded = 0;
+        const totalFiles = files.length;
+        
+        const redrawEditors = () => {
+            if (++filesLoaded === totalFiles) {
+                 ['p1', 'p2'].forEach(setupPlayerEditor);
+                ['p1', 'p2'].forEach(updateNextQueueDisplay);
+                ['p1', 'p2'].forEach(drawEditorField);
+                alert(`${totalFiles}個のスキンを読み込みました。`);
+            }
+        };
+        
+        for (const file of files) {
+            const pieceType = file.name.split('.')[0].toUpperCase();
+            const validTypes = ['I', 'O', 'T', 'L', 'J', 'S', 'Z', 'G', 'E', 'BG'];
+            
+            if (validTypes.includes(pieceType)) {
+                const reader = new FileReader();
+                reader.onload = (re) => {
+                    activeSkin[pieceType].src = re.target.result;
+                    activeSkin[pieceType].onload = () => {
+                        redrawEditors();
+                        saveSkinsToLocalStorage();
+                    };
+                    activeSkin[pieceType].onerror = () => {
+                        redrawEditors();
+                        saveSkinsToLocalStorage();
+                    };
+                };
+                reader.onerror = redrawEditors;
+                reader.readAsDataURL(file);
+            } else {
+                redrawEditors();
+            }
+        }
+    });
+    
+    const skinResetButton = document.createElement('button');
+    skinResetButton.className = 'button';
+    skinResetButton.textContent = 'カスタムスキンをリセット';
+    skinResetButton.style.marginTop = '10px';
+    skinResetButton.onclick = resetSkins;
+    
+    skinItem.append(skinLabel, skinInput, skinResetButton);
+    list.appendChild(skinItem);
     // --- Global Settings ---
     const globalHeader = document.createElement('h3');
-    globalHeader.textContent = '全体設定';
-    globalHeader.style.marginTop = '0';
+globalHeader.textContent = '全体設定';
+    globalHeader.style.marginTop = '10px';
     list.appendChild(globalHeader);
 
     // Block Size
     const blockSizeItem = document.createElement('div');
     blockSizeItem.className = 'setting-item';
-    const bsLabel = document.createElement('span'); bsLabel.textContent = 'ブロックサイズ (px)';
+const bsLabel = document.createElement('span'); bsLabel.textContent = 'ブロックサイズ (px)';
     const bsInput = document.createElement('input'); bsInput.type = 'number';
-    bsInput.value = layout.blockSize;     bsInput.min = 10; bsInput.max = 100;
+    bsInput.value = layout.blockSize;
+bsInput.min = 10; bsInput.max = 100;
     bsInput.onchange = (e) => { layout.blockSize = parseInt(e.target.value, 10); updateScale(); };
     blockSizeItem.append(bsLabel, bsInput);
     list.appendChild(blockSizeItem);
-
-    const uiBlockSizeItem = document.createElement('div');
+const uiBlockSizeItem = document.createElement('div');
     uiBlockSizeItem.className = 'setting-item';
     const uibsLabel = document.createElement('span'); uibsLabel.textContent = 'UIブロックサイズ (px)';
-    const uibsInput = document.createElement('input'); uibsInput.type = 'number';
+    const uibsInput = document.createElement('input');
+uibsInput.type = 'number';
     uibsInput.value = layout.uiBlockSize || layout.blockSize;
     uibsInput.min = 10; uibsInput.max = 100;
-    uibsInput.onchange = (e) => { layout.uiBlockSize = parseInt(e.target.value, 10); updateScale(); };
+uibsInput.onchange = (e) => { layout.uiBlockSize = parseInt(e.target.value, 10); updateScale(); };
     uiBlockSizeItem.append(uibsLabel, uibsInput);
     list.appendChild(uiBlockSizeItem);
-
-    // Background Image
+// Background Image
     const bgItem = document.createElement('div');
     bgItem.className = 'setting-item';
     bgItem.style.flexDirection = 'column'; bgItem.style.alignItems = 'flex-start';
-    const bgLabel = document.createElement('span'); bgLabel.textContent = '背景画像';
+const bgLabel = document.createElement('span'); bgLabel.textContent = '背景画像';
     const bgInput = document.createElement('input'); bgInput.type = 'file'; bgInput.accept = 'image/*';
-    bgInput.style.display = 'block'; // CSSで非表示になっているため明示的に表示
+    bgInput.style.display = 'block';
+// CSSで非表示になっているため明示的に表示
     bgInput.style.marginTop = '5px';
     bgInput.onchange = (e) => {
         const file = e.target.files[0];
-        if (file) {
+if (file) {
             const reader = new FileReader();
-            reader.onload = (evt) => {
+reader.onload = (evt) => {
                 layout.backgroundImage = evt.target.result;
-                layout._bgImageCache = null;
+layout._bgImageCache = null;
                 alert('背景画像を設定しました。');
             };
             reader.readAsDataURL(file);
         }
     };
     const bgClearBtn = document.createElement('button'); bgClearBtn.className = 'button';
-    bgClearBtn.textContent = '背景をクリア'; bgClearBtn.style.marginTop = '5px';
+bgClearBtn.textContent = '背景をクリア'; bgClearBtn.style.marginTop = '5px';
     bgClearBtn.onclick = () => { layout.backgroundImage = null; alert('背景をクリアしました。'); };
     
     bgItem.append(bgLabel, bgInput, bgClearBtn);
     list.appendChild(bgItem);
-
-    // --- Player Layouts ---
+// --- Player Layouts ---
     const createCoordInputs = (label, obj, keyX, keyY) => {
         const div = document.createElement('div');
-        div.className = 'setting-item';
+div.className = 'setting-item';
         div.style.flexWrap = 'wrap';
         
         const title = document.createElement('span');
         title.textContent = label;
         title.style.width = '100%';
         title.style.marginBottom = '5px';
-
-        const xLabel = document.createElement('span'); xLabel.textContent = 'X:';
+const xLabel = document.createElement('span'); xLabel.textContent = 'X:';
         const xInput = document.createElement('input'); xInput.type = 'number';
         xInput.value = obj[keyX]; xInput.style.width = '60px';
-        xInput.onchange = (e) => { obj[keyX] = parseInt(e.target.value, 10); };
+xInput.onchange = (e) => { obj[keyX] = parseInt(e.target.value, 10); };
 
         const yLabel = document.createElement('span'); yLabel.textContent = 'Y:';
-        const yInput = document.createElement('input'); yInput.type = 'number';
+const yInput = document.createElement('input'); yInput.type = 'number';
         yInput.value = obj[keyY]; yInput.style.width = '60px';
-        yInput.onchange = (e) => { obj[keyY] = parseInt(e.target.value, 10); };
+yInput.onchange = (e) => { obj[keyY] = parseInt(e.target.value, 10); };
 
         div.append(title, xLabel, xInput, yLabel, yInput);
         return div;
     };
-
-    const playersList = (gameMode === '1P') ? ['p1'] : ['p1', 'p2'];
-    
-    playersList.forEach(pid => {
+const playersList = (gameMode === '1P') ? ['p1'] : ['p1', 'p2'];
+playersList.forEach(pid => {
         const pHeader = document.createElement('h3');
         pHeader.textContent = `Player ${pid.replace('p','')}`;
         list.appendChild(pHeader);
@@ -6201,28 +6243,31 @@ function populateLayoutSettingsTab() {
         nextTitle.style.width = '100%'; nextTitle.style.marginBottom = '5px';
 
         const nxLabel = document.createElement('span'); nxLabel.textContent = 'Start X:';
-        const nxInput = document.createElement('input'); nxInput.type = 'number';
-        nxInput.value = pLayout.next[0].x; nxInput.style.width = '50px';
+      
+  const nxInput = document.createElement('input'); nxInput.type = 'number';
+        nxInput.value = pLayout.next[0].x;
+nxInput.style.width = '50px';
 
         const nyLabel = document.createElement('span'); nyLabel.textContent = 'Start Y:';
         const nyInput = document.createElement('input'); nyInput.type = 'number';
-        nyInput.value = pLayout.next[0].y; nyInput.style.width = '50px';
+nyInput.value = pLayout.next[0].y; nyInput.style.width = '50px';
 
         const offsetYLabel = document.createElement('span'); offsetYLabel.textContent = 'Step Y:';
-        const offsetYInput = document.createElement('input'); offsetYInput.type = 'number';
+        const offsetYInput = document.createElement('input');
+offsetYInput.type = 'number';
         // 推定オフセット
-        const currentStep = (pLayout.next.length > 1) ? (pLayout.next[1].y - pLayout.next[0].y) : (layout.blockSize * 2.5);
+        const currentStep = (pLayout.next.length > 1) ?
+(pLayout.next[1].y - pLayout.next[0].y) : (layout.blockSize * 2.5);
         offsetYInput.value = currentStep; offsetYInput.style.width = '50px';
-
-        const updateNextArray = () => {
+const updateNextArray = () => {
             const startX = parseInt(nxInput.value, 10);
-            const startY = parseInt(nyInput.value, 10);
+const startY = parseInt(nyInput.value, 10);
             const step = parseInt(offsetYInput.value, 10);
-            pLayout.next = Array.from({ length: 8 }).map((_, i) => ({
+pLayout.next = Array.from({ length: 8 }).map((_, i) => ({
                 x: startX,
                 y: startY + (i * step)
             }));
-        };
+};
 
         nxInput.onchange = updateNextArray;
         nyInput.onchange = updateNextArray;
@@ -6231,6 +6276,21 @@ function populateLayoutSettingsTab() {
         nextDiv.append(nextTitle, nxLabel, nxInput, nyLabel, nyInput, offsetYLabel, offsetYInput);
         list.appendChild(nextDiv);
     });
+
+    // --- Reset Layout Button (Moved to bottom) ---
+    const resetLayoutBtn = document.createElement('button');
+    resetLayoutBtn.className = 'button';
+    resetLayoutBtn.style.width = '100%';
+    resetLayoutBtn.style.marginTop = '20px';
+    resetLayoutBtn.textContent = 'レイアウト設定を全て初期化';
+    resetLayoutBtn.onclick = () => {
+        if (confirm('レイアウト設定を全て初期状態に戻しますか？')) {
+            gameSettings.layout = generateDefaultLayout();
+            updateScale();
+            populateLayoutSettingsTab(); // UI Refresh
+        }
+    };
+    list.appendChild(resetLayoutBtn);
 }
 
 function openUnifiedSettingsModal(initialTab = 'general') {
