@@ -1697,7 +1697,7 @@ const aiWorkerScript_Simplified = `
 // --- Constants ---
 const WIDTH = 10;
 const BOARD_HEIGHT = 40;
-const SEARCH_ITERATION_LIMIT = 70000; // 最適化により探索数を増やしても高速動作可能
+const SEARCH_ITERATION_LIMIT = 500000; // 最適化により探索数を増やしても高速動作可能
 
 // --- Precomputed Zobrist Table ---
 // 40行 x 1024パターン(10bit) の乱数テーブル
@@ -3211,9 +3211,9 @@ let lastUpdateTime = 0; // ★通信間引き用の時間を記録する変数�
 function thinkingLoop() {
     if (!isThinking) return;
 
-    // ★修正: 回数固定ではなく、時間(8ms)いっぱいまで計算を回す
+    // ★修正: 回数固定ではなく、時間いっぱいまで計算を回す
     const start = performance.now();
-    while (performance.now() - start < 100) {
+    while (performance.now() - start < 200) {
         aiAgent.searchStep(2000, currentQueue); // 小分けに実行
         if (aiAgent.totalNodesInSearch >= SEARCH_ITERATION_LIMIT) break;
     }
