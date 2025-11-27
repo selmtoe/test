@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
 <style>
-    :root {
+    :root {に
         --bg-color: #1a1a2e; --primary-color: #4b4b7c; --primary-hover-color: #6a6aff;
         --font-color: #e0e0e0; --border-color: #4b4b7c; --canvas-bg-color: #0f0f18;
         --font-display: 'Orbitron', sans-serif; --font-ui: 'Noto Sans JP', sans-serif;
@@ -3213,7 +3213,7 @@ function thinkingLoop() {
 
     // ★修正: 回数固定ではなく、時間いっぱいまで計算を回す
     const start = performance.now();
-    while (performance.now() - start < 100) {
+    while (performance.now() - start < 50) {
         aiAgent.searchStep(2000, currentQueue); // 小分けに実行
         if (aiAgent.totalNodesInSearch >= SEARCH_ITERATION_LIMIT) break;
     }
