@@ -6124,15 +6124,12 @@ function populateLayoutSettingsTab() {
     const bgInput = document.createElement('input'); bgInput.type = 'file'; bgInput.accept = 'image/*';
     bgInput.onchange = (e) => {
         const file = e.target.files[0];
-        if (file) {
+                if (file) {
             const reader = new FileReader();
             reader.onload = (evt) => {
-                const img = new Image();
-                img.onload = () => {
-                    layout.backgroundImage = img;
-                    alert('背景画像を設定しました。');
-                };
-                img.src = evt.target.result;
+                layout.backgroundImage = evt.target.result;
+                layout._bgImageCache = null;
+                alert('背景画像を設定しました。');
             };
             reader.readAsDataURL(file);
         }
@@ -6788,21 +6785,18 @@ function gameLoop(currentTime) {
     pollGamepads();
     const dt = currentTime - lastTime;
     lastTime = currentTime;
-ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+        ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
     if (gameState === 'PLAYING') {
         // グローバル背景画像の描画 (設定されている場合)
         if (gameSettings.layout && gameSettings.layout.backgroundImage) {
-            const bgImg = new Image(); // 実際にはプリロードすべきだが、ここでは簡易的に
-            // 注意: gameSettings.layout.backgroundImage はURL文字列またはImageオブジェクトを想定
-            // ここではURL文字列の場合のハンドリングを省略し、Imageオブジェクトがセットされている、あるいは
-            // 描画ロジックの外でImage化されている前提とするのが望ましい。
-            // 簡易実装として、src文字列ならImageを作るが、毎フレームnew Imageは重い。
-            // 実際の実装では設定時にImageオブジェクト化しておくべき。
-             if (typeof gameSettings.layout.backgroundImage === 'string') {
-                 // キャッシュ機構が必要だが、ここでは省略。ユーザーがlayout設定時にImageオブジェクトを入れる想定。
-             } else if (gameSettings.layout.backgroundImage instanceof HTMLImageElement) {
-                 ctx.drawImage(gameSettings.layout.backgroundImage, 0, 0, mainCanvas.width, mainCanvas.height);
-             }
+            if (!gameSettings.layout._bgImageCache || gameSettings.layout._bgImageCache.src !== gameSettings.layout.backgroundImage) {
+                const img = new Image();
+                img.src = gameSettings.layout.backgroundImage;
+                gameSettings.layout._bgImageCache = img;
+            }
+            if (gameSettings.layout._bgImageCache && gameSettings.layout._bgImageCache.complete && gameSettings.layout._bgImageCache.naturalWidth !== 0) {
+                ctx.drawImage(gameSettings.layout._bgImageCache, 0, 0, mainCanvas.width, mainCanvas.height);
+            }
         }
 
         players.forEach(p => p.update(dt || 0));
