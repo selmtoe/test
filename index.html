@@ -3695,7 +3695,9 @@ let gameSettings = {
     aiSdfDelay: 30,
     drawMoveDelay: 30,
     aiTemplates: { meisou: true, sangaku_2: true },
-    layout: generateDefaultLayout() // レイアウト設定を追加
+    debugEnabled: false, // デバッグ表示の切り替え (true: 表示, false: 非表示)
+   
+ layout: generateDefaultLayout() // レイアウト設定を追加
 };
 const DRAW_SHAPE_MAP = {
     "1,0;2,0;3,0": { type: "I", rot: 0, offset: [0, 0] },
@@ -3763,9 +3765,8 @@ let gameHistoryLog = [];
 function updateAiDebugDisplay(payload) {
     const display = document.getElementById('ai-debug-display');
 
-    if (!display) return;
-
-    // 盤面データをJavaScriptの2D配列形式の文字列に変換します
+    if (!display || !gameSettings.debugEnabled) return;
+// 盤面データをJavaScriptの2D配列形式の文字列に変換します
     let boardArrayString = '[\n';
     for (let y = 0; y < payload.board.length; y++) {
         const row = payload.board[y];
@@ -3868,21 +3869,21 @@ class Player {
             const blob = new Blob([scriptToLoad], { type: 'application/javascript' });
             this.aiWorker = new Worker(URL.createObjectURL(blob));
 
-            this.aiWorker.onmessage = (e) => {
+                        this.aiWorker.onmessage = (e) => {
                 if (e.data && e.data.type === 'debug') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
-                    if (debugDisplay) {
+if (debugDisplay && gameSettings.debugEnabled) {
                         debugDisplay.dataset.status = e.data.message;
-                        const count = debugDisplay.dataset.count || 0;
+const count = debugDisplay.dataset.count || 0;
                         
                         debugDisplay.style.display = 'block';
                         debugDisplay.innerHTML = `Status: <span style="color: ${e.data.message.includes('RESET') ? '#ff4444' : '#44ff44'}">${e.data.message}</span><br>Nodes: ${count}`;
                     }
-                } else if (e.data && e.data.type === 'nodeCount') {
+                                } else if (e.data && e.data.type === 'nodeCount') {
                     const debugDisplay = document.getElementById('ai-tree-debug-display');
-                    if (debugDisplay) {
+if (debugDisplay && gameSettings.debugEnabled) {
                         debugDisplay.dataset.count = e.data.count;
-                        const status = debugDisplay.dataset.status || 'Waiting...';
+const status = debugDisplay.dataset.status || 'Waiting...';
                         
                         debugDisplay.style.display = 'block';
                         const color = status.includes('RESET') ? '#ff4444' : (status.includes('REUSED') ? '#44ff44' : 'white');
@@ -5126,10 +5127,10 @@ if (minoType === 'I') {
 startState.x += 1;
         }
         
-        const debugDisplay = document.getElementById('ai-tree-debug-display');
-        if (debugDisplay) {
+                const debugDisplay = document.getElementById('ai-tree-debug-display');
+if (debugDisplay && gameSettings.debugEnabled) {
             debugDisplay.style.display = 'block';
-            debugDisplay.innerHTML += `<br><span style="color:#ff88ff">AI Path: ${minoType} ${startState.x},${startState.y},${startState.r} -> ${targetState.x},${targetState.y},${targetState.r}</span>`;
+debugDisplay.innerHTML += `<br><span style="color:#ff88ff">AI Path: ${minoType} ${startState.x},${startState.y},${startState.r} -> ${targetState.x},${targetState.y},${targetState.r}</span>`;
         }
 
         const pathfinderBoard = this.board.map(row => row.map(cell => (cell === null ? 0 : 1)));
@@ -5315,10 +5316,10 @@ if (!shapeInfo) return;
 targetState.x += 1;
             }
 
-            const debugDisplay = document.getElementById('ai-tree-debug-display');
-            if (debugDisplay) {
+                        const debugDisplay = document.getElementById('ai-tree-debug-display');
+if (debugDisplay) {
                 debugDisplay.style.display = 'block';
-                debugDisplay.innerHTML = `<span style="color:#88ffff">Draw Path: ${pieceForPathfinding} ${startState.x},${startState.y},${startState.r} -> ${targetState.x},${targetState.y},${targetState.r}</span>`;
+debugDisplay.innerHTML = `<span style="color:#88ffff">Draw Path: ${pieceForPathfinding} ${startState.x},${startState.y},${startState.r} -> ${targetState.x},${targetState.y},${targetState.r}</span>`;
             }
             
             const pathfinderBoard = this.board.map(row => row.map(cell => (cell === null ? 0 : 1)));
