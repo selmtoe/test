@@ -434,8 +434,8 @@ justify-content: center; gap: 10px; flex-wrap: wrap;">
         </div>
 
         <div class="tab-content" id="tab-content-layout-settings">
-            <h2 style="margin-top: 20px;">レイアウト・描画設定</h2>
-            <p>背景画像を設定すると、標準の枠線や背景は非表示になります。</p>
+            <h2 style="margin-top: 20px;">描画設定</h2>
+            <p></p>
             <div id="layout-settings-list" class="key-config-list-container"></div>
         </div>
 
@@ -6114,14 +6114,13 @@ if (!gameSettings.layout) {
     const dangerousHeader = document.createElement('h3');
     dangerousHeader.textContent = '危険な領域';
     dangerousHeader.style.marginTop = '20px';
-    dangerousHeader.style.color = '#ff4444';
-    dangerousHeader.style.borderBottom = '1px solid #ff4444';
+    dangerousHeader.style.color = 'var(--font-color)';
     list.appendChild(dangerousHeader);
 
     const dangerNote = document.createElement('p');
     dangerNote.style.fontSize = '12px';
-    dangerNote.style.color = '#ffaaaa';
-    dangerNote.textContent = '以下の設定を変更すると表示が崩れる可能性があります。';
+    dangerNote.style.color = 'var(--font-color)';
+    dangerNote.textContent = '背景画像を設定すると、標準の枠線や背景が非表示になります。';
     list.appendChild(dangerNote);
 
     // --- Global Settings ---
