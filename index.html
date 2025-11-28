@@ -4684,20 +4684,14 @@ if (this.linesClearedLastLock > 0) { this.isClearingLine = true; this.lineClearD
             ctx.fillText(this.customUIText, layout.board.x + (BOARD_WIDTH * bSize)/2, layout.board.y + 150);
         }
 
-                // Timer
+        // Timer
         if (gameSettings.showTimer && !useCustomBG) {
             ctx.fillStyle = '#FFFFFF';
             ctx.font = `bold ${bSize * 0.8}px "Orbitron"`;
             const charSpacing = bSize * 0.6;
             const totalWidth = this.elapsedTimeText.length * charSpacing;
-
-            // 位置調整用の仮変数 (適宜数値を書き換えてください)
-            const A = 30;  // 右へずらす量
-            const B = 150; // 下へずらす量 (HOLD位置基準)
-
-            let startX = Math.max(5, layout.hold.x - (totalWidth / 2) + A);
-            const timerY = layout.hold.y + B;
-
+            let startX = layout.hold.x - (totalWidth / 2); // Holdの下あたり？
+            const timerY = layout.board.y + (BOARD_VISIBLE_HEIGHT * bSize) + 20;
             for (let i = 0; i < this.elapsedTimeText.length - 1; i++) {
                 const char = this.elapsedTimeText[i];
                 const charX = startX + (i * charSpacing);
