@@ -4688,10 +4688,10 @@ if (this.linesClearedLastLock > 0) { this.isClearingLine = true; this.lineClearD
         if (gameSettings.showTimer && !useCustomBG) {
             ctx.fillStyle = '#FFFFFF';
             ctx.font = `bold ${bSize * 0.8}px "Orbitron"`;
-            const charSpacing = bSize * 0.6;
+                        const charSpacing = bSize * 0.6;
             const totalWidth = this.elapsedTimeText.length * charSpacing;
-            let startX = layout.hold.x - (totalWidth / 2); // Holdの下あたり？
-            const timerY = layout.board.y + (BOARD_VISIBLE_HEIGHT * bSize) + 20;
+            let startX = Math.max(10, layout.hold.x - (totalWidth / 2));
+            const timerY = layout.hold.y + (bSize * 3);
             for (let i = 0; i < this.elapsedTimeText.length - 1; i++) {
                 const char = this.elapsedTimeText[i];
                 const charX = startX + (i * charSpacing);
