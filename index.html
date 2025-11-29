@@ -6890,7 +6890,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (debugClickCount >= 10) {
                 gameSettings.debugEnabled = !gameSettings.debugEnabled;
-                alert(`デバッグモード: ${gameSettings.debugEnabled ? "ON" : "OFF"}\n(AIの思考情報などが表示されます)`);
+                alert(`デバッグモード: ${gameSettings.debugEnabled ? "ON" : "OFF"}\n()`);
                 debugClickCount = 0;
                 
                 const aiDebugDisplay = document.getElementById('ai-tree-debug-display');
