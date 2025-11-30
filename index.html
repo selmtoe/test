@@ -1759,6 +1759,14 @@ const TEMPLATES = [
             {t:'Z', x:2, y:35, r:1}
         ],
         trigger: (board, queue, hold) => {
+            if (hold !== 'Z') return false;
+            const checkQueue = queue.slice(0, 7);
+            const qCounts = {};
+            for (const m of checkQueue) {
+                if (qCounts[m]) return false;
+                qCounts[m] = true;
+            }
+
             // 1. ミノ列の取得 (Hold + Queueから計8個分)
             const minos = [];
             if (hold) minos.push(hold);
@@ -1769,7 +1777,6 @@ const TEMPLATES = [
 
     const jIndex = minos.indexOf('J');
     const oIndex = minos.indexOf('O');
-
     return jIndex !== -1 && oIndex !== -1 && oIndex > jIndex;
         }
     },
@@ -1788,6 +1795,14 @@ const TEMPLATES = [
             {t:'Z', x:1, y:33, r:1}
         ],
         trigger: (board, queue, hold) => {
+            if (hold !== 'Z') return false;
+            const checkQueue = queue.slice(0, 7);
+            const qCounts = {};
+            for (const m of checkQueue) {
+                if (qCounts[m]) return false;
+                qCounts[m] = true;
+            }
+
             // 1. ミノ列の取得 (Hold + Queueから計8個分)
             const minos = [];
             if (hold) minos.push(hold);
@@ -1798,9 +1813,8 @@ const TEMPLATES = [
 
     const jIndex = minos.indexOf('J');
     const sIndex = minos.indexOf('S');
-
     return jIndex !== -1 && sIndex !== -1 && sIndex < jIndex;
-        }
+    }
     },
        {
         name: 'meisou_2nd_pattern3',
@@ -1817,7 +1831,16 @@ const TEMPLATES = [
             {t:'S', x:2, y:34, r:1}
         ],
         trigger: (board, queue, hold) => {
+            if (hold !== 'Z') return false;
+            const checkQueue = queue.slice(0, 7);
+            const qCounts = {};
+            for (const m of checkQueue) {
+                if (qCounts[m]) return false;
+                qCounts[m] = true;
+            }
+
             // 1. ミノ列の取得 (Hold + Queueから計8個分)
+ 
             const minos = [];
             if (hold) minos.push(hold);
             for (const p of queue) {
@@ -1828,7 +1851,6 @@ const TEMPLATES = [
     const jIndex = minos.indexOf('J');
     const sIndex = minos.indexOf('S');
     const oIndex = minos.indexOf('O');
-
     return !(jIndex !== -1 && oIndex !== -1 && oIndex > jIndex) && !(jIndex !== -1 && sIndex !== -1 && sIndex < jIndex)
         }
     },
@@ -1926,8 +1948,15 @@ const TEMPLATES = [
             {t:'J', x:1, y:36, r:1},
             {t:'S', x:4, y:37, r:0}
         ],
-        // 条件: ホールド含めた直近8ミノのうち、ZがOより速い
         trigger: (board, queue, hold) => {
+            if (hold !== 'J') return false;
+            const checkQueue = queue.slice(0, 7);
+            const qCounts = {};
+            for (const m of checkQueue) {
+                if (qCounts[m]) return false;
+                qCounts[m] = true;
+            }
+
             // 1. ミノ列の取得 (Hold + Queueから計8個分)
             const minos = [];
             if (hold) minos.push(hold);
@@ -1941,7 +1970,7 @@ const TEMPLATES = [
             const oIndex = minos.indexOf('O');
             // ※2巡目は盤面形状(startBoard)でフィルタされる前提のため重複チェックは省略し順序のみ判定
             return zIndex !== -1 && oIndex !== -1 && zIndex < oIndex;
-        }
+            }
     },
 
     // 4. 山岳2号右の二巡目② (O < Z)
@@ -1962,8 +1991,15 @@ const TEMPLATES = [
             {t:'S', x:4, y:37, r:0},
             {t:'I', x:8, y:30, r:1}
         ],
-        // 条件: ホールド含めた直近8ミノのうち、OがZより速い
         trigger: (board, queue, hold) => {
+            if (hold !== 'J') return false;
+            const checkQueue = queue.slice(0, 7);
+            const qCounts = {};
+            for (const m of checkQueue) {
+                if (qCounts[m]) return false;
+                qCounts[m] = true;
+            }
+
             // 1. ミノ列の取得 (Hold + Queueから計8個分)
             const minos = [];
             if (hold) minos.push(hold);
@@ -1977,8 +2013,7 @@ const TEMPLATES = [
     const iIndex = minos.indexOf('I');
 
     return oIndex !== -1 && zIndex !== -1 && iIndex !== -1 && oIndex < zIndex && iIndex < oIndex;
-
-        }
+}
     },
 
         // 4. 山岳2号右の二巡目3 (O < Z)
@@ -1999,8 +2034,15 @@ const TEMPLATES = [
             {t:'S', x:4, y:37, r:0},
             {t:'I', x:0, y:33, r:3}
         ],
-        // 条件: ホールド含めた直近8ミノのうち、OがZより速い
         trigger: (board, queue, hold) => {
+            if (hold !== 'J') return false;
+            const checkQueue = queue.slice(0, 7);
+            const qCounts = {};
+            for (const m of checkQueue) {
+                if (qCounts[m]) return false;
+                qCounts[m] = true;
+            }
+
             // 1. ミノ列の取得 (Hold + Queueから計8個分)
             const minos = [];
             if (hold) minos.push(hold);
@@ -2013,10 +2055,10 @@ const TEMPLATES = [
     const oIndex = minos.indexOf('O');
     const zIndex = minos.indexOf('Z');
     const iIndex = minos.indexOf('I');
-                // 3. 順序チェック
+    // 3. 順序チェック
     // すべてのミノが存在し、かつ O < Z と O < I を満たす
     return oIndex !== -1 && zIndex !== -1 && iIndex !== -1 && oIndex < zIndex && oIndex < iIndex;
-        }
+}
     },
 
     // 5. 山岳2号左の二巡目① (S < O)
@@ -2034,8 +2076,15 @@ const TEMPLATES = [
             {t:'I', x:8, y:35, r:1},
             {t:'L', x:8, y:36, r:3}     
         ],
-        // 条件: ホールド含めた直近8ミノのうち、SがOより速い
         trigger: (board, queue, hold) => {
+            if (hold !== 'L') return false;
+            const checkQueue = queue.slice(0, 7);
+            const qCounts = {};
+            for (const m of checkQueue) {
+                if (qCounts[m]) return false;
+                qCounts[m] = true;
+            }
+
             // 1. ミノ列の取得 (Hold + Queueから計8個分)
             const minos = [];
             if (hold) minos.push(hold);
@@ -2048,7 +2097,7 @@ const TEMPLATES = [
             const sIndex = minos.indexOf('S');
             const oIndex = minos.indexOf('O');
             return sIndex !== -1 && oIndex !== -1 && sIndex < oIndex;
-        }
+}
     },
 
     // 6. 山岳2号左の二巡目② (O < S)
@@ -2068,8 +2117,15 @@ const TEMPLATES = [
             {t:'S', x:7, y:36, r:0},
             {t:'I', x:0, y:30, r:3}
         ],
-        // 条件: ホールド含めた直近8ミノのうち、OがSより速い
         trigger: (board, queue, hold) => {
+            if (hold !== 'L') return false;
+            const checkQueue = queue.slice(0, 7);
+            const qCounts = {};
+            for (const m of checkQueue) {
+                if (qCounts[m]) return false;
+                qCounts[m] = true;
+            }
+
             // 1. ミノ列の取得 (Hold + Queueから計8個分)
             const minos = [];
             if (hold) minos.push(hold);
@@ -2082,8 +2138,7 @@ const TEMPLATES = [
             const sIndex = minos.indexOf('S');
             const iIndex = minos.indexOf('I');
             return oIndex !== -1 && sIndex !== -1 && iIndex !== -1 && oIndex < sIndex && oIndex > iIndex;
-            
-        }
+}
     },
     {
         name: 'sangaku_2_left_2nd_pattern3',
@@ -2101,8 +2156,16 @@ const TEMPLATES = [
             {t:'S', x:7, y:36, r:0},
             {t:'I', x:8, y:33, r:1}
         ],
-        // 条件: ホールド含めた直近8ミノのうち、OがSより速い
+// 修正後
         trigger: (board, queue, hold) => {
+            if (hold !== 'L') return false;
+            const checkQueue = queue.slice(0, 7);
+            const qCounts = {};
+            for (const m of checkQueue) {
+                if (qCounts[m]) return false;
+                qCounts[m] = true;
+            }
+
             // 1. ミノ列の取得 (Hold + Queueから計8個分)
             const minos = [];
             if (hold) minos.push(hold);
@@ -2115,7 +2178,7 @@ const TEMPLATES = [
             const sIndex = minos.indexOf('S');
             const iIndex = minos.indexOf('I');
             return oIndex !== -1 && sIndex !== -1 && iIndex !== -1 && oIndex < sIndex && oIndex < iIndex;
-        }
+}
     }
 ];
 
