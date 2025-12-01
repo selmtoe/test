@@ -3759,16 +3759,16 @@ function generateDefaultLayout() {
     // PLAYER_CANVAS_WIDTH
 
     const createPlayerLayout = (offsetX) => ({
-        board: { x: offsetX + (5 * blockSize + 20), y: 0.5 * blockSize }, // PLAYFIELD_X_OFFSET, 0.5 offset
-        hold: { x: offsetX + (5 * blockSize / 2), y: 70 }, // HOLD_AREA_WIDTH / 2, approximate Y
+        board: { x: offsetX + (5 * blockSize + 20), y: 0.5 * blockSize },
+        hold: { x: offsetX + (5 * blockSize / 2), y: 70 },
         next: Array.from({ length: 8 }).map((_, i) => ({
                     x: offsetX + 
-(5 * blockSize + 20 + 10 * blockSize + 20 + 5 * blockSize / 2), // Next area center
+(5 * blockSize + 20 + 10 * blockSize + 20 + 5 * blockSize / 2),
             y: 70 + (i * blockSize * 2.5)
         }))
     });
     return {
-        backgroundImage: null, // 画像URLまたはImageオブジェクト。設定されている場合、個別背景やUIラベルを描画しない
+        backgroundImage: null, // 設定されている場合、個別背景やUIラベルを描画しない
         blockSize: blockSize,
         uiBlockSize: blockSize,
         p1: createPlayerLayout(p1OriginX),
@@ -3793,10 +3793,12 @@ let gameSettings = {
     aiMoveDelay: 30,
     aiSdfDelay: 30,
     drawMoveDelay: 30,
-    aiTemplates: { meisou: true, sangaku_2: true },
-    debugEnabled: false, // デバッグ表示の切り替え (true: 表示, false: 非表示)
+        aiTemplates: { meisou: true, sangaku_2: true },
    
- layout: generateDefaultLayout() // レイアウト設定を追加
+    debugEnabled: false,
+    pieceForPieceMode: false,
+   
+ layout: generateDefaultLayout() 
 };
 const DRAW_SHAPE_MAP = {
     "1,0;2,0;3,0": { type: "I", rot: 0, offset: [0, 0] },
@@ -4023,6 +4025,7 @@ const status = debugDisplay.dataset.status || 'Waiting...';
     }
 
 reset() {
+        this.pieceCount = 0;
         this.linesClearedLastLock = 0;
         this.player = { x: 0, y: 0, pieceType: null, rotation: 0 };
 this.nextQueue = [];
@@ -4207,10 +4210,13 @@ return;
 
         if (this.isAi) {
             if (!this.isAiThinking) {
+                if (gameSettings.pieceForPieceMode && this.opponent && this.pieceCount >= this.opponent.pieceCount) {
+                    return;
+                }
                 this.requestAiMove();
-}
+            }
             return;
-}
+        }
 
         if (this.activeRuleHooks.onUpdate) {
             const playerStateProxy = {
@@ -4574,9 +4580,10 @@ this.ruleWorker.postMessage({
         this.finishLockPiece();
     }
     
-    finishLockPiece() {
+        finishLockPiece() {
+        this.pieceCount++;
         if (this.gameOver || this.gameClear) return;
-if (this.specialMoveText.length > 0) {
+        if (this.specialMoveText.length > 0) {
             this.specialMoveTextTimer = 1500;
 }
 
@@ -6127,11 +6134,29 @@ function populateAiSettingsTab() {
         
         const span = document.createElement('span');
         span.textContent = config.label;
-        
-        label.append(checkbox, span);
+                label.append(checkbox, span);
         item.appendChild(label);
         list.appendChild(item);
     });
+
+    const pfpItem = document.createElement('div');
+    pfpItem.className = 'setting-item';
+    pfpItem.style.cssText = 'margin-top:10px; border-top:1px solid var(--primary-color); padding-top:15px;';
+    
+    const pfpLabel = document.createElement('label');
+    const pfpCheckbox = document.createElement('input');
+    pfpCheckbox.type = 'checkbox';
+    pfpCheckbox.checked = !!gameSettings.pieceForPieceMode;
+    pfpCheckbox.onchange = e => {
+        gameSettings.pieceForPieceMode = e.target.checked;
+    };
+    
+    const pfpSpan = document.createElement('span');
+    pfpSpan.textContent = 'Piece For Piece (プレイヤーと同数まで待機)';
+    
+    pfpLabel.append(pfpCheckbox, pfpSpan);
+    pfpItem.appendChild(pfpLabel);
+    list.appendChild(pfpItem);
 }
 
 function populateLayoutSettingsTab() {
