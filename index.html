@@ -6054,8 +6054,6 @@ function populateKeyConfigTab(playerId) {
     }
 }
 
-
-
 function populateAiSettingsTab() {
     const list = document.getElementById('ai-settings-list');
     list.innerHTML = '';
@@ -6097,7 +6095,7 @@ function populateAiSettingsTab() {
         aiSdfDelay: { label: 'AI SDF (ms)', min: 0, max: 500, step: 1 }
     };
     
-    Object.keys(settingDetails).forEach(key => {
+        Object.keys(settingDetails).forEach(key => {
         const item = document.createElement('div');
         item.className = 'setting-item';
         const label = document.createElement('span');
@@ -6112,8 +6110,23 @@ function populateAiSettingsTab() {
                 item.append(label, input);
         list.appendChild(item);
     });
-
-    // ★テンプレート設定用のUIを追加★
+    const pfpItem = document.createElement('div');
+    pfpItem.className = 'setting-item';
+    
+    const pfpLabel = document.createElement('label');
+    const pfpCheckbox = document.createElement('input');
+    pfpCheckbox.type = 'checkbox';
+    pfpCheckbox.checked = !!gameSettings.pieceForPieceMode;
+    pfpCheckbox.onchange = e => {
+        gameSettings.pieceForPieceMode = e.target.checked;
+    };
+    
+    const pfpSpan = document.createElement('span');
+    pfpSpan.textContent = 'Piece For Piece';
+    
+    pfpLabel.append(pfpCheckbox, pfpSpan);
+    pfpItem.appendChild(pfpLabel);
+    list.appendChild(pfpItem);
     const tempHeader = document.createElement('div');
     tempHeader.className = 'setting-item';
     tempHeader.style.cssText = 'margin-top:20px; border-top:1px solid var(--primary-color); padding-top:15px; font-weight:bold;';
@@ -6134,29 +6147,10 @@ function populateAiSettingsTab() {
         
         const span = document.createElement('span');
         span.textContent = config.label;
-                label.append(checkbox, span);
+        label.append(checkbox, span);
         item.appendChild(label);
         list.appendChild(item);
     });
-
-    const pfpItem = document.createElement('div');
-    pfpItem.className = 'setting-item';
-    pfpItem.style.cssText = 'margin-top:10px; border-top:1px solid var(--primary-color); padding-top:15px;';
-    
-    const pfpLabel = document.createElement('label');
-    const pfpCheckbox = document.createElement('input');
-    pfpCheckbox.type = 'checkbox';
-    pfpCheckbox.checked = !!gameSettings.pieceForPieceMode;
-    pfpCheckbox.onchange = e => {
-        gameSettings.pieceForPieceMode = e.target.checked;
-    };
-    
-    const pfpSpan = document.createElement('span');
-    pfpSpan.textContent = 'Piece For Piece';
-    
-    pfpLabel.append(pfpCheckbox, pfpSpan);
-    pfpItem.appendChild(pfpLabel);
-    list.appendChild(pfpItem);
 }
 
 function populateLayoutSettingsTab() {
