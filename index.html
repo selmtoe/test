@@ -6069,7 +6069,7 @@ function populateAiSettingsTab() {
 
     selectType.innerHTML = `
         <option value="simplified" selected>Cold Clear (一部改変)</option>
-        <option value="default">Cold Clear (弱体化)</option>
+        <option value="default">Cold Clear (旧弱体化版・テンプレ非対応)</option>
     `;
 
     selectType.onchange = (e) => {
@@ -6110,7 +6110,7 @@ function populateAiSettingsTab() {
     const tempHeader = document.createElement('div');
     tempHeader.className = 'setting-item';
     tempHeader.style.cssText = 'margin-top:20px; border-top:1px solid var(--primary-color); padding-top:15px; font-weight:bold;';
-    tempHeader.textContent = '使用するテンプレ(Simplifiedのみ)';
+    tempHeader.textContent = '使用するテンプレ';
     list.appendChild(tempHeader);
 
     AI_TEMPLATE_CONFIG.forEach(config => {
