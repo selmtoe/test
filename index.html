@@ -2248,9 +2248,11 @@ class StandardWeights {
         this.perfect_clear = 999;
         this.combo_garbage = 150;
         this.wasted_t = -152;
+        this.soft_drop = -2000;
         this.COMBO_GARBAGE = [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5];
     }
 }
+
 
 class TetrisBoard {
     constructor(baseBoard = null) {
@@ -2651,7 +2653,16 @@ function findLegalMoves(gameBoard, minoType, spawnX, spawnY, spawnRot) {
             if (!lfg_equals(reachable[r], nextReachable[r])) { changed = true; break; }
         }
         reachable = nextReachable;
-        if (!changed || iteration > (WIDTH * BOARD_HEIGHT)) break;
+                if (!changed || iteration > (WIDTH * BOARD_HEIGHT)) break;
+    }
+
+    const hard_drop_reachable = [lfg_create(), lfg_create(), lfg_create(), lfg_create()];
+    for (let r = 0; r < 4; r++) {
+        let runningMask = LFG_FULL_WIDTH_MASK;
+        for (let y = 0; y < BOARD_HEIGHT; y++) {
+            runningMask &= precomputed[r][y];
+            hard_drop_reachable[r][y] = runningMask & reachable[r][y];
+        }
     }
 
     const landed = [lfg_create(), lfg_create(), lfg_create(), lfg_create()];
@@ -2691,7 +2702,7 @@ function findLegalMoves(gameBoard, minoType, spawnX, spawnY, spawnRot) {
             }
         }
     }
-    return { reachable, landed, landed_tspin };
+    return { reachable, landed, landed_tspin, hard_drop_reachable };
 }
 
 class AIAgent {
@@ -3005,7 +3016,9 @@ class AIAgent {
                 else if (placementResult.linesCleared === 4) acc_eval += weights.clear4;
             }
         }
-        if (placementResult.wastedT) acc_eval += weights.wasted_t;
+                if (placementResult.wastedT) acc_eval += weights.wasted_t;
+        if (node.place && node.place.isSoftDrop) acc_eval += weights.soft_drop;
+
         // --- Template Bonus ---
         if (this.activeTemplate && node.place) {
             const p = node.place;
@@ -3238,15 +3251,19 @@ class AIAgent {
         const boardHash = board.getHash();
         const cacheKey = pieceType + ':' + boardHash;
 
-        if (lfgCache.has(cacheKey)) return lfgCache.get(cacheKey);
+                if (lfgCache.has(cacheKey)) return lfgCache.get(cacheKey);
 
         const placements = [];
-        const { landed, landed_tspin } = findLegalMoves(board, pieceType, SPAWN_X, SPAWN_Y, SPAWN_ROT);
+        const { landed, landed_tspin, hard_drop_reachable } = findLegalMoves(board, pieceType, SPAWN_X, SPAWN_Y, SPAWN_ROT);
         for (let r = 0; r < 4; r++) {
             if (lfg_isEmpty(landed[r])) continue;
             for (let y = 0; y < BOARD_HEIGHT; y++) {
                 for (let x = 0; x < WIDTH; x++) {
-                    if (lfg_get(landed[r], x, y)) placements.push(new Placement(x, y, r, pieceType, false, false));
+                    if (lfg_get(landed[r], x, y)) {
+                        const p = new Placement(x, y, r, pieceType, false, false);
+                        if (!lfg_get(hard_drop_reachable[r], x, y)) p.isSoftDrop = true;
+                        placements.push(p);
+                    }
                 }
             }
         }
@@ -3254,7 +3271,11 @@ class AIAgent {
             if (lfg_isEmpty(landed_tspin[r])) continue;
             for (let y = 0; y < BOARD_HEIGHT; y++) {
                 for (let x = 0; x < WIDTH; x++) {
-                    if (lfg_get(landed_tspin[r], x, y)) placements.push(new Placement(x, y, r, pieceType, true, false));
+                    if (lfg_get(landed_tspin[r], x, y)) {
+                        const p = new Placement(x, y, r, pieceType, true, false);
+                        if (!lfg_get(hard_drop_reachable[r], x, y)) p.isSoftDrop = true;
+                        placements.push(p);
+                    }
                 }
             }
         }
