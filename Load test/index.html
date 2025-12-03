@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>テトリス盤面認識＆可視化</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <style>
+        body { font-family: sans-serif; display: flex; gap: 20px; }
+        .container { text-align: center; }
+        #output { white-space: pre; background: #f0f0f0; padding: 10px; text-align: left; font-size: 12px;}
+        canvas { border: 2px solid #333; background-color: #000; }
+        button { padding: 10px 20px; font-size: 16px; margin: 10px 0; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h3>入力画像</h3>
+        <img id="target-image" src="test_board.png" width="200" height="400" alt="解析対象">
+        <br>
+        <button onclick="predict()">解析スタート</button>
+    </div>
+
+    <div class="container">
+        <h3>認識結果 (可視化)</h3>
+        <canvas id="result-canvas" width="200" height="400"></canvas>
+    </div>
+
+    <div class="container">
+        <h3>認識結果 (JSON)</h3>
+        <div id="output">待機中...</div>
+    </div>
+
+    <script>
+        // --- 設定 ---
+        const CLASS_NAMES = ['null', 'G', 'S', 'Z', 'L', 'J', 'O', 'I', 'T'];
+        
+        // ミノの色定義 (一般的なテトリスの配色)
+        const MINO_COLORS = {
+            'null': null,      // 空白
+            'G': '#808080',    // おじゃま (グレー)
+            'S': '#00ff00',    // S (緑)
+            'Z': '#ff0000',    // Z (赤)
+            'L': '#ffa500',    // L (オレンジ)
+            'J': '#0000ff',    // J (青)
+            'O': '#ffff00',    // O (黄色)
+            'I': '#00ffff',    // I (水色)
+            'T': '#800080'     // T (紫)
+        };
+
+        let model;
+
+        // モデルのロード
+        async function loadModel() {
+            try {
+                // model.json と shardファイル群は同じフォルダに置いてください
+                model = await tf.loadLayersModel('./tfjs_model/model.json');
+                console.log("モデル読み込み完了");
+                document.getElementById('output').textContent = "モデル準備完了。解析ボタンを押してください。";
+            } catch (e) {
+                console.error(e);
+                document.getElementById('output').textContent = "モデル読み込みエラー: " + e.message;
+            }
+        }
+
+        loadModel();
+
+        async function predict() {
+            if (!model) {
+                alert("モデルを読み込み中です...");
+                return;
+            }
+
+            const imgElement = document.getElementById('target-image');
+            document.getElementById('output').textContent = "解析中...";
+
+            // 1. 画像の前処理
+            const tensor = tf.tidy(() => {
+                let img = tf.browser.fromPixels(imgElement);
+                // Python側の学習サイズに合わせる (幅100, 高さ200)
+                img = tf.image.resizeBilinear(img, [200, 100]); 
+                img = img.div(tf.scalar(255.0));
+                return img.expandDims(0);
+            });
+
+            // 2. 推論
+            const prediction = model.predict(tensor);
+            const resultIndices = prediction.argMax(-1); // 最も高い確率のインデックスを取得
+            const dataArray = await resultIndices.array();
+            const resultMatrix = dataArray[0]; // [20, 10] の配列
+
+            // 3. データの整形 (数値 -> 文字列)
+            const finalOutput = resultMatrix.map(row => {
+                return row.map(index => {
+                    const name = CLASS_NAMES[index];
+                    return name === 'null' ? null : name;
+                });
+            });
+
+            // 4. JSON表示
+            document.getElementById('output').textContent = JSON.stringify(finalOutput, null, 2);
+
+            // 5. キャンバスへの描画実行
+            drawBoard(finalOutput);
+
+            // メモリ解放
+            tensor.dispose();
+            prediction.dispose();
+            resultIndices.dispose();
+        }
+
+        // --- 描画関数 ---
+        function drawBoard(boardData) {
+            const canvas = document.getElementById('result-canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 盤面のサイズ設定
+            const rows = 20;
+            const cols = 10;
+            const blockW = canvas.width / cols;  // 1ブロックの幅
+            const blockH = canvas.height / rows; // 1ブロックの高さ
+
+            // 一旦黒でクリア
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // グリッド線を描く設定
+            ctx.strokeStyle = '#333333';
+            ctx.lineWidth = 1;
+
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    const minoType = boardData[y][x];
+                    const color = MINO_COLORS[minoType];
+
+                    const px = x * blockW;
+                    const py = y * blockH;
+
+                    if (color) {
+                        // ミノがある場合：塗りつぶし
+                        ctx.fillStyle = color;
+                        ctx.fillRect(px, py, blockW, blockH);
+                        
+                        // ブロックの枠線を少し明るく描く（立体的っぽく）
+                        ctx.strokeRect(px, py, blockW, blockH);
+                    } else {
+                        // nullの場合：グリッド線だけ描く
+                        ctx.strokeRect(px, py, blockW, blockH);
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>
