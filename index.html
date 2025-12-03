@@ -4574,6 +4574,17 @@ this.specialMoveText.push("PERFECT CLEAR");
             this.stats.ren = -1;
         }
         if (moveText) this.specialMoveText.push(moveText);
+
+        if (gameStartTime > 0) {
+            analysisData.push({
+                time: performance.now() - gameStartTime,
+                type: 'action',
+                playerId: this.id,
+                attack: attack,
+                lines: lines
+            });
+        }
+
         if (this.opponent && attack > 0) {
             let remainingAttack = attack;
             // 相殺量の計算と記録
@@ -8133,110 +8144,187 @@ if (confirm('リンクの生成に失敗しました。データが長すぎる�
     // 分析機能の実装
     document.getElementById('analyzeBtn').addEventListener('click', () => {
         const modal = document.getElementById('analysis-modal');
-        const canvas = document.getElementById('analysisCanvas');
         const statsDiv = document.getElementById('analysis-stats');
-        
         modal.style.display = 'flex';
-        
-        // コンテナのサイズに合わせてキャンバスサイズを設定
+
         const container = document.getElementById('analysis-canvas-container');
-        canvas.width = container.clientWidth;
-        canvas.height = container.clientHeight;
-        
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
+        container.innerHTML = '';
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+        container.style.gap = '10px';
+
+        const canvas1 = document.createElement('canvas');
+        canvas1.style.flex = '1'; canvas1.style.width = '100%'; canvas1.style.backgroundColor = '#0f0f18'; canvas1.style.border = '1px solid #4b4b7c';
+        const canvas2 = document.createElement('canvas');
+        canvas2.style.flex = '1'; canvas2.style.width = '100%'; canvas2.style.backgroundColor = '#0f0f18'; canvas2.style.border = '1px solid #4b4b7c';
+        container.appendChild(canvas1);
+        container.appendChild(canvas2);
+
+        // Resize logic
+        canvas1.width = container.clientWidth; canvas1.height = container.clientHeight / 2 - 10;
+        canvas2.width = container.clientWidth; canvas2.height = container.clientHeight / 2 - 10;
+
+        const ctx1 = canvas1.getContext('2d');
+        const ctx2 = canvas2.getContext('2d');
+
         if (analysisData.length === 0) {
-            ctx.fillStyle = 'white'; ctx.font = '20px sans-serif'; ctx.textAlign = 'center';
-            ctx.fillText('データがありません', canvas.width/2, canvas.height/2);
+            statsDiv.innerHTML = 'データがありません';
             return;
         }
 
         const resources = analysisData.filter(d => d.type === 'resource');
-        const offsets = analysisData.filter(d => d.type === 'offset');
-        
+        const actions = analysisData.filter(d => d.type === 'action');
         if (resources.length === 0) return;
 
         const maxTime = resources[resources.length - 1].time;
-        // リソース(ブロック数)の最大値 (通常200ブロック=全埋まり、余裕を見て)
-        const maxR = 200; 
         
-        const padding = 40;
-        const w = canvas.width - padding * 2;
-        const h = canvas.height - padding * 2;
-        
-        // 座標変換関数
-        const toX = (t) => padding + (t / maxTime) * w;
-        const toY = (r) => canvas.height - padding - (r / maxR) * h;
+        // --- 共通描画関数 ---
+        const drawGrid = (ctx, w, h, maxY, xLabelFunc, yLabelFunc, padding = 40) => {
+            const drawW = w - padding * 2;
+            const drawH = h - padding * 2;
+            ctx.strokeStyle = '#4b4b7c'; ctx.lineWidth = 1; ctx.beginPath();
+            ctx.moveTo(padding, h - padding); ctx.lineTo(w - padding, h - padding); // X
+            ctx.moveTo(padding, h - padding); ctx.lineTo(padding, padding); // Y
+            ctx.stroke();
 
-        // グリッドと軸の描画
-        ctx.strokeStyle = '#444'; ctx.lineWidth = 1; ctx.beginPath();
-        // 横軸 (時間)
-        ctx.moveTo(padding, canvas.height - padding); ctx.lineTo(canvas.width - padding, canvas.height - padding);
-        // 縦軸 (リソース量)
-        ctx.moveTo(padding, canvas.height - padding); ctx.lineTo(padding, padding);
-        ctx.stroke();
+            ctx.fillStyle = '#e0e0e0'; ctx.font = '10px "Noto Sans JP", sans-serif'; ctx.textAlign = 'right';
+            const yStep = maxY / 5;
+            for(let v = 0; v <= maxY; v += yStep) {
+                const y = h - padding - (v / maxY) * drawH;
+                ctx.fillText(yLabelFunc ? yLabelFunc(v) : v.toFixed(1), padding - 5, y + 3);
+                ctx.strokeStyle = '#333'; ctx.beginPath(); ctx.moveTo(padding, y); ctx.lineTo(w - padding, y); ctx.stroke();
+            }
+            ctx.textAlign = 'center';
+            for(let t = 0; t <= maxTime; t += 10000) {
+                const x = padding + (t / maxTime) * drawW;
+                ctx.fillText(Math.floor(t / 1000) + 's', x, h - padding + 15);
+            }
+            return { drawW, drawH, padding };
+        };
+
+        // --- Graph 1: Resources ---
+        const maxR = 200;
+        const layout1 = drawGrid(ctx1, canvas1.width, canvas1.height, maxR, null, (v) => Math.round(v));
         
-        ctx.fillStyle = '#888'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
-        for(let r=0; r<=maxR; r+=20) {
-            ctx.fillText(r, padding - 5, toY(r) + 3);
-            ctx.strokeStyle = '#333'; ctx.beginPath(); ctx.moveTo(padding, toY(r)); ctx.lineTo(canvas.width-padding, toY(r)); ctx.stroke();
-        }
-        ctx.textAlign = 'center';
-        for(let t=0; t<=maxTime; t+=10000) {
-            ctx.fillText(Math.floor(t/1000)+'s', toX(t), canvas.height - padding + 15);
+        // Title
+        ctx1.fillStyle = '#e0e0e0'; ctx1.font = '14px "Noto Sans JP", sans-serif'; ctx1.textAlign = 'left';
+        ctx1.fillText('リソース推移 (ブロック数)', layout1.padding, 20);
+
+        const plot = (ctx, data, valueKey, color, layout, maxY) => {
+            ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+            let first = true;
+            for (const d of data) {
+                const x = layout.padding + (d.time / maxTime) * layout.drawW;
+                const y = canvas1.height - layout.padding - (d[valueKey] / maxY) * layout.drawH;
+                if (first) { ctx.moveTo(x, y); first = false; } else { ctx.lineTo(x, y); }
+            }
+            ctx.stroke();
+        };
+
+        plot(ctx1, resources, 'p1_R', '#ff4444', layout1, maxR);
+        if (gameMode === '2P') {
+            plot(ctx1, resources, 'p2_R', '#4444ff', layout1, maxR);
+            ctx1.strokeStyle = '#44ff44'; ctx1.lineWidth = 1; ctx1.setLineDash([5, 5]); ctx1.beginPath();
+            let first = true;
+            for (const d of resources) {
+                const x = layout1.padding + (d.time / maxTime) * layout1.drawW;
+                const y = canvas1.height - layout1.padding - ((d.p1_R + d.p2_R) / maxR) * layout1.drawH;
+                if (first) { ctx1.moveTo(x, y); first = false; } else { ctx1.lineTo(x, y); }
+            }
+            ctx1.stroke(); ctx1.setLineDash([]);
         }
 
-        // P1 Resource (赤)
-        ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 2; ctx.beginPath();
+        // --- Graph 2: APL (Moving Average) ---
+        const layout2 = drawGrid(ctx2, canvas2.width, canvas2.height, 3.0, null, (v) => v.toFixed(1));
+        ctx2.fillStyle = '#e0e0e0'; ctx2.font = '14px "Noto Sans JP", sans-serif'; ctx2.textAlign = 'left';
+        ctx2.fillText('APL推移 (直近10回の移動平均)', layout2.padding, 20);
+
+        // APL=1.0 line
+        const y1 = canvas2.height - layout2.padding - (1.0 / 3.0) * layout2.drawH;
+        ctx2.strokeStyle = '#ffff00'; ctx2.lineWidth = 1; ctx2.setLineDash([2, 2]); 
+        ctx2.beginPath(); ctx2.moveTo(layout2.padding, y1); ctx2.lineTo(canvas2.width - layout2.padding, y1); ctx2.stroke(); ctx2.setLineDash([]);
+
+        const calculateMovingAvgAPL = (pId) => {
+            const pActions = actions.filter(a => a.playerId === pId && a.lines > 0);
+            const points = [];
+            const windowSize = 10;
+            for(let i = 0; i < pActions.length; i++) {
+                let sumAtk = 0; let sumLines = 0;
+                for(let j = Math.max(0, i - windowSize + 1); j <= i; j++) {
+                    sumAtk += pActions[j].attack;
+                    sumLines += pActions[j].lines;
+                }
+                if (sumLines > 0) points.push({ time: pActions[i].time, apl: sumAtk / sumLines });
+            }
+            return points;
+        };
+
+        const p1APL = calculateMovingAvgAPL('1');
+        ctx2.strokeStyle = '#ff4444'; ctx2.lineWidth = 2; ctx2.beginPath();
         let first = true;
-        for (const d of resources) {
-            if (first) { ctx.moveTo(toX(d.time), toY(d.p1_R)); first = false; }
-            else { ctx.lineTo(toX(d.time), toY(d.p1_R)); }
+        for (const d of p1APL) {
+            const x = layout2.padding + (d.time / maxTime) * layout2.drawW;
+            const y = canvas2.height - layout2.padding - (Math.min(3.0, d.apl) / 3.0) * layout2.drawH;
+            if (first) { ctx2.moveTo(x, y); first = false; } else { ctx2.lineTo(x, y); }
         }
-        ctx.stroke();
+        ctx2.stroke();
 
-        // P2 Resource (青) - 2Pモード時のみ
         if (gameMode === '2P') {
-            ctx.strokeStyle = '#4444ff'; ctx.lineWidth = 2; ctx.beginPath();
+            const p2APL = calculateMovingAvgAPL('2');
+            ctx2.strokeStyle = '#4444ff'; ctx2.lineWidth = 2; ctx2.beginPath();
             first = true;
-            for (const d of resources) {
-                if (first) { ctx.moveTo(toX(d.time), toY(d.p2_R)); first = false; }
-                else { ctx.lineTo(toX(d.time), toY(d.p2_R)); }
+            for (const d of p2APL) {
+                const x = layout2.padding + (d.time / maxTime) * layout2.drawW;
+                const y = canvas2.height - layout2.padding - (Math.min(3.0, d.apl) / 3.0) * layout2.drawH;
+                if (first) { ctx2.moveTo(x, y); first = false; } else { ctx2.lineTo(x, y); }
             }
-            ctx.stroke();
-            
-            // 合計リソース R_total (緑)
-            ctx.strokeStyle = '#44ff44'; ctx.lineWidth = 1; ctx.setLineDash([5, 5]); ctx.beginPath();
-            first = true;
-            for (const d of resources) {
-                if (first) { ctx.moveTo(toX(d.time), toY(d.p1_R + d.p2_R)); first = false; }
-                else { ctx.lineTo(toX(d.time), toY(d.p1_R + d.p2_R)); }
-            }
-            ctx.stroke();
-            ctx.setLineDash([]);
+            ctx2.stroke();
         }
 
-        // 相殺イベント (黄色い縦線)
-        ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)'; ctx.lineWidth = 1;
-        for (const o of offsets) {
-            const x = toX(o.time);
-            ctx.beginPath(); ctx.moveTo(x, canvas.height - padding); ctx.lineTo(x, padding); ctx.stroke();
-            // 相殺量(ライン数)を表示したければここに描画
-        }
+        // --- Statistics ---
+        const calcStats = (pId) => {
+            const pActs = actions.filter(a => a.playerId === pId);
+            const totalLines = pActs.reduce((s, a) => s + a.lines, 0);
+            const totalAttack = pActs.reduce((s, a) => s + a.attack, 0);
+            const pps = pActs.length / (maxTime / 1000);
+            const apm = totalAttack / (maxTime / 60000);
+            const avgApl = totalLines > 0 ? totalAttack / totalLines : 0;
+            return { pps, apm, avgApl };
+        };
 
-        // 統計情報の表示
-        let totalOffsetLines = offsets.reduce((sum, o) => sum + o.amount, 0);
-        let avgR1 = resources.reduce((sum, r) => sum + r.p1_R, 0) / resources.length;
-        let avgR2 = resources.reduce((sum, r) => sum + r.p2_R, 0) / resources.length;
+        const s1 = calcStats('1');
+        const totalResources = resources.map(r => r.p1_R + (gameMode === '2P' ? r.p2_R : 0));
+        const avgTotalRes = totalResources.reduce((a, b) => a + b, 0) / totalResources.length;
         
-        let html = `<div>経過時間: ${(maxTime/1000).toFixed(1)}s</div>`;
-        html += `<div><span style="color:#ff4444">■</span> P1平均R: ${avgR1.toFixed(1)}</div>`;
-        if (gameMode === '2P') {
-            html += `<div><span style="color:#4444ff">■</span> P2平均R: ${avgR2.toFixed(1)}</div>`;
-            html += `<div><span style="color:#44ff44">--</span> 平均R_total: ${(avgR1+avgR2).toFixed(1)}</div>`;
-            html += `<div><span style="color:yellow">|</span> 総相殺ライン: ${totalOffsetLines} (消滅R: ${totalOffsetLines * 20})</div>`;
+        let highToLow = 0; let highCount = 0;
+        let lowToHigh = 0; let lowCount = 0;
+        for(let i = 0; i < totalResources.length - 5; i++) {
+            const current = totalResources[i];
+            const future = totalResources[i+5]; // 1 sec later (approx)
+            if (current > avgTotalRes + 10) {
+                highCount++;
+                if (future < current) highToLow++;
+            } else if (current < avgTotalRes - 10) {
+                lowCount++;
+                if (future > current) lowToHigh++;
+            }
         }
+        const decreaseRate = highCount > 0 ? (highToLow / highCount * 100) : 0;
+        const increaseRate = lowCount > 0 ? (lowToHigh / lowCount * 100) : 0;
+
+        let html = `<div style="display:flex; flex-wrap:wrap; gap:15px; justify-content:center;">`;
+        const cardStyle = 'background:rgba(255,255,255,0.05); padding:10px; border-radius:5px; border:1px solid #4b4b7c;';
+        
+        html += `<div style="${cardStyle}"><h4 style="margin:0 0 5px 0; color:#ff4444;">Player 1</h4>PPS: ${s1.pps.toFixed(2)}<br>APM: ${s1.apm.toFixed(1)}<br>Avg APL: ${s1.avgApl.toFixed(2)}</div>`;
+        
+        if (gameMode === '2P') {
+            const s2 = calcStats('2');
+            html += `<div style="${cardStyle}"><h4 style="margin:0 0 5px 0; color:#4444ff;">Player 2</h4>PPS: ${s2.pps.toFixed(2)}<br>APM: ${s2.apm.toFixed(1)}<br>Avg APL: ${s2.avgApl.toFixed(2)}</div>`;
+        }
+
+        html += `<div style="${cardStyle}"><h4 style="margin:0 0 5px 0; color:#44ff44;">理論検証 (総リソース)</h4>平均値(収束点): ${avgTotalRes.toFixed(1)}<br>高リソース時減少率: ${decreaseRate.toFixed(1)}%<br>低リソース時増加率: ${increaseRate.toFixed(1)}%</div>`;
+        html += `</div>`;
+        
         statsDiv.innerHTML = html;
     });
 
