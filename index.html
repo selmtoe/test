@@ -4060,7 +4060,7 @@ reset() {
         this.pieceCount = 0;
         this.linesClearedLastLock = 0;
         this.player = { x: 0, y: 0, pieceType: null, rotation: 0 };
-this.nextQueue = [];
+        this.nextQueue = [];
         this.fullMinoSequence = [];
         for (let i = 0; i < gameSettings.maxNext; i++) {
             const newMino = this.minoGenerator.next().value;
@@ -4071,8 +4071,8 @@ this.nextQueue = [];
         this.drawnBlocks.clear();
         this.isDrawingOnBoard = false;
         this.customGhosts = [];
-this.holdPiece = this.initialHold;this.canHold = true;
-this.gravityTimer = gameSettings.gravity; this.lockTimer = 0;
+        this.holdPiece = this.initialHold;this.canHold = true;
+        this.gravityTimer = gameSettings.gravity; this.lockTimer = 0;
 
         this.dasTimer = 0; this.arrTimer = 0; this.sdfTimer = 0; this.dasDirection = 0;
         this.isGrounded = false; this.gameOver = false; this.isClearingLine = false; this.lineClearDelayTimer = 0;
@@ -4081,9 +4081,10 @@ this.gravityTimer = gameSettings.gravity; this.lockTimer = 0;
         this.stats = {
             tSpinSingle: 0, tSpinDouble: 0, tSpinTriple: 0,
             miniTSpinSingle: 0, miniTSpinDouble: 0,
-            perfectClear: 0, tetris: 0, ren: -1
+            perfectClear: 0, tetris: 0, ren: -1,
+            totalAttackSent: 0,
+            totalGarbageReceived: 0
         };
-
         this.viewY = BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT;
         this.pendingGarbage = 0;this.garbageQueue = []; this.ren = -1; this.isB2B = false;
         this.lastMoveWasRotation = false;
@@ -4566,8 +4567,9 @@ this.specialMoveText.push("PERFECT CLEAR");
             isAction = false; 
             this.ren = -1;
             this.isB2B = false; 
-            moveText = (tspinResult === 'MINI_TSPIN') ? 'T-Spin Mini' : 'T-Spin';
+                        moveText = (tspinResult === 'MINI_TSPIN') ? 'T-Spin Mini' : 'T-Spin';
         }
+        this.stats.totalAttackSent += attack;
         
         if (!isAction) {
             this.ren = -1;
@@ -4727,11 +4729,11 @@ if (this.linesClearedLastLock > 0) { this.isClearingLine = true; this.lineClearD
             newBoard.unshift(Array(BOARD_WIDTH).fill(null));
         }
         this.board = newBoard;
-
         return clearedCount;
-    }
-    addGarbage(lines) { if (this.opponent) { this.garbageQueue.push({ lines, receivedTime: performance.now() });} }
-    processGarbageQueue() { const now = performance.now(); for (let i = this.garbageQueue.length - 1; i >= 0; i--) { if (now - this.garbageQueue[i].receivedTime > gameSettings.garbageGrace) { this.pendingGarbage += this.garbageQueue[i].lines; this.garbageQueue.splice(i, 1); } } }
+        }
+    addGarbage(lines) { this.stats.totalGarbageReceived += lines; if (this.opponent) { this.garbageQueue.push({ lines, receivedTime: performance.now() });} }
+    processGarbageQueue() { const now = performance.now();
+        for (let i = this.garbageQueue.length - 1; i >= 0; i--) { if (now - this.garbageQueue[i].receivedTime > gameSettings.garbageGrace) { this.pendingGarbage += this.garbageQueue[i].lines;this.garbageQueue.splice(i, 1); } } }
     
     riseGarbage() {
         if (this.pendingGarbage <= 0) return;
@@ -4821,6 +4823,16 @@ if (this.linesClearedLastLock > 0) { this.isClearingLine = true; this.lineClearD
                 ctx.fillStyle = 'yellow';
                 ctx.fillRect(meterX, layout.board.y + meterMaxHeight - pendingHeight - queuedHeight, meterWidth, queuedHeight);
             }
+        }
+
+        if (!useCustomBG) {
+            const elapsedMin = (performance.now() - gameStartTime) / 60000;
+            const apm = elapsedMin > 0 ? (this.stats.totalAttackSent / elapsedMin).toFixed(1) : "0.0";
+            const eapm = (this.opponent && elapsedMin > 0) ? (this.opponent.stats.totalGarbageReceived / elapsedMin).toFixed(1) : "0.0";
+            ctx.fillStyle = '#FFF';
+            ctx.font = `bold ${bSize * 0.5}px "Orbitron"`;
+            ctx.fillText(`APM: ${apm}`, layout.hold.x, layout.hold.y + bSize * 5);
+            ctx.fillText(`E-APM: ${eapm}`, layout.hold.x, layout.hold.y + bSize * 6);
         }
 
         // Custom UI Text
@@ -8322,7 +8334,7 @@ if (confirm('リンクの生成に失敗しました。データが長すぎる�
             html += `<div style="${cardStyle}"><h4 style="margin:0 0 5px 0; color:#4444ff;">Player 2</h4>PPS: ${s2.pps.toFixed(2)}<br>APM: ${s2.apm.toFixed(1)}<br>Avg APL: ${s2.avgApl.toFixed(2)}</div>`;
         }
 
-        html += `<div style="${cardStyle}"><h4 style="margin:0 0 5px 0; color:#44ff44;">理論検証 (総リソース)</h4>平均値(収束点): ${avgTotalRes.toFixed(1)}<br>高リソース時減少率: ${decreaseRate.toFixed(1)}%<br>低リソース時増加率: ${increaseRate.toFixed(1)}%</div>`;
+        html += `<div style="${cardStyle}"><h4 style="margin:0 0 5px 0; color:#44ff44;">総リソース</h4>平均値(収束点): ${avgTotalRes.toFixed(1)}<br>高リソース時減少率: ${decreaseRate.toFixed(1)}%<br>低リソース時増加率: ${increaseRate.toFixed(1)}%</div>`;
         html += `</div>`;
         
         statsDiv.innerHTML = html;
