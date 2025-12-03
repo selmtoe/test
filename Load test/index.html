@@ -54,7 +54,7 @@
         async function loadModel() {
             try {
                 // model.json と shardファイル群は同じフォルダに置いてください
-                model = await tf.loadLayersModel('./tfjs_model/model.json');
+                model = await tf.loadLayersModel('./model.json');
                 console.log("モデル読み込み完了");
                 document.getElementById('output').textContent = "モデル準備完了。解析ボタンを押してください。";
             } catch (e) {
