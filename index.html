@@ -226,7 +226,6 @@
     to { opacity: 1; }
 }
 
-/* デバッグコンソール用のスタイル追加 */
 #debug-console-overlay {
     position: fixed; top: 0;
     left: 0; width: 100%; height: 200px;
@@ -236,6 +235,24 @@
     /* クリックを下の要素に通す */
     white-space: pre-wrap; padding: 10px; border-bottom: 2px solid red;
     display: none;
+}
+#analysis-modal {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background-color: rgba(0, 0, 0, 0.9);
+    display: none; justify-content: center; align-items: center; z-index: 250;
+}
+#analysis-content {
+    background-color: var(--bg-color); width: 95%; height: 90%;
+    padding: 20px; border-radius: 10px; border: 2px solid var(--primary-color);
+    display: flex; flex-direction: column;
+}
+#analysis-canvas-container {
+    flex: 1; position: relative; width: 100%; min-height: 0;
+    background-color: #000; border: 1px solid #444; margin-top: 10px;
+}
+#analysis-stats {
+    display: flex; gap: 20px; color: var(--font-color); font-family: monospace; font-size: 14px;
+    margin-bottom: 10px; flex-wrap: wrap;
 }
 </style>
 </head>
@@ -369,12 +386,25 @@ left: 10px; top: 150px;">
 
 <div id="game-controls" style="display: none;
 position: fixed; top: 10px; right: 10px; z-index: 160; gap: 10px;">
+     <button id="analyzeBtn" class="button" style="background-color: #a000f0;">分析</button>
      <button id="exportFumenBtn" class="button">記録</button>
      <button id="retryBtn" class="button">リトライ</button>
      <button id="gameSettingsBtn" class="button">設定</button>
      <button id="backToEditorBtn" class="button">戻る</button>
 </div>
 
+<div id="analysis-modal">
+    <div id="analysis-content">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h2>リソース理論検証・分析</h2>
+            <button id="analysis-close" class="button">閉じる</button>
+        </div>
+        <div id="analysis-stats"></div>
+        <div id="analysis-canvas-container">
+            <canvas id="analysisCanvas"></canvas>
+        </div>
+    </div>
+</div>
 
 <div id="virtual-controller-container">
 
@@ -3863,6 +3893,7 @@ const SRS_OFFSETS = { "JLSTZ": { "0_1": [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1,
 
 let players = [], gameMode = '1P', gameState = 'EDITING', lastTime = 0, mainCanvas, ctx, aiWorkerBlob, gameStartTime = 0;
 let gameHistoryLog = [];
+let analysisData = []; // { time, p1_R, p2_R, offsetLines }
 function updateAiDebugDisplay(payload) {
     const display = document.getElementById('ai-debug-display');
 
@@ -4025,6 +4056,7 @@ const status = debugDisplay.dataset.status || 'Waiting...';
     }
 
 reset() {
+        if (this.id === '1') analysisData = []; // P1リセット時に分析データも初期化
         this.pieceCount = 0;
         this.linesClearedLastLock = 0;
         this.player = { x: 0, y: 0, pieceType: null, rotation: 0 };
@@ -4542,16 +4574,29 @@ this.specialMoveText.push("PERFECT CLEAR");
             this.stats.ren = -1;
         }
         if (moveText) this.specialMoveText.push(moveText);
-
         if (this.opponent && attack > 0) {
             let remainingAttack = attack;
-                if (this.pendingGarbage > 0) { const offset = Math.min(this.pendingGarbage, remainingAttack);
-this.pendingGarbage -= offset; remainingAttack -= offset; }
+            // 相殺量の計算と記録
+            let offsetEvent = 0;
+            if (this.pendingGarbage > 0) { const offset = Math.min(this.pendingGarbage, remainingAttack);
+                offsetEvent += offset;
+this.pendingGarbage -= offset; remainingAttack -= offset;
+            }
                 if (remainingAttack > 0) { for (let i=0; i < this.garbageQueue.length && remainingAttack > 0; i++) { const offset = Math.min(this.garbageQueue[i].lines, remainingAttack);
-this.garbageQueue[i].lines -= offset; remainingAttack -= offset; } this.garbageQueue = this.garbageQueue.filter(g => g.lines > 0);
-}
+                offsetEvent += offset;
+                this.garbageQueue[i].lines -= offset; remainingAttack -= offset; } this.garbageQueue = this.garbageQueue.filter(g => g.lines > 0);
+            }
+            // 理論検証用データの記録（相殺が発生した瞬間）
+            if (offsetEvent > 0 && gameStartTime > 0) {
+                analysisData.push({
+                    time: performance.now() - gameStartTime,
+                    type: 'offset',
+                    amount: offsetEvent // ライン数 (理論上のリソース減少量は amount * 20)
+                });
+            }
+
                 if (remainingAttack > 0) { this.opponent.addGarbage(remainingAttack);
-}
+            }
 }
         
         if (this.activeRuleHooks.onPieceLock) {
@@ -6932,17 +6977,36 @@ function pollGamepads() {
 }
 
 
+let lastAnalysisSample = 0;
 function gameLoop(currentTime) {
     if (!ctx) return;
     pollGamepads();
     const dt = currentTime - lastTime;
     lastTime = currentTime;
-        ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+    ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
     if (gameState === 'PLAYING') {
         // ここにあった画像描画処理を削除しました
         
         players.forEach(p => p.update(dt || 0));
-players.forEach(p => p.draw());
+        players.forEach(p => p.draw());
+
+        // 分析用データサンプリング (約200ms毎)
+        if (currentTime - lastAnalysisSample > 200 && players.length > 0) {
+            const countBlocks = (board) => {
+                let c = 0;
+                for(let y=0; y<board.length; y++) for(let x=0; x<board[y].length; x++) if(board[y][x]!==null) c++;
+                return c;
+            };
+            const sample = {
+                time: currentTime - gameStartTime,
+                type: 'resource',
+                p1_R: countBlocks(players[0].board),
+                p2_R: players[1] ? countBlocks(players[1].board) : 0
+            };
+            analysisData.push(sample);
+            lastAnalysisSample = currentTime;
+        }
+
     } else if (gameState.startsWith('SCAN')) {
         drawScanner();
     }
@@ -8059,15 +8123,130 @@ if (confirm('リンクの生成に失敗しました。データが長すぎる�
                 
 
     .catch(err => {
-                        console.error('クリップボードへのコピーに失敗しました:', err);
+                                            console.error('クリップボードへのコピーに失敗しました:', err);
                         alert('クリップボードへのコピーに失敗しました。');
                     });
+            }
 }
-}
+    });
+
+    // 分析機能の実装
+    document.getElementById('analyzeBtn').addEventListener('click', () => {
+        const modal = document.getElementById('analysis-modal');
+        const canvas = document.getElementById('analysisCanvas');
+        const statsDiv = document.getElementById('analysis-stats');
+        
+        modal.style.display = 'flex';
+        
+        // コンテナのサイズに合わせてキャンバスサイズを設定
+        const container = document.getElementById('analysis-canvas-container');
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+        
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        if (analysisData.length === 0) {
+            ctx.fillStyle = 'white'; ctx.font = '20px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText('データがありません', canvas.width/2, canvas.height/2);
+            return;
+        }
+
+        const resources = analysisData.filter(d => d.type === 'resource');
+        const offsets = analysisData.filter(d => d.type === 'offset');
+        
+        if (resources.length === 0) return;
+
+        const maxTime = resources[resources.length - 1].time;
+        // リソース(ブロック数)の最大値 (通常200ブロック=全埋まり、余裕を見て)
+        const maxR = 200; 
+        
+        const padding = 40;
+        const w = canvas.width - padding * 2;
+        const h = canvas.height - padding * 2;
+        
+        // 座標変換関数
+        const toX = (t) => padding + (t / maxTime) * w;
+        const toY = (r) => canvas.height - padding - (r / maxR) * h;
+
+        // グリッドと軸の描画
+        ctx.strokeStyle = '#444'; ctx.lineWidth = 1; ctx.beginPath();
+        // 横軸 (時間)
+        ctx.moveTo(padding, canvas.height - padding); ctx.lineTo(canvas.width - padding, canvas.height - padding);
+        // 縦軸 (リソース量)
+        ctx.moveTo(padding, canvas.height - padding); ctx.lineTo(padding, padding);
+        ctx.stroke();
+        
+        ctx.fillStyle = '#888'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+        for(let r=0; r<=maxR; r+=20) {
+            ctx.fillText(r, padding - 5, toY(r) + 3);
+            ctx.strokeStyle = '#333'; ctx.beginPath(); ctx.moveTo(padding, toY(r)); ctx.lineTo(canvas.width-padding, toY(r)); ctx.stroke();
+        }
+        ctx.textAlign = 'center';
+        for(let t=0; t<=maxTime; t+=10000) {
+            ctx.fillText(Math.floor(t/1000)+'s', toX(t), canvas.height - padding + 15);
+        }
+
+        // P1 Resource (赤)
+        ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 2; ctx.beginPath();
+        let first = true;
+        for (const d of resources) {
+            if (first) { ctx.moveTo(toX(d.time), toY(d.p1_R)); first = false; }
+            else { ctx.lineTo(toX(d.time), toY(d.p1_R)); }
+        }
+        ctx.stroke();
+
+        // P2 Resource (青) - 2Pモード時のみ
+        if (gameMode === '2P') {
+            ctx.strokeStyle = '#4444ff'; ctx.lineWidth = 2; ctx.beginPath();
+            first = true;
+            for (const d of resources) {
+                if (first) { ctx.moveTo(toX(d.time), toY(d.p2_R)); first = false; }
+                else { ctx.lineTo(toX(d.time), toY(d.p2_R)); }
+            }
+            ctx.stroke();
+            
+            // 合計リソース R_total (緑)
+            ctx.strokeStyle = '#44ff44'; ctx.lineWidth = 1; ctx.setLineDash([5, 5]); ctx.beginPath();
+            first = true;
+            for (const d of resources) {
+                if (first) { ctx.moveTo(toX(d.time), toY(d.p1_R + d.p2_R)); first = false; }
+                else { ctx.lineTo(toX(d.time), toY(d.p1_R + d.p2_R)); }
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // 相殺イベント (黄色い縦線)
+        ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)'; ctx.lineWidth = 1;
+        for (const o of offsets) {
+            const x = toX(o.time);
+            ctx.beginPath(); ctx.moveTo(x, canvas.height - padding); ctx.lineTo(x, padding); ctx.stroke();
+            // 相殺量(ライン数)を表示したければここに描画
+        }
+
+        // 統計情報の表示
+        let totalOffsetLines = offsets.reduce((sum, o) => sum + o.amount, 0);
+        let avgR1 = resources.reduce((sum, r) => sum + r.p1_R, 0) / resources.length;
+        let avgR2 = resources.reduce((sum, r) => sum + r.p2_R, 0) / resources.length;
+        
+        let html = `<div>経過時間: ${(maxTime/1000).toFixed(1)}s</div>`;
+        html += `<div><span style="color:#ff4444">■</span> P1平均R: ${avgR1.toFixed(1)}</div>`;
+        if (gameMode === '2P') {
+            html += `<div><span style="color:#4444ff">■</span> P2平均R: ${avgR2.toFixed(1)}</div>`;
+            html += `<div><span style="color:#44ff44">--</span> 平均R_total: ${(avgR1+avgR2).toFixed(1)}</div>`;
+            html += `<div><span style="color:yellow">|</span> 総相殺ライン: ${totalOffsetLines} (消滅R: ${totalOffsetLines * 20})</div>`;
+        }
+        statsDiv.innerHTML = html;
+    });
+
+    document.getElementById('analysis-close').addEventListener('click', () => {
+        document.getElementById('analysis-modal').style.display = 'none';
     });
 
 });
 
+function logCurrentGameState(lockingPlayer = null) {    
 function logCurrentGameState(lockingPlayer = null) {
     if (players.length === 0) return;
 const isInitialCall = gameHistoryLog.length === 0;
