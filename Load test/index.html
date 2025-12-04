@@ -39,15 +39,16 @@
     <h1>Tetris AI Scanner (ONNX + Classic Hybrid)</h1>
     
     <div class="control-panel">
-        <div>
+        <div style="display:none;">
             <label>1. モデルファイル (tetris.onnx): </label>
             <input type="file" id="modelInput" accept=".onnx">
-        </div>
-        <div>
             <label>2. 解析する画像: </label>
             <input type="file" id="imageInput" accept="image/*">
+            <button id="runBtn" class="btn" disabled>解析実行</button>
         </div>
-        <button id="runBtn" class="btn" disabled>解析実行</button>
+        <div id="statusMessage" style="font-size: 1.2em; font-weight: bold; color: #00ff00;">
+            拡張機能からの待機中... (tetris.onnxを自動ロードします)
+        </div>
     </div>
 
     <h3>System Logs</h3>
@@ -88,22 +89,50 @@ window.onerror = function(message, source, lineno, colno, error) {
 };
 
 // --- 初期化処理 ---
-document.getElementById('modelInput').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    
+// 自動でモデルをロードする
+async function initModel() {
     try {
-        log("モデルを読み込んでいます...", 'info');
-        const buffer = await file.arrayBuffer();
-        // ONNX Runtime Webでセッション作成
-        session = await ort.InferenceSession.create(buffer, { executionProviders: ['wasm'] });
-        log("モデルのロードに成功しました！準備完了。", 'info');
-        checkReady();
+        log("モデル(tetris.onnx)を自動読み込み中...", 'info');
+        // HTMLと同じ階層にあると仮定
+        session = await ort.InferenceSession.create('./tetris.onnx', { executionProviders: ['wasm'] });
+        log("モデルロード完了。拡張機能からの画像待機中...", 'info');
+        document.getElementById('statusMessage').textContent = "準備完了: 画像を受信次第、解析を開始します。";
+        
+        // 待機していた画像があれば処理
+        if (pendingImageData) {
+            log("待機していた画像を処理します。", 'info');
+            processExtensionImage(pendingImageData);
+        }
     } catch (err) {
-        log(`モデルロード失敗: ${err.message}`, 'error');
+        log(`モデル自動ロード失敗: ${err.message}`, 'error');
+        document.getElementById('statusMessage').textContent = "エラー: tetris.onnx が見つかりません。";
     }
-});
+}
 
+// 拡張機能から呼ばれるグローバル関数
+let pendingImageData = null;
+window.receiveExtensionImage = async (base64Data) => {
+    log("拡張機能から画像データを受信しました。", 'info');
+    if (!session) {
+        log("モデルがまだロードされていません。ロード後に処理します。", 'warn');
+        pendingImageData = base64Data;
+        return;
+    }
+    await processExtensionImage(base64Data);
+};
+
+async function processExtensionImage(base64Data) {
+    document.getElementById('statusMessage').textContent = "解析中... シミュレータへ転送準備中";
+    const img = new Image();
+    img.onload = async () => {
+        const imgBitmap = await createImageBitmap(img);
+        runAnalysis(imgBitmap); // 解析実行
+    };
+    img.src = base64Data;
+}
+
+// ページ読み込み時に初期化
+initModel();
 document.getElementById('imageInput').addEventListener('change', () => checkReady());
 
 function checkReady() {
@@ -113,12 +142,19 @@ function checkReady() {
 }
 
 // --- メイン処理 ---
+// 既存のイベントリスナーは残すが、メインロジックを関数化して再利用可能にする
 document.getElementById('runBtn').addEventListener('click', async () => {
+    const imgFile = document.getElementById('imageInput').files[0];
+    if(imgFile) {
+        const imgBitmap = await createImageBitmap(imgFile);
+        runAnalysis(imgBitmap);
+    }
+});
+
+async function runAnalysis(imgBitmap) {
     try {
         log("処理を開始します...", 'info');
-        const imgFile = document.getElementById('imageInput').files[0];
-        const imgBitmap = await createImageBitmap(imgFile);
-
+        
         // 1. 画像の前処理 (16:9 クロップ & 1920x1080 リサイズ)
         // クロップ情報(cropData)も受け取る
         const { canvas: processedCanvas, cropData } = processImageTo1080p(imgBitmap);
@@ -169,12 +205,15 @@ document.getElementById('runBtn').addEventListener('click', async () => {
         linkEl.textContent = simulatorUrl;
         document.getElementById('resultArea').classList.remove('hidden');
 
-        log("解析完了！リンクを生成しました。", 'info');
-
+        log("解析完了！シミュレーターへ移動します...", 'info');
+        
+        // 自動リダイレクト
+        window.location.href = simulatorUrl;
+        
     } catch (err) {
         log(`実行時エラー: ${err.stack}`, 'error');
     }
-});
+}
 
 // --- 画像処理ロジック ---
 
