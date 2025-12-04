@@ -219,83 +219,107 @@ function processImageTo1080p(imgBitmap) {
 async function analyzePlayer(canvas, config) {
     const ctx = canvas.getContext('2d');
     
-    // 1. 盤面スキャン (ONNXモデル使用)
+    // 1. 盤面スキャン (ONNXモデル使用 + 旧ロジックによる補正)
     const boardRect = config.boardRect;
-    // 盤面画像を抽出
     const boardImgData = ctx.getImageData(boardRect.x, boardRect.y, boardRect.w, boardRect.h);
-    
-    // 20x10セルに分割して推論
     const cellW = boardRect.w / 10;
     const cellH = boardRect.h / 20;
-    const recognizedBoard = []; // 20x10 array
+    const recognizedBoard = []; // 20x10 array (ONNX Result)
 
-    // バッチ処理用の配列
-    const batchFeatures = [];
-
+    // --- (A) 旧ロジックによる盤面スキャン (content.jsベース) ---
+    const classicBoard = [];
+    const blockWidthPx = cellW;
+    const blockHeightPx = cellH;
+    
     for (let r = 0; r < 20; r++) {
         const row = [];
         for (let c = 0; c < 10; c++) {
-            // セル座標
+            const sampleX = boardRect.x + (c + 0.5) * blockWidthPx;
+            const sampleY = boardRect.y + (r + 0.5) * blockHeightPx;
+            const sampleSize = Math.max(1, Math.floor(blockWidthPx * 0.25));
+            
+            // ピクセル取得 (content.jsと同等の処理)
+            const imageData = ctx.getImageData(sampleX - sampleSize / 2, sampleY - sampleSize / 2, sampleSize, sampleSize).data;
+            let avgR = 0, avgG = 0, avgB = 0;
+            for (let i = 0; i < imageData.length; i += 4) {
+                avgR += imageData[i]; avgG += imageData[i+1]; avgB += imageData[i+2];
+            }
+            const pixelCount = imageData.length / 4;
+            avgR /= pixelCount; avgG /= pixelCount; avgB /= pixelCount;
+            
+            row.push(findClosestColor(avgR, avgG, avgB));
+        }
+        classicBoard.push(row);
+    }
+
+    // --- (B) ONNX 特徴量抽出と推論 ---
+    const batchFeatures = [];
+    for (let r = 0; r < 20; r++) {
+        const row = [];
+        for (let c = 0; c < 10; c++) {
             const x = c * cellW;
             const y = r * cellH;
-            
-            // セル画像データ取得 (少しマージンを入れると良いが、今回は単純分割)
-            // バッチ処理のため、ImageData作成にはcanvasが必要だが、
-            // ここではピクセルデータを直接操作して特徴抽出する
             const cellPixels = extractCellPixels(boardImgData, x, y, cellW, cellH);
-            
-            // 特徴量抽出 (Pythonのロジック再現)
-            // output: Float32Array(63)
             const feats = extractFeaturesJS(cellPixels, Math.floor(cellW), Math.floor(cellH));
             batchFeatures.push(feats);
-            row.push(null); // placeholder
+            row.push(null);
         }
         recognizedBoard.push(row);
     }
 
-    // ONNX推論 (バッチサイズ 200)
-    // input shape: [200, 63]
     const flatInput = new Float32Array(batchFeatures.length * 63);
     for (let i = 0; i < batchFeatures.length; i++) {
         flatInput.set(batchFeatures[i], i * 63);
     }
     
     const tensor = new ort.Tensor('float32', flatInput, [200, 63]);
-    
-    // 修正: 入力名と出力名をモデルから動的に取得し、確率は除外してlabelのみ取得する
     const inputName = session.inputNames[0];
     const feeds = { [inputName]: tensor };
-    
-    // 出力名取得 (labelのみを要求することでZipMap等のエラーを回避)
     const labelOutputName = session.outputNames[0]; 
     const fetches = [labelOutputName];
-
-    // run(feeds, fetches) の形式で実行
-    const results = await session.run(feeds, fetches);
     
-    // 動的に取得した名前で結果を取り出す
+    const results = await session.run(feeds, fetches);
     const outputLabel = results[labelOutputName];
-    const labelData = outputLabel.data; 
-
+    const labelData = outputLabel.data;
 
     // 結果を盤面にマッピング
     for (let i = 0; i < 200; i++) {
         const r = Math.floor(i / 10);
         const c = i % 10;
-        const classIdx = Number(labelData[i]); // BigInt -> Number
+        const classIdx = Number(labelData[i]);
         const label = CLASS_NAMES[classIdx];
         recognizedBoard[r][c] = (label === 'null') ? null : label;
     }
 
-    // --- 既存ロジックの適用 (ガベージ処理など) ---
-    // 40行の盤面にする (上20行はnull)
+    // --- (C) 結果のマージ (補正処理) ---
+    // 条件: ONNXの行が(null or G)のみ、かつGが10個ではない(穴あきG列など)
+    // かつ、旧ロジックが「Gが9個、nullが1個」と判定している場合 -> 旧ロジックを採用
+    for (let r = 0; r < 20; r++) {
+        const onnxRow = recognizedBoard[r];
+        const isOnlyNullOrG = onnxRow.every(cell => cell === null || cell === 'G');
+        
+        if (isOnlyNullOrG) {
+            const gCountOnnx = onnxRow.filter(cell => cell === 'G').length;
+            if (gCountOnnx !== 10) {
+                // 補正候補
+                const classicRow = classicBoard[r];
+                const gCountClassic = classicRow.filter(cell => cell === 'G').length;
+                const nullCountClassic = classicRow.filter(cell => cell === null).length;
+                
+                if (gCountClassic === 9 && nullCountClassic === 1) {
+                    // 旧ロジックの結果で上書き
+                    recognizedBoard[r] = [...classicRow];
+                }
+            }
+        }
+    }
+
+    // --- 既存ロジックの適用 (フルボード化、ガベージ、削除列) ---
     const fullBoard = Array.from({ length: 40 }, () => Array(10).fill(null));
     for(let r=0; r<20; r++) {
         fullBoard[20+r] = recognizedBoard[r];
     }
 
-    // ガベージ処理 (浮いているブロックの削除)
-    // 一番下の「G以外」の行を探す
     let firstNonGarbageRowFromBottom = -1;
     for (let y = 39; y >= 0; y--) { if (!fullBoard[y].includes('G')) { firstNonGarbageRowFromBottom = y; break; } }
     if (firstNonGarbageRowFromBottom !== -1) { 
@@ -304,7 +328,6 @@ async function analyzePlayer(canvas, config) {
         } 
     }
 
-    // 削除されたミノの特定処理
     let firstEmptyRowFromBottom = -1;
     for (let y = 39; y >= 0; y--) { if (fullBoard[y].every(cell => cell === null)) { firstEmptyRowFromBottom = y; break; } }
     const deletedMinoColors = [];
@@ -321,24 +344,22 @@ async function analyzePlayer(canvas, config) {
         }
     }
 
-    // 2. Next/Hold スキャン (既存の色距離ロジック)
-    // 座標は1.5倍済み
+    // 2. Next/Hold スキャン (content.js完全準拠)
     const nextQueue = [];
     let holdMino = null;
-    const radius = 5 * 1.5; // 既存ロジックに合わせてスケーリング
+    const radius = 5 * 1.5; // 1920/1280 = 1.5倍
 
     for (let i = 0; i < config.nextCoords.length; i++) {
         const coord = config.nextCoords[i];
-        // 1920x1080 canvasから色取得
+        // 座標はconfig内ですでにscale倍されているのでそのまま渡す
         const avgColor = getAverageColorNonBlack(ctx, coord.x, coord.y, radius);
         
-        if (i === 0) { // Hold (実際はNext[0]座標だが、content.jsのロジック上Holdとして処理されている箇所)
-            // content.jsのロジック: p1Coords.nextの0番目は座標的にHoldの位置 (x:160 は左側)
-            holdMino = findClosestColorOld(avgColor.r, avgColor.g, avgColor.b);
+        if (i === 0) {
+            holdMino = findClosestColor(avgColor.r, avgColor.g, avgColor.b);
         } else {
             const isBlack = avgColor.r < 50 && avgColor.g < 50 && avgColor.b < 50;
-            if (i === 1 && isBlack) break; // Next1が黒なら終了
-            const foundMino = findClosestMinoOnlyOld(avgColor.r, avgColor.g, avgColor.b);
+            if (i === 1 && isBlack) break;
+            const foundMino = findClosestMinoOnly(avgColor.r, avgColor.g, avgColor.b);
             if (foundMino) nextQueue.push(foundMino);
         }
     }
@@ -526,10 +547,39 @@ const SCAN_COLOR_PALETTE = { 'NULL': ['#000000', '#302838'], 'G': ['#999999', '#
 const hexToRgb = (hex) => { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return { r, g, b }; };
 const PARSED_SCAN_COLORS = {};
 for (const key in SCAN_COLOR_PALETTE) { PARSED_SCAN_COLORS[key] = SCAN_COLOR_PALETTE[key].map(hexToRgb); }
-const colorDistanceSq = (c1, c2) => (Math.pow(c1.r - c2.r, 2) + Math.pow(c1.g - c2.g, 2) + Math.pow(c1.b - c2.b, 2));
+    const colorDistanceSq = (c1, c2) => (Math.pow(c1.r - c2.r, 2) + Math.pow(c1.g - c2.g, 2) + Math.pow(c1.b - c2.b, 2));
 
-function findClosestColorOld(r, g, b) { const inputColor = { r, g, b }; for (const nullColor of PARSED_SCAN_COLORS.NULL) { if (colorDistanceSq(inputColor, nullColor) < 6000) return null; } for (const gColor of PARSED_SCAN_COLORS.G) { if (colorDistanceSq(inputColor, gColor) < 10000) return 'G'; } let minDistance = Infinity, closestKey = null; const minoKeys = Object.keys(PARSED_SCAN_COLORS).filter(k => k !== 'NULL' && k !== 'G'); for (const key of minoKeys) { for (const targetColor of PARSED_SCAN_COLORS[key]) { const distance = colorDistanceSq(inputColor, targetColor); if (distance < minDistance) { minDistance = distance; closestKey = key; } } } return (minDistance > 25000) ? null : closestKey; }
-function findClosestMinoOnlyOld(r, g, b) { const inputColor = { r, g, b }; let minDistance = Infinity, closestKey = 'I'; const minoKeys = Object.keys(PARSED_SCAN_COLORS).filter(k => k !== 'NULL' && k !== 'G'); for (const key of minoKeys) { for (const targetColor of PARSED_SCAN_COLORS[key]) { const distance = colorDistanceSq(inputColor, targetColor); if (distance < minDistance) { minDistance = distance; closestKey = key; } } } return closestKey; }
+function findClosestColor(r, g, b) { 
+    const inputColor = { r, g, b };
+    for (const nullColor of PARSED_SCAN_COLORS.NULL) { 
+        if (colorDistanceSq(inputColor, nullColor) < 6000) return null;
+    } 
+    for (const gColor of PARSED_SCAN_COLORS.G) { 
+        if (colorDistanceSq(inputColor, gColor) < 10000) return 'G';
+    } 
+    let minDistance = Infinity, closestKey = null; 
+    const minoKeys = Object.keys(PARSED_SCAN_COLORS).filter(k => k !== 'NULL' && k !== 'G');
+    for (const key of minoKeys) { 
+        for (const targetColor of PARSED_SCAN_COLORS[key]) { 
+            const distance = colorDistanceSq(inputColor, targetColor);
+            if (distance < minDistance) { minDistance = distance; closestKey = key; } 
+        } 
+    } 
+    return (minDistance > 25000) ? null : closestKey; 
+}
+
+function findClosestMinoOnly(r, g, b) { 
+    const inputColor = { r, g, b };
+    let minDistance = Infinity, closestKey = 'I'; 
+    const minoKeys = Object.keys(PARSED_SCAN_COLORS).filter(k => k !== 'NULL' && k !== 'G');
+    for (const key of minoKeys) { 
+        for (const targetColor of PARSED_SCAN_COLORS[key]) { 
+            const distance = colorDistanceSq(inputColor, targetColor);
+            if (distance < minDistance) { minDistance = distance; closestKey = key; } 
+        } 
+    } 
+    return closestKey;
+}
 
 function getAverageColorNonBlack(ctx, cx, cy, radius) {
     const startX = Math.max(0, Math.floor(cx - radius)), startY = Math.max(0, Math.floor(cy - radius)), diameter = Math.ceil(radius * 2), endX = Math.min(ctx.canvas.width, startX + diameter), endY = Math.min(ctx.canvas.height, startY + diameter), width = endX - startX, height = endY - startY; if (width <= 0 || height <= 0) return { r: 0, g: 0, b: 0 };
