@@ -245,53 +245,53 @@ async function processImage() {
     const fileInput = document.getElementById('imageInput');
     if (!fileInput.files[0]) { alert("画像を選択してください。"); return; }
 
-    const img = new Image();
+       const img = new Image();
     img.onload = async () => {
-        // 1. Canvas準備 (1920x1080)
-        const canvas = document.getElementById('debugCanvas');
-        canvas.width = 1920;
-        canvas.height = 1080;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        try {
+            const canvas = document.getElementById('debugCanvas');
+            canvas.width = 1920;
+            canvas.height = 1080;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-        // 2. 9:16 Center Crop & Resize
-        // 入力画像から最大サイズの9:16領域を計算
-        const srcW = img.width;
-        const srcH = img.height;
-        const targetRatio = 16 / 9; // 1920 / 1080
-        
-        let cropW, cropH, cropX, cropY;
+            const srcW = img.width;
+            const srcH = img.height;
+            const targetRatio = 16 / 9;
+            
+            let cropW, cropH, cropX, cropY;
 
-        // 入力画像が横長の場合 (16:9以上) -> 高さに合わせる
-        // 入力画像が縦長の場合 -> 幅に合わせる
-        // ユーザー要求: "中央から9:16に最大限クロップ" (例: 縦動画なら幅いっぱい、横長なら高さ合わせ?)
-        // テトリス動画は通常16:9なので、ここではターゲットを16:9 (1920x1080) とする。
-        // もし入力がスマホ縦画面なら、中央をくり抜く。
-        
-        if (srcW / srcH > targetRatio) {
-            // 横に長すぎる -> 高さを基準に幅を決める
-            cropH = srcH;
-            cropW = srcH * targetRatio;
-            cropX = (srcW - cropW) / 2;
-            cropY = 0;
-        } else {
-            // 縦に長すぎる、または丁度 -> 幅を基準に高さを決める
-            cropW = srcW;
-            cropH = srcW / targetRatio;
-            cropX = 0;
-            cropY = (srcH - cropH) / 2;
+            if (srcW / srcH > targetRatio) {
+                cropH = srcH;
+                cropW = srcH * targetRatio;
+                cropX = (srcW - cropW) / 2;
+                cropY = 0;
+            } else {
+                cropW = srcW;
+                cropH = srcW / targetRatio;
+                cropX = 0;
+                cropY = (srcH - cropH) / 2;
+            }
+
+            ctx.fillStyle = "#000";
+            ctx.fillRect(0, 0, 1920, 1080);
+            ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, 1920, 1080);
+
+            const p1State = await processPlayer(ctx, P1_COORDS, P1_EXTRA);
+            const p2State = await processPlayer(ctx, P2_COORDS, P2_EXTRA);
+
+            generateUrl(p1State, p2State);
+
+        } catch (e) {
+            console.error(e);
+            const errorMsg = "ERROR: " + e.message + "\nStack: " + e.stack;
+            document.getElementById('p1Result').value = errorMsg;
+            document.getElementById('p2Result').value = errorMsg;
+            
+            const debugCtx = document.getElementById('debugCanvas').getContext('2d');
+            debugCtx.fillStyle = "red";
+            debugCtx.font = "30px Arial";
+            debugCtx.fillText("Error occurred! See Result box.", 50, 50);
+            alert(errorMsg);
         }
-
-        // Canvasに描画 (リサイズ実行)
-        ctx.fillStyle = "#000";
-        ctx.fillRect(0, 0, 1920, 1080);
-        ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, 1920, 1080);
-
-        // 3. P1 & P2 処理実行
-        const p1State = await processPlayer(ctx, P1_COORDS, P1_EXTRA);
-        const p2State = await processPlayer(ctx, P2_COORDS, P2_EXTRA);
-
-        // 4. URL生成
-        generateUrl(p1State, p2State);
     };
     img.src = URL.createObjectURL(fileInput.files[0]);
 }
