@@ -260,15 +260,23 @@ async function analyzePlayer(canvas, config) {
         flatInput.set(batchFeatures[i], i * 63);
     }
     
-        const tensor = new ort.Tensor('float32', flatInput, [200, 63]);
+    const tensor = new ort.Tensor('float32', flatInput, [200, 63]);
+    
+    // 修正: 入力名と出力名をモデルから動的に取得し、確率は除外してlabelのみ取得する
     const inputName = session.inputNames[0];
     const feeds = { [inputName]: tensor };
     
-    const results = await session.run(feeds);
+    // 出力名取得 (labelのみを要求することでZipMap等のエラーを回避)
+    const labelOutputName = session.outputNames[0]; 
+    const fetches = [labelOutputName];
+
+    // run(feeds, fetches) の形式で実行
+    const results = await session.run(feeds, fetches);
     
-    const outputName = session.outputNames[0];
-    const outputLabel = results[outputName];
-    const labelData = outputLabel.data;
+    // 動的に取得した名前で結果を取り出す
+    const outputLabel = results[labelOutputName];
+    const labelData = outputLabel.data; 
+
 
     // 結果を盤面にマッピング
     for (let i = 0; i < 200; i++) {
