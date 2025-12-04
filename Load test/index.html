@@ -2,154 +2,484 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>テトリス盤面認識＆可視化</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <title>Tetris AI Scanner (Standalone)</title>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
     <style>
-        body { font-family: sans-serif; display: flex; gap: 20px; }
-        .container { text-align: center; }
-        #output { white-space: pre; background: #f0f0f0; padding: 10px; text-align: left; font-size: 12px;}
-        canvas { border: 2px solid #333; background-color: #000; }
-        button { padding: 10px 20px; font-size: 16px; margin: 10px 0; cursor: pointer; }
+        body { font-family: sans-serif; background: #202020; color: #fff; padding: 20px; }
+        .container { display: flex; gap: 20px; }
+        .panel { flex: 1; background: #333; padding: 20px; border-radius: 8px; }
+        h2 { margin-top: 0; }
+        canvas { border: 1px solid #555; max-width: 100%; height: auto; margin-bottom: 10px; }
+        textarea { width: 100%; height: 60px; background: #111; color: #0f0; border: 1px solid #555; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; font-size: 16px; margin-top: 10px; }
+        button:hover { background: #0056b3; }
+        .file-input { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .status { color: #aaa; margin-top: 5px; font-size: 0.9em; }
+        #debug-images img { border: 1px solid red; margin: 1px; width: 20px; }
     </style>
 </head>
 <body>
 
-    <div class="container">
-        <h3>入力画像</h3>
-        <img id="target-image" src="test_board.png" width="200" height="400" alt="解析対象">
-        <br>
-        <button onclick="predict()">解析スタート</button>
-    </div>
+<h1>Tetris AI Scanner</h1>
 
-    <div class="container">
-        <h3>認識結果 (可視化)</h3>
-        <canvas id="result-canvas" width="200" height="400"></canvas>
-    </div>
-
-    <div class="container">
-        <h3>認識結果 (JSON)</h3>
-        <div id="output">待機中...</div>
-    </div>
-
-    <script>
-        // --- 設定 ---
-        const CLASS_NAMES = ['null', 'G', 'S', 'Z', 'L', 'J', 'O', 'I', 'T'];
+<div class="container">
+    <div class="panel">
+        <h2>1. Settings</h2>
         
-        // ミノの色定義 (一般的なテトリスの配色)
-        const MINO_COLORS = {
-            'null': null,      // 空白
-            'G': '#808080',    // おじゃま (グレー)
-            'S': '#00ff00',    // S (緑)
-            'Z': '#ff0000',    // Z (赤)
-            'L': '#ffa500',    // L (オレンジ)
-            'J': '#0000ff',    // J (青)
-            'O': '#ffff00',    // O (黄色)
-            'I': '#00ffff',    // I (水色)
-            'T': '#800080'     // T (紫)
-        };
+        <div class="file-input">
+            <label>1. ONNXモデルを選択 (tetris.onnx)</label>
+            <input type="file" id="modelInput" accept=".onnx">
+            <div id="modelStatus" class="status">モデル未ロード</div>
+        </div>
 
-        let model;
+        <div class="file-input">
+            <label>2. 解析する画像を選択</label>
+            <input type="file" id="imageInput" accept="image/*">
+        </div>
 
-        // モデルのロード
-        async function loadModel() {
-            try {
-                // model.json と shardファイル群は同じフォルダに置いてください
-                model = await tf.loadLayersModel('./model.json');
-                console.log("モデル読み込み完了");
-                document.getElementById('output').textContent = "モデル準備完了。解析ボタンを押してください。";
-            } catch (e) {
-                console.error(e);
-                document.getElementById('output').textContent = "モデル読み込みエラー: " + e.message;
-            }
+        <button onclick="processImage()">実行 (Scan)</button>
+    </div>
+
+    <div class="panel">
+        <h2>2. Result</h2>
+        <label>Player 1 URL</label>
+        <textarea id="p1Result"></textarea>
+        <button onclick="openUrl('p1Result')">Open Simulator (P1)</button>
+        
+        <br><br>
+        
+        <label>Player 2 URL</label>
+        <textarea id="p2Result"></textarea>
+        <button onclick="openUrl('p2Result')">Open Simulator (P2)</button>
+    </div>
+</div>
+
+<div class="panel" style="margin-top: 20px;">
+    <h2>Debug View (Preprocessing)</h2>
+    <p>9:16 Center Crop -> Resize to 1920x1080</p>
+    <canvas id="debugCanvas"></canvas>
+</div>
+
+<script>
+// --- 設定定数 ---
+const CLASS_NAMES = ['null', 'G', 'S', 'Z', 'L', 'J', 'O', 'I', 'T'];
+// P1: (304, 157) - (670, 882)
+const P1_COORDS = { x: 304, y: 157, w: 670 - 304, h: 882 - 157 };
+// P2: (1257, 157) - (1620, 882)
+const P2_COORDS = { x: 1257, y: 157, w: 1620 - 1257, h: 882 - 157 };
+
+// 従来のNext/Hold座標 (1920x1080基準) ※ユーザー提供のcontent.jsより比率計算して1080pに適合
+// content.jsは1280x720基準だったので、1.5倍する
+const SCALE_FACTOR = 1.5; 
+// 元: next: [ { x: 160, y: 155 }, ... ] -> 160*1.5 = 240
+const P1_NEXT_COORDS = [
+    { x: 240, y: 232 }, // Hold (元160,155あたりだがHoldは別扱いが必要かも。ここではcontent.jsのロジックに従う)
+    // content.jsのp1Coords.next[0]はHold位置、[1]~[5]がNext
+    // x:160, y:155 (Hold)
+    // x:500, y:122 (Next1) ...
+]; 
+// 正確な座標マッピングのため、ユーザーのcontent.jsロジックを1920x1080版に変換して定義
+const P1_EXTRA = {
+    hold: { x: 160 * 1.5, y: 155 * 1.5 },
+    next: [
+        { x: 500 * 1.5, y: 122 * 1.5 }, { x: 500 * 1.5, y: 175 * 1.5 },
+        { x: 500 * 1.5, y: 225 * 1.5 }, { x: 500 * 1.5, y: 275 * 1.5 }, { x: 500 * 1.5, y: 325 * 1.5 }
+    ]
+};
+const P2_EXTRA = {
+    hold: { x: 790 * 1.5, y: 155 * 1.5 }, // 修正: P2 Hold位置
+    next: [
+        { x: 1130 * 1.5, y: 122 * 1.5 }, { x: 1130 * 1.5, y: 175 * 1.5 },
+        { x: 1130 * 1.5, y: 225 * 1.5 }, { x: 1130 * 1.5, y: 275 * 1.5 }, { x: 1130 * 1.5, y: 325 * 1.5 }
+    ]
+};
+
+// 色認識パレット (content.jsより転記)
+const SCAN_COLOR_PALETTE = { 'NULL': ['#000000', '#302838'], 'G': ['#999999', '#D8D8D8'], 'I': ['#019899', '#0199D5'], 'O': ['#999A02', '#F9B900'], 'T': ['#980099', '#871E88'], 'L': ['#996700', '#F56100'], 'J': ['#0000BB', '#004BA5'], 'S': ['#10971F', '#5CB523'], 'Z': ['#990000', '#DA1822'] };
+const hexToRgb = (hex) => { const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return { r, g, b }; };
+const PARSED_SCAN_COLORS = {};
+for (const key in SCAN_COLOR_PALETTE) { PARSED_SCAN_COLORS[key] = SCAN_COLOR_PALETTE[key].map(hexToRgb); }
+const colorDistanceSq = (c1, c2) => (Math.pow(c1.r - c2.r, 2) + Math.pow(c1.g - c2.g, 2) + Math.pow(c1.b - c2.b, 2));
+
+// --- グローバル変数 ---
+let ortSession = null;
+
+// --- モデルロード処理 ---
+document.getElementById('modelInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    try {
+        const buffer = await file.arrayBuffer();
+        // ONNX Session作成
+        ortSession = await ort.InferenceSession.create(buffer);
+        document.getElementById('modelStatus').innerText = "✅ モデルロード完了";
+        document.getElementById('modelStatus').style.color = "#0f0";
+    } catch (err) {
+        console.error(err);
+        document.getElementById('modelStatus').innerText = "❌ モデルロード失敗: " + err.message;
+    }
+});
+
+// --- OpenCV互換 特徴量抽出関数 (最重要) ---
+function extractFeatures(ctx, x, y, w, h) {
+    const imageData = ctx.getImageData(x, y, w, h);
+    const data = imageData.data;
+    const pixelCount = w * h;
+
+    // 1. RGB統計 & HSV変換・統計
+    let sumR=0, sumG=0, sumB=0;
+    let sumH=0, sumS=0, sumV=0;
+    let sqSumR=0, sqSumG=0, sqSumB=0;
+    let sqSumH=0, sqSumS=0, sqSumV=0;
+
+    // HSVバッファ（後で使うため保持したくはないが、ループ内で処理）
+    // OpenCVのBGR2HSVは、H: 0-179, S: 0-255, V: 0-255
+    
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i+1];
+        const b = data[i+2];
+
+        // RGB Stats
+        sumR += r; sumG += g; sumB += b;
+        sqSumR += r*r; sqSumG += g*g; sqSumB += b*b;
+
+        // RGB to HSV (OpenCV like)
+        let hVal, sVal, vVal;
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const delta = max - min;
+
+        // V
+        vVal = max;
+
+        // S
+        if (max !== 0) sVal = (delta / max) * 255;
+        else sVal = 0;
+
+        // H
+        if (max === min) hVal = 0;
+        else if (max === r) hVal = (60 * ((g - b) / delta) + 360) % 360;
+        else if (max === g) hVal = (60 * ((b - r) / delta) + 120) % 360;
+        else hVal = (60 * ((r - g) / delta) + 240) % 360;
+        
+        // OpenCVはHを0-179にする (360 -> 180)
+        hVal = hVal / 2;
+
+        sumH += hVal; sumS += sVal; sumV += vVal;
+        sqSumH += hVal*hVal; sqSumS += sVal*sVal; sqSumV += vVal*vVal;
+    }
+
+    const meanR = sumR / pixelCount;
+    const stdR = Math.sqrt(Math.max(0, sqSumR / pixelCount - meanR * meanR));
+    const meanG = sumG / pixelCount;
+    const stdG = Math.sqrt(Math.max(0, sqSumG / pixelCount - meanG * meanG));
+    const meanB = sumB / pixelCount;
+    const stdB = Math.sqrt(Math.max(0, sqSumB / pixelCount - meanB * meanB));
+
+    const meanH = sumH / pixelCount;
+    const stdH = Math.sqrt(Math.max(0, sqSumH / pixelCount - meanH * meanH));
+    const meanS = sumS / pixelCount;
+    const stdS = Math.sqrt(Math.max(0, sqSumS / pixelCount - meanS * meanS));
+    const meanV = sumV / pixelCount;
+    const stdV = Math.sqrt(Math.max(0, sqSumV / pixelCount - meanV * meanV));
+
+    // 2. Tiny Image (4x4)
+    // Canvasのリサイズ機能を使って簡易縮小
+    const tinyCanvas = document.createElement('canvas');
+    tinyCanvas.width = 4; tinyCanvas.height = 4;
+    const tinyCtx = tinyCanvas.getContext('2d');
+    tinyCtx.drawImage(ctx.canvas, x, y, w, h, 0, 0, 4, 4);
+    const tinyData = tinyCtx.getImageData(0, 0, 4, 4).data;
+    const tinyFeatures = [];
+    for(let i=0; i<tinyData.length; i+=4) {
+        tinyFeatures.push(tinyData[i]);   // R (OpenCVのflatten順序はBGRだが、LightGBM学習時のextract_featuresを確認する必要あり)
+        tinyFeatures.push(tinyData[i+1]); // G
+        tinyFeatures.push(tinyData[i+2]); // B
+        // Pythonの cv2.resize(img, (4, 4)).flatten() は、
+        // (row0_col0_B, row0_col0_G, row0_col0_R, row0_col1_B...) の順。
+        // ※ Pythonコードで cv2.imread しているので BGR であることに注意！
+        // JSは RGB なので、順序を入れ替える必要がある。
+    }
+    
+    // 修正: Python cv2.imreadはBGR。JSはRGB。
+    // 特徴量配列: 
+    // [MeanB, StdB, MeanG, StdG, MeanR, StdR, MeanH, StdH, MeanS, StdS, MeanV, StdV, (4x4 BGR Flatten), CenterMeanB, CenterMeanG, CenterMeanR]
+    // の順番に並べる必要がある。
+
+    const features = [];
+    // Stats (BGR順)
+    features.push(meanB, stdB, meanG, stdG, meanR, stdR);
+    // HSV Stats (HSV順)
+    features.push(meanH, stdH, meanS, stdS, meanV, stdV);
+
+    // 4x4 Flatten (BGR順)
+    for(let i=0; i<tinyData.length; i+=4) {
+        features.push(tinyData[i+2]); // B
+        features.push(tinyData[i+1]); // G
+        features.push(tinyData[i]);   // R
+    }
+
+    // Center Crop Mean (BGR順)
+    const cw = Math.floor(w / 4);
+    const ch = Math.floor(h / 4);
+    const cx = Math.floor(x + w / 2 - cw);
+    const cy = Math.floor(y + h / 2 - ch);
+    const centerData = ctx.getImageData(cx, cy, cw*2, ch*2).data;
+    let cSumR=0, cSumG=0, cSumB=0, cCount=0;
+    for(let i=0; i<centerData.length; i+=4) {
+        cSumR += centerData[i]; cSumG += centerData[i+1]; cSumB += centerData[i+2]; cCount++;
+    }
+    features.push(cCount > 0 ? cSumB/cCount : 0);
+    features.push(cCount > 0 ? cSumG/cCount : 0);
+    features.push(cCount > 0 ? cSumR/cCount : 0);
+
+    return features;
+}
+
+// --- メイン処理 ---
+async function processImage() {
+    if (!ortSession) { alert("まずはONNXモデルをロードしてください。"); return; }
+    const fileInput = document.getElementById('imageInput');
+    if (!fileInput.files[0]) { alert("画像を選択してください。"); return; }
+
+    const img = new Image();
+    img.onload = async () => {
+        // 1. Canvas準備 (1920x1080)
+        const canvas = document.getElementById('debugCanvas');
+        canvas.width = 1920;
+        canvas.height = 1080;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+        // 2. 9:16 Center Crop & Resize
+        // 入力画像から最大サイズの9:16領域を計算
+        const srcW = img.width;
+        const srcH = img.height;
+        const targetRatio = 16 / 9; // 1920 / 1080
+        
+        let cropW, cropH, cropX, cropY;
+
+        // 入力画像が横長の場合 (16:9以上) -> 高さに合わせる
+        // 入力画像が縦長の場合 -> 幅に合わせる
+        // ユーザー要求: "中央から9:16に最大限クロップ" (例: 縦動画なら幅いっぱい、横長なら高さ合わせ?)
+        // テトリス動画は通常16:9なので、ここではターゲットを16:9 (1920x1080) とする。
+        // もし入力がスマホ縦画面なら、中央をくり抜く。
+        
+        if (srcW / srcH > targetRatio) {
+            // 横に長すぎる -> 高さを基準に幅を決める
+            cropH = srcH;
+            cropW = srcH * targetRatio;
+            cropX = (srcW - cropW) / 2;
+            cropY = 0;
+        } else {
+            // 縦に長すぎる、または丁度 -> 幅を基準に高さを決める
+            cropW = srcW;
+            cropH = srcW / targetRatio;
+            cropX = 0;
+            cropY = (srcH - cropH) / 2;
         }
 
-        loadModel();
+        // Canvasに描画 (リサイズ実行)
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, 1920, 1080);
+        ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, 1920, 1080);
 
-        async function predict() {
-            if (!model) {
-                alert("モデルを読み込み中です...");
-                return;
-            }
+        // 3. P1 & P2 処理実行
+        const p1State = await processPlayer(ctx, P1_COORDS, P1_EXTRA);
+        const p2State = await processPlayer(ctx, P2_COORDS, P2_EXTRA);
 
-            const imgElement = document.getElementById('target-image');
-            document.getElementById('output').textContent = "解析中...";
+        // 4. URL生成
+        generateUrl(p1State, p2State);
+    };
+    img.src = URL.createObjectURL(fileInput.files[0]);
+}
 
-            // 1. 画像の前処理
-            const tensor = tf.tidy(() => {
-                let img = tf.browser.fromPixels(imgElement);
-                // Python側の学習サイズに合わせる (幅100, 高さ200)
-                img = tf.image.resizeBilinear(img, [200, 100]); 
-                img = img.div(tf.scalar(255.0));
-                return img.expandDims(0);
-            });
+async function processPlayer(ctx, boardCoords, extraCoords) {
+    const board = []; // 20行x10列
+    const cellW = boardCoords.w / 10;
+    const cellH = boardCoords.h / 20;
 
-            // 2. 推論
-            const prediction = model.predict(tensor);
-            const resultIndices = prediction.argMax(-1); // 最も高い確率のインデックスを取得
-            const dataArray = await resultIndices.array();
-            const resultMatrix = dataArray[0]; // [20, 10] の配列
+    // バッチ推論用の入力配列作成
+    const batchInput = [];
 
-            // 3. データの整形 (数値 -> 文字列)
-            const finalOutput = resultMatrix.map(row => {
-                return row.map(index => {
-                    const name = CLASS_NAMES[index];
-                    return name === 'null' ? null : name;
-                });
-            });
+    // 下から順ではなく上から順にスキャンして配列に入れる(後で調整)
+    for (let row = 0; row < 20; row++) {
+        const rowData = [];
+        for (let col = 0; col < 10; col++) {
+            const x = Math.floor(boardCoords.x + col * cellW);
+            const y = Math.floor(boardCoords.y + row * cellH);
+            const w = Math.floor(cellW);
+            const h = Math.floor(cellH);
 
-            // 4. JSON表示
-            document.getElementById('output').textContent = JSON.stringify(finalOutput, null, 2);
-
-            // 5. キャンバスへの描画実行
-            drawBoard(finalOutput);
-
-            // メモリ解放
-            tensor.dispose();
-            prediction.dispose();
-            resultIndices.dispose();
+            // 特徴量抽出
+            const feats = extractFeatures(ctx, x, y, w, h);
+            batchInput.push(feats);
         }
+    }
 
-        // --- 描画関数 ---
-        function drawBoard(boardData) {
-            const canvas = document.getElementById('result-canvas');
-            const ctx = canvas.getContext('2d');
-            
-            // 盤面のサイズ設定
-            const rows = 20;
-            const cols = 10;
-            const blockW = canvas.width / cols;  // 1ブロックの幅
-            const blockH = canvas.height / rows; // 1ブロックの高さ
+    // ONNX推論 (バッチ実行)
+    // flat_input shape: [BatchSize, 63]
+    const flatInput = Float32Array.from(batchInput.flat());
+    const tensor = new ort.Tensor('float32', flatInput, [batchInput.length, 63]);
+    
+    // 実行
+    const feeds = { float_input: tensor };
+    const results = await ortSession.run(feeds);
+    
+    // 結果取得 (output_label: [String, String, ...])
+    // onnxmltoolsで変換したLightGBMは通常、output_label (文字列) と output_probability (Map) を返す
+    const outputData = results.output_label.data; // 文字列の配列
 
-            // 一旦黒でクリア
-            ctx.fillStyle = '#000000';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 配列を2次元ボードに再構築
+    let idx = 0;
+    for (let row = 0; row < 20; row++) {
+        const rowArr = [];
+        for (let col = 0; col < 10; col++) {
+            rowArr.push(outputData[idx]);
+            idx++;
+        }
+        board.push(rowArr);
+    }
 
-            // グリッド線を描く設定
-            ctx.strokeStyle = '#333333';
-            ctx.lineWidth = 1;
+    // --- 既存ロジックによる後処理 (お邪魔、Floating処理) ---
+    // AI結果は 'null', 'G', 'I'...
+    const processedBoard = Array.from({length: 40}, () => Array(10).fill(null));
+    
+    // AIの結果は可視範囲(20行)なので、下半分に入れる
+    for(let r=0; r<20; r++) {
+        for(let c=0; c<10; c++) {
+            let val = board[r][c];
+            if(val === 'null') val = null;
+            processedBoard[20 + r][c] = val;
+        }
+    }
 
-            for (let y = 0; y < rows; y++) {
-                for (let x = 0; x < cols; x++) {
-                    const minoType = boardData[y][x];
-                    const color = MINO_COLORS[minoType];
+    // お邪魔(G)処理: 一番下のG以外の行を探す
+    let firstNonGarbageRowFromBottom = -1;
+    for (let y = 39; y >= 0; y--) { 
+        if (!processedBoard[y].includes('G')) { firstNonGarbageRowFromBottom = y; break; } 
+    }
+    if (firstNonGarbageRowFromBottom !== -1) { 
+        for (let y = firstNonGarbageRowFromBottom - 1; y >= 0; y--) { 
+            for (let x = 0; x < 10; x++) { 
+                if (processedBoard[y][x] === 'G') processedBoard[y][x] = null; 
+            } 
+        } 
+    }
 
-                    const px = x * blockW;
-                    const py = y * blockH;
+    // 浮いているブロックの処理 (Floating Mino)
+    // content.jsのロジック: 一番下の空行を探し、それより上にあるブロックを削除＆ネクストに追加
+    let firstEmptyRowFromBottom = -1;
+    for (let y = 39; y >= 0; y--) {
+        if (processedBoard[y].every(cell => cell === null)) { firstEmptyRowFromBottom = y; break; }
+    }
+    
+    const nextQueue = [];
+    if (firstEmptyRowFromBottom !== -1) {
+        // content.jsによると "seventeenthRowFromBottomIndex = BOARD_HEIGHT - 18" (つまり22行目)
+        // ここ以下の浮きは無視する? ロジック通り実装
+        const thresholdY = 40 - 18; 
+        const deletedColors = [];
 
-                    if (color) {
-                        // ミノがある場合：塗りつぶし
-                        ctx.fillStyle = color;
-                        ctx.fillRect(px, py, blockW, blockH);
-                        
-                        // ブロックの枠線を少し明るく描く（立体的っぽく）
-                        ctx.strokeRect(px, py, blockW, blockH);
-                    } else {
-                        // nullの場合：グリッド線だけ描く
-                        ctx.strokeRect(px, py, blockW, blockH);
+        for (let y = firstEmptyRowFromBottom - 1; y >= 0; y--) {
+            if (y <= thresholdY) {
+                for (let x = 0; x < 10; x++) {
+                    const piece = processedBoard[y][x];
+                    if (piece && piece !== 'G') {
+                        deletedColors.push(piece);
                     }
+                    processedBoard[y][x] = null;
                 }
             }
         }
-    </script>
+        // 浮いていたブロックが単一種類ならNextの先頭に追加
+        if (deletedColors.length > 0 && deletedColors.every(c => c === deletedColors[0])) {
+            nextQueue.push(deletedColors[0]);
+        }
+    }
+
+    // --- Next / Hold (従来の色距離法) ---
+    // 座標は extraCoords にある
+    const holdMino = scanMinoColor(ctx, extraCoords.hold.x, extraCoords.hold.y);
+    
+    // Next
+    for (let i = 0; i < extraCoords.next.length; i++) {
+        const coord = extraCoords.next[i];
+        const mino = scanMinoColor(ctx, coord.x, coord.y);
+        if (mino) nextQueue.push(mino);
+    }
+
+    return {
+        board: processedBoard,
+        hold: holdMino,
+        next: nextQueue
+    };
+}
+
+// 単発のMino色判定 (半径5pxの平均色 -> 最近傍探索)
+function scanMinoColor(ctx, cx, cy) {
+    const radius = 5 * 1.5; // Scaleに合わせて調整
+    // 平均色取得
+    const startX = Math.floor(cx - radius), startY = Math.floor(cy - radius);
+    const size = Math.ceil(radius*2);
+    const imgData = ctx.getImageData(startX, startY, size, size).data;
+    let r=0, g=0, b=0, count=0;
+    for(let i=0; i<imgData.length; i+=4) {
+        if(imgData[i]>50 || imgData[i+1]>50 || imgData[i+2]>50) { // 黒以外
+            r+=imgData[i]; g+=imgData[i+1]; b+=imgData[i+2]; count++;
+        }
+    }
+    if(count===0) return null;
+    r/=count; g/=count; b/=count;
+
+    // 距離計算
+    let minDistance = Infinity;
+    let closestKey = null;
+    const inputColor = {r, g, b};
+    
+    for (const key in PARSED_SCAN_COLORS) {
+        if (key === 'NULL' || key === 'G') continue;
+        for (const targetColor of PARSED_SCAN_COLORS[key]) {
+            const dist = colorDistanceSq(inputColor, targetColor);
+            if (dist < minDistance) {
+                minDistance = dist;
+                closestKey = key;
+            }
+        }
+    }
+    return minDistance < 25000 ? closestKey : null; // 閾値調整
+}
+
+function boardToString(board) {
+    return board.map(row => row.map(cell => cell === null ? '_' : cell).join('')).join('');
+}
+
+function generateUrl(p1, p2) {
+    const stateData = {
+        v: 2,
+        m: "2P",
+        p1: { b: boardToString(p1.board), n: p1.next.join(''), h: p1.hold || '' },
+        p2: { b: boardToString(p2.board), n: p2.next.join(''), h: p2.hold || '' }
+    };
+
+    const jsonString = JSON.stringify(stateData);
+    const uint8Array = new TextEncoder().encode(jsonString);
+    const base64Data = btoa(String.fromCharCode.apply(null, uint8Array));
+    const simulatorUrl = `https://selmtoe.github.io/Tetris_Simulator/#${base64Data}`;
+
+    document.getElementById('p1Result').value = simulatorUrl;
+    // P2用にも同じURLが出るが、シミュレータ側でどう扱うかによる。このJSON構造だと1つのURLで2P状態を持つ。
+    document.getElementById('p2Result').value = simulatorUrl;
+}
+
+function openUrl(elementId) {
+    const url = document.getElementById(elementId).value;
+    if(url) window.open(url, '_blank');
+}
+
+</script>
+
 </body>
 </html>
