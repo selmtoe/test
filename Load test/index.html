@@ -260,15 +260,15 @@ async function analyzePlayer(canvas, config) {
         flatInput.set(batchFeatures[i], i * 63);
     }
     
-    const tensor = new ort.Tensor('float32', flatInput, [200, 63]);
-    const feeds = { float_input: tensor }; // モデルの入力名 'float_input' に合わせる
+        const tensor = new ort.Tensor('float32', flatInput, [200, 63]);
+    const inputName = session.inputNames[0];
+    const feeds = { [inputName]: tensor };
     
     const results = await session.run(feeds);
     
-    // 出力取得 (LightGBMのONNX出力は通常 'label' と 'probabilities')
-    // labelは int64 tensor
-    const outputLabel = results.label; // output name depends on converter, usually 'label'
-    const labelData = outputLabel.data; // BigInt64Array or similar
+    const outputName = session.outputNames[0];
+    const outputLabel = results[outputName];
+    const labelData = outputLabel.data;
 
     // 結果を盤面にマッピング
     for (let i = 0; i < 200; i++) {
