@@ -8315,11 +8315,11 @@ if (confirm('リンクの生成に失敗しました。データが長すぎる�
         let html = `<div style="display:flex; flex-wrap:wrap; gap:15px; justify-content:center;">`;
         const cardStyle = 'background:rgba(255,255,255,0.05); padding:10px; border-radius:5px; border:1px solid #4b4b7c;';
         
-        html += `<div style="${cardStyle}"><h4 style="margin:0 0 5px 0; color:#ff4444;">Player 1</h4>PPS: ${s1.pps.toFixed(2)}<br>APM: ${s1.apm.toFixed(1)}<br>Avg APL: ${s1.avgApl.toFixed(2)}</div>`;
+        html += `<div style="${cardStyle}"><h4 style="margin:0 0 5px 0; color:#ff4444;">Player 1</h4>PPS: ${s1.pps.toFixed(2)}<br>APM: ${s1.apm.toFixed(1)}<br>APL: ${s1.avgApl.toFixed(2)}</div>`;
         
         if (gameMode === '2P') {
             const s2 = calcStats('2');
-            html += `<div style="${cardStyle}"><h4 style="margin:0 0 5px 0; color:#4444ff;">Player 2</h4>PPS: ${s2.pps.toFixed(2)}<br>APM: ${s2.apm.toFixed(1)}<br>Avg APL: ${s2.avgApl.toFixed(2)}</div>`;
+            html += `<div style="${cardStyle}"><h4 style="margin:0 0 5px 0; color:#4444ff;">Player 2</h4>PPS: ${s2.pps.toFixed(2)}<br>APM: ${s2.apm.toFixed(1)}<br>APL: ${s2.avgApl.toFixed(2)}</div>`;
         }
 
         html += `<div style="${cardStyle}"><h4 style="margin:0 0 5px 0; color:#44ff44;">総リソース</h4>平均値(収束点): ${avgTotalRes.toFixed(1)}<br>高リソース時減少率: ${decreaseRate.toFixed(1)}%<br>低リソース時増加率: ${increaseRate.toFixed(1)}%</div>`;
