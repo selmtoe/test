@@ -3,17 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>カスタム画像クリッパー</title>
+    <title>カスタム画像一括クリッパー</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* カスタムスタイル */
         .container-box {
-            border: 2px dashed #4f46e5; /* Tailwind purple-600 */
+            border: 2px dashed #4f46e5;
             background-color: #f7f7ff;
             min-height: 200px;
         }
-        canvas {
+        .result-image {
             max-width: 100%;
             height: auto;
             border-radius: 0.5rem;
@@ -23,31 +23,45 @@
         body {
             overflow-x: hidden;
         }
+        /* ロード中アニメーション */
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-top: 4px solid #4f46e5;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen p-4 sm:p-6 font-sans">
     <div id="app" class="max-w-4xl mx-auto space-y-6">
         <header class="text-center py-4 bg-white rounded-xl shadow-lg">
-            <h1 class="text-3xl font-extrabold text-indigo-700">カスタム画像クリッパー</h1>
-            <p class="text-sm text-gray-500 mt-1">4:3中央切り抜き & 座標指定最終切り抜き</p>
+            <h1 class="text-3xl font-extrabold text-indigo-700">カスタム画像一括クリッパー</h1>
+            <p class="text-sm text-gray-500 mt-1">複数対応: 4:3中央切り抜き & 座標指定最終切り抜き</p>
         </header>
 
         <!-- ステップの説明 -->
         <div class="bg-indigo-100 p-4 rounded-lg shadow-md space-y-2">
-            <h2 class="text-xl font-semibold text-indigo-800">処理ステップ</h2>
+            <h2 class="text-xl font-semibold text-indigo-800">処理ステップ（複数対応）</h2>
             <ol class="list-decimal list-inside text-gray-700 space-y-1">
-                <li>画像をアップロードします。</li>
-                <li>画像を**短い辺を基準に**中央から最大限切り取り、**4:3の比率**に調整します。</li>
+                <li>複数の画像をアップロードします。</li>
+                <li>各画像を4:3に中央切り抜き（短い辺基準）します。</li>
                 <li>4:3に調整された画像を基準に、正規化座標（800x600基準）である **(108, 128) から (270, 450)** の長方形領域を切り出します。</li>
-                <li>最終的な切り抜き画像が表示され、ダウンロード可能になります。</li>
+                <li>結果の画像を長押し（PCでは右クリック）することで、直接保存できます。</li>
             </ol>
-            <p class="text-xs italic text-indigo-600">※切り抜き座標: 左上 (108, 128), 右下 (270, 450) [800x600基準]</p>
+            <p class="text-xs italic text-indigo-600">※最終切り抜き領域: 162px x 322px</p>
         </div>
 
         <!-- ファイルアップロードエリア -->
         <div class="bg-white p-6 rounded-lg shadow-lg space-y-4">
-            <label for="image-upload" class="block text-lg font-medium text-gray-700">1. 画像のアップロード</label>
-            <input type="file" id="image-upload" accept="image/*" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
+            <label for="image-upload" class="block text-lg font-medium text-gray-700">1. 画像のアップロード（複数選択可）</label>
+            <!-- multiple属性を追加して複数ファイル選択を可能にする -->
+            <input type="file" id="image-upload" accept="image/*" multiple class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition duration-150">
         </div>
 
         <!-- 画像処理と表示エリア -->
@@ -55,16 +69,17 @@
             <h2 class="text-xl font-semibold text-gray-700">2. 最終切り抜き結果</h2>
             <div id="status-message" class="text-sm text-red-500 min-h-[1.5rem]"></div>
             
-            <!-- キャンバスコンテナ -->
-            <div class="flex justify-center items-center container-box p-2">
-                <canvas id="imageCanvas" class="hidden"></canvas>
-                <div id="placeholder" class="text-gray-400 text-center p-8">画像をアップロードしてください</div>
+            <div id="loading-indicator" class="hidden flex justify-center items-center py-8">
+                <div class="spinner mr-3"></div>
+                <p class="text-indigo-600 font-medium">画像を処理中です...しばらくお待ちください。</p>
             </div>
-
-            <!-- ダウンロードボタン -->
-            <a id="downloadLink" class="hidden w-full text-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 cursor-pointer transition duration-150" download="cropped_image.png">
-                3. 切り抜き画像をダウンロード
-            </a>
+            
+            <!-- 結果画像を表示するコンテナ -->
+            <div id="resultsContainer" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- 結果はここに動的に追加される -->
+            </div>
+            
+            <p id="placeholder" class="text-gray-400 text-center p-8 container-box">画像をアップロードすると、ここに切り抜き結果が表示されます。</p>
         </div>
     </div>
 
@@ -124,179 +139,209 @@
         // 画像処理ロジック
         // -------------------------------------------------------------
 
-        const canvas = document.getElementById('imageCanvas');
-        const ctx = canvas.getContext('2d');
-        const downloadLink = document.getElementById('downloadLink');
         const imageUpload = document.getElementById('image-upload');
         const statusMessage = document.getElementById('status-message');
         const placeholder = document.getElementById('placeholder');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const loadingIndicator = document.getElementById('loading-indicator');
 
         // ユーザーが指定した800x600基準の切り抜き座標
         const REF_WIDTH = 800;
         const REF_HEIGHT = 600;
-        const CROP_X1_REF = 108; // x座標の小さい方
-        const CROP_Y1_REF = 128; // y座標の小さい方
-        const CROP_X2_REF = 270; // x座標の大きい方
-        const CROP_Y2_REF = 450; // y座標の大きい方
+        // 座標(108, 450) と (270, 128)から、左上と幅/高さを決定
+        const CROP_X1_REF = 108; // Xの最小値
+        const CROP_Y1_REF = 128; // Yの最小値
+        const CROP_X2_REF = 270; // Xの最大値
+        const CROP_Y2_REF = 450; // Yの最大値
         const CROP_W_REF = CROP_X2_REF - CROP_X1_REF; // 162
         const CROP_H_REF = CROP_Y2_REF - CROP_Y1_REF; // 322
+        
+        // 最終Canvasのサイズは切り抜き幅/高さに固定
+        const FINAL_CANVAS_W = CROP_W_REF; // 162
+        const FINAL_CANVAS_H = CROP_H_REF; // 322
+
 
         imageUpload.addEventListener('change', handleImageUpload);
 
         /**
-         * ファイルアップロードイベントハンドラ
+         * ファイルアップロードイベントハンドラ（複数ファイル対応）
          * @param {Event} event ファイル入力イベント
          */
-        function handleImageUpload(event) {
-            statusMessage.textContent = '';
-            downloadLink.classList.add('hidden');
-            canvas.classList.add('hidden');
-            placeholder.classList.remove('hidden');
+        async function handleImageUpload(event) {
+            const files = Array.from(event.target.files);
+            if (files.length === 0) return;
 
-            const file = event.target.files[0];
-            if (!file) {
-                return;
+            resultsContainer.innerHTML = '';
+            statusMessage.textContent = '';
+            placeholder.classList.add('hidden');
+            loadingIndicator.classList.remove('hidden', 'flex');
+            loadingIndicator.classList.add('flex');
+
+            let processedCount = 0;
+
+            for (const file of files) {
+                const img = await loadImage(file);
+                if (img) {
+                    const resultDataUrl = await processImage(img);
+                    if (resultDataUrl) {
+                        renderResult(resultDataUrl, file.name);
+                        processedCount++;
+                    }
+                }
             }
 
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const img = new Image();
-                img.onload = () => {
-                    processImage(img);
-                };
-                img.onerror = () => {
-                    statusMessage.textContent = 'エラー: 画像の読み込みに失敗しました。';
-                    console.error('Image loading error.');
-                };
-                img.src = e.target.result;
-            };
-            reader.readAsDataURL(file);
+            loadingIndicator.classList.remove('flex');
+            loadingIndicator.classList.add('hidden');
+
+            if (processedCount > 0) {
+                statusMessage.textContent = `${processedCount}枚の画像処理が完了しました。画像を長押し（または右クリック）して保存してください。`;
+            } else {
+                statusMessage.textContent = 'エラー: 画像の処理に失敗しました。';
+                placeholder.classList.remove('hidden');
+            }
         }
 
         /**
-         * 画像の処理を実行するメイン関数
+         * ファイルをImageオブジェクトとして読み込む
+         * @param {File} file 画像ファイル
+         * @returns {Promise<Image | null>} Imageオブジェクトまたはnull
+         */
+        function loadImage(file) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => resolve(img);
+                    img.onerror = () => {
+                        console.error(`画像の読み込みに失敗しました: ${file.name}`);
+                        resolve(null);
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+
+        /**
+         * 画像の処理を実行し、結果のData URLを返す
          * @param {Image} img ロードされた画像オブジェクト
+         * @returns {Promise<string | null>} 最終切り抜き画像のData URL
          */
         function processImage(img) {
-            try {
-                // 1. 4:3比率での中央切り抜きと描画
-                const tempCanvas = document.createElement('canvas');
-                const tempCtx = tempCanvas.getContext('2d');
-                const { w4x3, h4x3 } = draw4x3(img, tempCanvas, tempCtx);
+            return new Promise((resolve) => {
+                try {
+                    // 1. 4:3比率での中央切り抜きと描画 (一時Canvasを使用)
+                    const tempCanvas = document.createElement('canvas');
+                    const tempCtx = tempCanvas.getContext('2d');
+                    
+                    // 4:3 Canvasのサイズを設定 (800x600)
+                    const w4x3 = 800; 
+                    const h4x3 = 600; 
+                    tempCanvas.width = w4x3;
+                    tempCanvas.height = h4x3;
 
-                // 2. 指定座標での最終切り抜き
-                cropFinal(tempCanvas, w4x3, h4x3);
+                    // 元画像の切り抜き領域を計算
+                    const originalWidth = img.naturalWidth;
+                    const originalHeight = img.naturalHeight;
+                    const aspectRatio = originalWidth / originalHeight;
+                    const targetRatio = 4 / 3;
 
-                // 3. ダウンロードリンクの更新
-                updateDownloadLink();
+                    let sourceX, sourceY, sourceW, sourceH;
 
-                statusMessage.textContent = '画像処理が完了しました。最終切り抜き結果を表示します。';
-                canvas.classList.remove('hidden');
-                placeholder.classList.add('hidden');
+                    if (aspectRatio > targetRatio) {
+                        // 元画像が横長の場合: 高さを基準に幅を切り取る
+                        sourceH = originalHeight;
+                        sourceW = originalHeight * targetRatio;
+                        sourceX = (originalWidth - sourceW) / 2;
+                        sourceY = 0;
+                    } else {
+                        // 元画像が縦長/正方形の場合: 幅を基準に高さを切り取る
+                        sourceW = originalWidth;
+                        sourceH = originalWidth / targetRatio;
+                        sourceX = 0;
+                        sourceY = (originalHeight - sourceH) / 2;
+                    }
 
-            } catch (error) {
-                statusMessage.textContent = `エラー: 画像処理中に問題が発生しました。詳細をコンソールで確認してください。`;
-                console.error("Image processing error:", error);
-            }
-        }
+                    // テンポラリCanvasに4:3の切り抜き結果を描画
+                    tempCtx.drawImage(
+                        img, 
+                        sourceX, sourceY, sourceW, sourceH, // 元画像の切り抜き領域
+                        0, 0, w4x3, h4x3 // テンポラリCanvasへの描画領域 (800x600)
+                    );
 
-        /**
-         * ステップ1: 4:3比率での中央切り抜きを行い、結果をテンポラリCanvasに描画します。
-         * @param {Image} img 元画像
-         * @param {HTMLCanvasElement} tempCanvas 描画先のCanvas
-         * @param {CanvasRenderingContext2D} tempCtx Canvasコンテキスト
-         * @returns {{w4x3: number, h4x3: number}} 4:3に調整された画像の寸法
-         */
-        function draw4x3(img, tempCanvas, tempCtx) {
-            const originalWidth = img.naturalWidth;
-            const originalHeight = img.naturalHeight;
-            const aspectRatio = originalWidth / originalHeight;
-            const targetRatio = 4 / 3;
+                    // 2. 指定座標での最終切り抜き (メインCanvasを使用)
+                    const finalCanvas = document.createElement('canvas');
+                    const finalCtx = finalCanvas.getContext('2d');
+                    
+                    // 最終Canvasのサイズは切り抜きサイズに固定
+                    finalCanvas.width = FINAL_CANVAS_W;
+                    finalCanvas.height = FINAL_CANVAS_H;
+                    
+                    // 4:3 Canvasは800x600なので、スケールは1.0 (w4x3/REF_WIDTH)
+                    const finalCropX = CROP_X1_REF;
+                    const finalCropY = CROP_Y1_REF;
+                    const finalCropW = FINAL_CANVAS_W;
+                    const finalCropH = FINAL_CANVAS_H;
+                    
+                    // 最終Canvasに、4:3 Canvasの指定領域をコピー
+                    finalCtx.drawImage(
+                        tempCanvas, 
+                        finalCropX, finalCropY, finalCropW, finalCropH, // 4:3 Canvasからのソース領域
+                        0, 0, finalCropW, finalCropH // 最終Canvasへの描画領域
+                    );
 
-            let sourceX, sourceY, sourceW, sourceH;
+                    // 3. Data URLとして返す
+                    finalCanvas.toBlob((blob) => {
+                        if (blob) {
+                            resolve(URL.createObjectURL(blob));
+                        } else {
+                            resolve(null);
+                        }
+                    }, 'image/png');
 
-            // 短い方の辺を基準にする (Contain logic for the shortest side)
-            if (aspectRatio > targetRatio) {
-                // 元画像が横長 (targetRatio 1.333...)
-                // 高さを基準に4:3の幅を計算し、中央を切り取る
-                sourceH = originalHeight;
-                sourceW = originalHeight * targetRatio;
-                sourceX = (originalWidth - sourceW) / 2;
-                sourceY = 0;
-            } else {
-                // 元画像が縦長またはちょうど4:3
-                // 幅を基準に4:3の高さを計算し、中央を切り取る
-                sourceW = originalWidth;
-                sourceH = originalWidth / targetRatio;
-                sourceX = 0;
-                sourceY = (originalHeight - sourceH) / 2;
-            }
-
-            // テンポラリCanvasのサイズを、最終的な表示サイズに設定 (例: 800x600)
-            const w4x3 = 800; // 4:3の幅
-            const h4x3 = 600; // 4:3の高さ
-            tempCanvas.width = w4x3;
-            tempCanvas.height = h4x3;
-
-            // テンポラリCanvasに4:3の切り抜き結果を描画
-            tempCtx.drawImage(
-                img, 
-                sourceX, sourceY, sourceW, sourceH, // 元画像の切り抜き領域
-                0, 0, w4x3, h4x3 // テンポラリCanvasへの描画領域
-            );
-
-            console.log(`4:3切り抜き: 元サイズ(${originalWidth}x${originalHeight}) -> テンポラリCanvas(${w4x3}x${h4x3})`);
-            return { w4x3, h4x3 };
-        }
-
-        /**
-         * ステップ2: 4:3の画像から指定座標に基づき最終切り抜きを行い、メインCanvasに描画します。
-         * @param {HTMLCanvasElement} sourceCanvas 4:3切り抜き済みのCanvas
-         * @param {number} w4x3 4:3 Canvasの幅 (800)
-         * @param {number} h4x3 4:3 Canvasの高さ (600)
-         */
-        function cropFinal(sourceCanvas, w4x3, h4x3) {
-            // スケーリングファクターの計算 (4:3 Canvasサイズと800x600基準の比較)
-            // このケースでは w4x3=800, h4x3=600 なのでスケールは1.0になるが、
-            // 汎用性を持たせるため、計算は維持する
-            const scaleX = w4x3 / REF_WIDTH; // 800/800 = 1.0
-            const scaleY = h4x3 / REF_HEIGHT; // 600/600 = 1.0
-
-            // 調整された切り抜き領域の計算
-            const finalCropX = CROP_X1_REF * scaleX; // 108 * 1.0 = 108
-            const finalCropY = CROP_Y1_REF * scaleY; // 128 * 1.0 = 128
-            const finalCropW = CROP_W_REF * scaleX; // 162 * 1.0 = 162
-            const finalCropH = CROP_H_REF * scaleY; // 322 * 1.0 = 322
-            
-            // 最終Canvasのサイズを設定 (切り抜きサイズと一致させる)
-            canvas.width = finalCropW;
-            canvas.height = finalCropH;
-            
-            // 最終Canvasに、4:3 Canvasの指定領域をコピー
-            ctx.drawImage(
-                sourceCanvas, 
-                finalCropX, finalCropY, finalCropW, finalCropH, // 4:3 Canvasからのソース領域
-                0, 0, finalCropW, finalCropH // 最終Canvasへの描画領域
-            );
-
-            console.log(`最終切り抜き: スケール(${scaleX.toFixed(2)}x, ${scaleY.toFixed(2)}y), 領域(${finalCropX.toFixed(0)}x${finalCropY.toFixed(0)}, ${finalCropW.toFixed(0)}x${finalCropH.toFixed(0)})`);
-        }
-
-        /**
-         * 最終Canvasの画像データをBlobに変換し、ダウンロードリンクを更新します。
-         */
-        function updateDownloadLink() {
-            canvas.toBlob((blob) => {
-                if (blob) {
-                    const url = URL.createObjectURL(blob);
-                    downloadLink.href = url;
-                    downloadLink.classList.remove('hidden');
-                } else {
-                    statusMessage.textContent = 'エラー: 画像データへの変換に失敗しました。';
-                    downloadLink.classList.add('hidden');
+                } catch (error) {
+                    console.error("画像処理エラー:", error);
+                    resolve(null);
                 }
-            }, 'image/png'); // PNG形式で保存
+            });
+        }
+
+        /**
+         * 処理結果をDOMに追加する
+         * @param {string} dataUrl 最終切り抜き画像のData URL
+         * @param {string} originalName 元のファイル名
+         */
+        function renderResult(dataUrl, originalName) {
+            const fileName = originalName.replace(/(\.[\w\d]+)$/, '_cropped.png');
+            
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'bg-gray-100 p-3 rounded-lg shadow-inner space-y-2';
+            
+            const title = document.createElement('p');
+            title.className = 'text-sm font-semibold text-gray-800 truncate';
+            title.textContent = originalName;
+
+            const img = document.createElement('img');
+            img.src = dataUrl;
+            img.alt = `切り抜き結果: ${originalName}`;
+            img.className = 'result-image w-full';
+            // 長押し/右クリックで直接保存するために、imgタグにdata-urlを保持
+            // data-urlをaタグのhrefに設定するため、img自体ではなくaタグを使用
+            
+            const downloadButton = document.createElement('a');
+            downloadButton.href = dataUrl;
+            downloadButton.download = fileName;
+            downloadButton.className = 'mt-2 w-full text-center py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition duration-150 block';
+            downloadButton.textContent = 'PNGをダウンロード';
+
+            resultDiv.appendChild(title);
+            resultDiv.appendChild(img);
+            resultDiv.appendChild(downloadButton);
+            
+            resultsContainer.appendChild(resultDiv);
         }
     </script>
 </body>
 </html>
+
