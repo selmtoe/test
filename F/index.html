@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
 <style>
     :root {
         --bg-color: #1a1a2e;
@@ -370,7 +371,6 @@ background-color: #30a070;">View</button>
     </div>
 </div>
 </div>
-
 <div id="viewer-container">
     <canvas id="viewerCanvas"></canvas>
     <div id="viewer-controls"> 
@@ -378,6 +378,8 @@ background-color: #30a070;">View</button>
             <span id="viewer-page-indicator">Page 1 / 1</span>
             <button id="viewer-simulator-btn" class="button">Simulator</button>
             <button id="back-to-editor-btn" class="button">Editor</button>
+            <button id="viewer-img-btn" class="button" style="background-color: #8800cc;">Img</button>
+            <button id="viewer-gif-btn" class="button" style="background-color: #cc0000;">GIF</button>
         </div>
         <div class="viewer-slider-container">
             <input type="range" id="viewer-page-slider" min="0" max="0" value="0">
@@ -1361,6 +1363,40 @@ viewerCanvas = document.getElementById('viewerCanvas');
     });
 
     document.getElementById('viewer-simulator-btn').addEventListener('click', sendToSimulator);
+
+    document.getElementById('viewer-img-btn').addEventListener('click', () => {
+        const link = document.createElement('a');
+        link.download = `tetofu_page_${currentPageIndex + 1}.png`;
+        link.href = viewerCanvas.toDataURL();
+        link.click();
+    });
+
+    document.getElementById('viewer-gif-btn').addEventListener('click', () => {
+        const originalIndex = currentPageIndex;
+        const gif = new GIF({
+            workers: 2,
+            quality: 10,
+            workerScript: 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js'
+        });
+
+        for (let i = 0; i < fumenPages.length; i++) {
+            currentPageIndex = i;
+            drawViewer();
+            gif.addFrame(viewerCanvas, {copy: true, delay: 500});
+        }
+
+        currentPageIndex = originalIndex;
+        drawViewer();
+
+        gif.on('finished', function(blob) {
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'tetofu_anim.gif';
+            link.click();
+        });
+
+        gif.render();
+    });
 
     document.getElementById('viewer-page-slider').addEventListener('input', (e) => {
         const newIndex = parseInt(e.target.value, 10);
