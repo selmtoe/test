@@ -4406,7 +4406,7 @@ if (this.isActionPressed('softDrop')) {
             }
         }
     }
-    draw() {
+        draw() {
         const layout = gameSettings.layout;
         const pLayout = (this.id === '1') ? layout.p1 : layout.p2;
         const bSize = layout.blockSize;
@@ -4415,16 +4415,10 @@ if (this.isActionPressed('softDrop')) {
         // UI描画 (Hold, Next)
         this.drawUI(pLayout, uiBSize, useCustomBG);
         // 盤面の描画位置へ移動
-        // 従来は translate(this.offsetX + PLAYFIELD_X_OFFSET, 0.5 * BLOCK_SIZE) だったものを
         ctx.save();
         ctx.translate(pLayout.board.x, pLayout.board.y);
 
-        // 背景描画: グローバル背景画像がある場合は、盤面の背景(黒半透明)を描画しないか、あるいは薄くするなどの制御が可能
-        // ここでは「背景画像設定時はデフォルトのUI描画(枠線や背景)をスキップする」という要望に沿う形にするが、
-        // 盤面が見えなくなるのを防ぐため、グリッド等は残すか、完全にユーザー任せにする。
-        // リクエスト通り「背景画像を設定...HoldとかNextなどの描画は全てしなくなる(枠など)」とするため、
-        // boardの背景や枠線も useCustomBG が true ならスキップする
-        
+        // 背景描画
         if (!useCustomBG) {
             if (activeSkin['BG'] && activeSkin['BG'].src) {
                 ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -4466,82 +4460,88 @@ if (this.isActionPressed('softDrop')) {
 
         const occupiedCells = new Set();
         let shape, ghostY;
+        
+        // プレイヤー操作ミノ等の描画ブロック
         if (!this.gameOver && !this.gameClear && !this.isClearingLine && this.player.pieceType) { 
             shape = this.getShape(this.player.pieceType, this.player.rotation);
             ghostY = this.getGhostY(); 
             
+            // ゴースト描画
             if (ghostY > this.player.y) {
-                // Ghost
                 this.drawPiece(shape, this.player.x, ghostY, this.player.pieceType, 0.4, bSize);
                 shape.forEach(b => {
                     const bx = Math.floor(this.player.x + b[0]);
                     const by = Math.floor(ghostY + b[1]);
                     occupiedCells.add(`${bx},${by}`);
-                            });
+                });
+            }
+
+            // 本体描画 (条件分岐の外に出して常に描画するように修正)
             this.drawPiece(shape, this.player.x, this.player.y, this.player.pieceType, 1.0, bSize);
-shape.forEach(b => {
+            shape.forEach(b => {
                 const bx = Math.floor(this.player.x + b[0]);
                 const by = Math.floor(this.player.y + b[1]);
                 occupiedCells.add(`${bx},${by}`);
             });
-}
 
-        // AI Hint Ghosts (最善手ゴースト)
-        if (this.aiHintGhosts.length > 0 && !this.gameOver) {
-            ctx.lineWidth = 2;
-            this.aiHintGhosts.forEach(block => {
-                const screenY = block.y - this.viewY;
-                if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
-                    const px = block.x * bSize;
-                    const py = screenY * bSize;
-                    // 透明な白で塗りつぶし
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-                    ctx.fillRect(px, py, bSize, bSize);
-                    // 枠線を描画
-                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-                    ctx.strokeRect(px, py, bSize, bSize);
-                }
-            });
-        }
-
-        // Custom Ghosts
-        if (this.customGhosts.length > 0) {
-            const ghostMap = new Map();
-            this.customGhosts.forEach(ghost => {
-                const key = `${ghost.x},${ghost.y}`;
-                ghostMap.set(key, ghost.pieceType);
-            });
-            ghostMap.forEach((pieceType, key) => {
-                const [x, y] = key.split(',').map(Number);
-                if (occupiedCells.has(key) || (y >= 0 && y < BOARD_HEIGHT && this.board[y][x])) {
-                    return;
-                }
-                const screenY = y - this.viewY;
-                if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
-                    this.drawBlock(pieceType, x * bSize, screenY * bSize, 0.2, bSize);
-                }
-            });
-        }
-
-        // Drawn Blocks
-        if (this.drawnBlocks.size > 0) {
-            ctx.fillStyle = '#FFFFFF';
-            ctx.globalAlpha = 0.8;
-            for (const key of this.drawnBlocks.keys()) {
-                const [x, y] = key.split(',').map(Number);
-                const screenY = y - this.viewY;
-                if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
-                    ctx.fillRect(x * bSize, screenY * bSize, bSize, bSize);
-                }
+            // AI Hint Ghosts (最善手ゴースト)
+            if (this.aiHintGhosts.length > 0 && !this.gameOver) {
+                ctx.lineWidth = 2;
+                this.aiHintGhosts.forEach(block => {
+                    const screenY = block.y - this.viewY;
+                    if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
+                        const px = block.x * bSize;
+                        const py = screenY * bSize;
+                        // 透明な白で塗りつぶし
+                        ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                        ctx.fillRect(px, py, bSize, bSize);
+                        // 枠線を描画
+                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+                        ctx.strokeRect(px, py, bSize, bSize);
+                    }
+                });
             }
-            ctx.globalAlpha = 1.0;
-        }
-        }
+
+            // Custom Ghosts
+            if (this.customGhosts.length > 0) {
+                const ghostMap = new Map();
+                this.customGhosts.forEach(ghost => {
+                    const key = `${ghost.x},${ghost.y}`;
+                    ghostMap.set(key, ghost.pieceType);
+                });
+                ghostMap.forEach((pieceType, key) => {
+                    const [x, y] = key.split(',').map(Number);
+                    if (occupiedCells.has(key) || (y >= 0 && y < BOARD_HEIGHT && this.board[y][x])) {
+                        return;
+                    }
+                    const screenY = y - this.viewY;
+                    if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
+                        this.drawBlock(pieceType, x * bSize, screenY * bSize, 0.2, bSize);
+                    }
+                });
+            }
+
+            // Drawn Blocks
+            if (this.drawnBlocks.size > 0) {
+                ctx.fillStyle = '#FFFFFF';
+                ctx.globalAlpha = 0.8;
+                for (const key of this.drawnBlocks.keys()) {
+                    const [x, y] = key.split(',').map(Number);
+                    const screenY = y - this.viewY;
+                    if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
+                        ctx.fillRect(x * bSize, screenY * bSize, bSize, bSize);
+                    }
+                }
+                ctx.globalAlpha = 1.0;
+            }
+        } // ★ここ！この「}」が抜けていたため、メソッドが閉じられていませんでした
+        
         this.drawSpecialMoveText(bSize);
         if (this.gameOver) this.drawMessage("GAME OVER", bSize);
         else if (this.gameClear) this.drawMessage("CLEAR!", bSize);
         ctx.restore();
-}
+    }
+
     
     getShape(p, r) { if(!p) return []; const o=TETROMINOS[p].shape; if(r===0||p==='O')return o; const c=TETROMINOS[p].center;return o.map(b=>{let [x,y]=[b[0]-c[0],b[1]-c[1]]; for(let i=0;i<r;i++){[x,y]=[-y,x];} return [x+c[0]+(p==='O'?0.5:0),y+c[1]+(p==='O'?0.5:0)];});}
     checkCollision(x,y,s) { for(const b of s) { const bx=Math.floor(x+b[0]), by=Math.floor(y+b[1]); if(bx<0||bx>=BOARD_WIDTH||by>=BOARD_HEIGHT||(by>=0&&this.board[by]?.[bx])) return true; } return false; }
