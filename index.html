@@ -3824,6 +3824,17 @@ function generateDefaultLayout() {
     };
 }  
 
+// AIの判定と一致させるためのゴーストブロック用相対座標定義
+const GHOST_SHAPE_DEFINITIONS = {
+    'I': [[[0,0], [-1,0], [1,0], [2,0]], [[1,0], [1,-1], [1,1], [1,2]], [[0,1], [-1,1], [1,1], [2,1]], [[0,0], [0,-1], [0,1], [0,2]]],
+    'O': [[[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]], [[0,0], [1,0], [0,-1], [1,-1]]],
+    'T': [[[0,0], [-1,0], [1,0], [0,-1]], [[0,0], [0,-1], [1,0], [0,1]], [[0,0], [1,0], [-1,0], [0,1]], [[0,0], [0,1], [-1,0], [0,-1]]],
+    'S': [[[0,0], [-1,0], [0,-1], [1,-1]], [[0,0], [0,-1], [1,0], [1,1]], [[0,0], [1,0], [0,1], [-1,1]], [[0,0], [0,1], [-1,0], [-1,-1]]],
+    'Z': [[[0,0], [1,0], [0,-1], [-1,-1]], [[0,0], [0,1], [1,0], [1,-1]], [[0,0], [-1,0], [0,1], [1,1]], [[0,0], [0,-1], [-1,0], [-1,1]]],
+    'J': [[[0,0], [-1,0], [1,0], [-1,-1]], [[0,0], [0,-1], [0,1], [1,-1]], [[0,0], [1,0], [-1,0], [1,1]], [[0,0], [0,1], [0,-1], [-1,1]]],
+    'L': [[[0,0], [1,0], [-1,0], [1,-1]], [[0,0], [0,1], [0,-1], [1,1]], [[0,0], [-1,0], [1,0], [-1,1]], [[0,0], [0,-1], [0,1], [-1,-1]]]
+};
+
 let gameSettings = {
     das: 140,
     arr: 30,
@@ -3841,8 +3852,9 @@ let gameSettings = {
     aiMoveDelay: 30,
     aiSdfDelay: 30,
     drawMoveDelay: 30,
-        aiTemplates: { meisou: true, sangaku_2: true },
-   
+    aiTemplates: { meisou: true, sangaku_2: 
+true },
+    aiHintEnabled: false,
     debugEnabled: false,
     pieceForPieceMode: false,
    
@@ -4053,8 +4065,32 @@ const status = debugDisplay.dataset.status || 'Waiting...';
                     this.executeAiMove(e.data);
                 }
             };
-        }
+}
         
+        // AIヒント用Workerの初期化
+        this.hintAiWorker = null;
+        this.aiHintGhosts = []; // ヒント表示用座標配列
+        if (this.id === '1' && gameSettings.aiHintEnabled && !this.isAi) {
+            const blob = new Blob([aiWorkerScript_Simplified], { type: 'application/javascript' });
+            this.hintAiWorker = new Worker(URL.createObjectURL(blob));
+            this.hintAiWorker.onmessage = (e) => {
+                if (e.data && e.data.type === 'stop') {
+                    // 最善手の座標を受け取り、ゴーストブロック座標に変換して保存
+                    if (e.data.piece) {
+                        const { piece, x, y, rotation } = e.data;
+                        const offsets = GHOST_SHAPE_DEFINITIONS[piece][rotation];
+                        this.aiHintGhosts = offsets.map(o => ({
+                            x: x + o[0],
+                            y: y + o[1],
+                            pieceType: piece
+                        }));
+                    } else {
+                        this.aiHintGhosts = [];
+                    }
+                }
+            };
+        }
+
         this.isDrawingOnBoard = false;
         this.drawnBlocks = new Map();
         this.customGhosts = [];
@@ -4085,10 +4121,11 @@ this.nextQueue = [];
             this.nextQueue.push(newMino);
             this.fullMinoSequence.push(newMino);
 }
-        this.isExecutingSequence = false;
+                this.isExecutingSequence = false;
         this.drawnBlocks.clear();
         this.isDrawingOnBoard = false;
         this.customGhosts = [];
+        this.aiHintGhosts = [];
 this.holdPiece = this.initialHold;this.canHold = true;
 this.gravityTimer = gameSettings.gravity; this.lockTimer = 0;
 
@@ -4126,17 +4163,55 @@ this.gravityTimer = gameSettings.gravity; this.lockTimer = 0;
         this.player.rotation = 0;
         this.canHold = true;
         this.lastMoveWasRotation = false;
-        this.player.x = Math.floor(BOARD_WIDTH / 2) - Math.floor(TETROMINOS[this.player.pieceType].center[0]) -1;
+                this.player.x = Math.floor(BOARD_WIDTH / 2) - Math.floor(TETROMINOS[this.player.pieceType].center[0]) -1;
 
         const shape = this.getShape(this.player.pieceType, this.player.rotation);
         this.player.y = 20;
-        if (this.checkCollision(this.player.x, this.player.y, shape)) {
+if (this.checkCollision(this.player.x, this.player.y, shape)) {
             this.player.y = 19;
-            if (this.checkCollision(this.player.x, this.player.y, shape)) {
+if (this.checkCollision(this.player.x, this.player.y, shape)) {
 
                  this.gameOver = true;
-            }
+}
         }
+        this.requestAiHint(); // 新しいピースが出現したらヒントをリクエスト
+    }
+
+    // AIヒントを計算リクエストするメソッド
+    requestAiHint() {
+        if (!this.hintAiWorker || this.gameOver) return;
+        
+        let boardString = '[\n';
+        for (let y = 0; y < this.board.length; y++) {
+            const row = this.board[y];
+            const rowString = row.map(cell => cell === null ? 'null' : `"${cell}"`).join(', ');
+            boardString += `  [${rowString}]`;
+            if (y < this.board.length - 1) boardString += ',\n';
+        }
+        boardString += '\n]';
+
+        let nextString;
+        let holdPieceToSend = this.holdPiece;
+        if (!holdPieceToSend) {
+            holdPieceToSend = this.player.pieceType;
+            nextString = this.nextQueue.join('');
+        } else {
+            const nextPiecesForWorker = [this.player.pieceType, ...this.nextQueue];
+            nextString = nextPiecesForWorker.join('');
+        }
+
+        const payload = {
+            type: 'start',
+            boardString: boardString,
+            nextString: nextString,
+            holdPiece: holdPieceToSend,
+            canHold: this.canHold,
+            isB2B: this.isB2B,
+            ren: this.ren + 1,
+            activeTemplates: gameSettings.aiTemplates
+        };
+        this.hintAiWorker.postMessage(payload);
+        this.hintAiWorker.postMessage({ type: 'stop' });
     }
 
     isActionPressed(action) {
@@ -4402,15 +4477,30 @@ if (this.isActionPressed('softDrop')) {
                     const bx = Math.floor(this.player.x + b[0]);
                     const by = Math.floor(ghostY + b[1]);
                     occupiedCells.add(`${bx},${by}`);
-                });
-            }
-            
-            // Active Piece
+                            });
             this.drawPiece(shape, this.player.x, this.player.y, this.player.pieceType, 1.0, bSize);
-            shape.forEach(b => {
+shape.forEach(b => {
                 const bx = Math.floor(this.player.x + b[0]);
                 const by = Math.floor(this.player.y + b[1]);
                 occupiedCells.add(`${bx},${by}`);
+            });
+}
+
+        // AI Hint Ghosts (最善手ゴースト)
+        if (this.aiHintGhosts.length > 0 && !this.gameOver) {
+            ctx.lineWidth = 2;
+            this.aiHintGhosts.forEach(block => {
+                const screenY = block.y - this.viewY;
+                if (screenY >= 0 && screenY < BOARD_VISIBLE_HEIGHT) {
+                    const px = block.x * bSize;
+                    const py = screenY * bSize;
+                    // 透明な白で塗りつぶし
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                    ctx.fillRect(px, py, bSize, bSize);
+                    // 枠線を描画
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+                    ctx.strokeRect(px, py, bSize, bSize);
+                }
             });
         }
 
@@ -4486,15 +4576,16 @@ hold() {
             this.player.x = Math.floor(BOARD_WIDTH / 2) - Math.floor(TETROMINOS[this.player.pieceType].center[0]) -1;
             const shape = this.getShape(this.player.pieceType, this.player.rotation);
             this.player.y = 20;
-            if (this.checkCollision(this.player.x, this.player.y, shape)) {
+                        if (this.checkCollision(this.player.x, this.player.y, shape)) {
                 this.player.y = 19;
-                if (this.checkCollision(this.player.x, this.player.y, shape)) {
+if (this.checkCollision(this.player.x, this.player.y, shape)) {
                      this.gameOver = true;
-                }
+}
             }
+            this.requestAiHint(); // ホールド後もヒントを再計算
         } else {
             this.holdPiece = this.player.pieceType;
-            this.spawnNewPiece();
+this.spawnNewPiece();
         }
     }
 
@@ -6246,9 +6337,26 @@ function populateAiSettingsTab() {
         const span = document.createElement('span');
         span.textContent = config.label;
         label.append(checkbox, span);
-        item.appendChild(label);
+                item.appendChild(label);
         list.appendChild(item);
     });
+
+    // AI Hint Setting
+    const hintItem = document.createElement('div');
+    hintItem.className = 'setting-item';
+    hintItem.style.cssText = 'margin-top:10px; border-top:1px solid var(--primary-color); padding-top:10px;';
+    const hintLabel = document.createElement('label');
+    const hintCheckbox = document.createElement('input');
+    hintCheckbox.type = 'checkbox';
+    hintCheckbox.checked = !!gameSettings.aiHintEnabled;
+    hintCheckbox.onchange = e => {
+        gameSettings.aiHintEnabled = e.target.checked;
+    };
+    const hintSpan = document.createElement('span');
+    hintSpan.textContent = 'AIヒントを表示 (Player 1のみ)';
+    hintLabel.append(hintCheckbox, hintSpan);
+    hintItem.appendChild(hintLabel);
+    list.appendChild(hintItem);
 }
 
 function populateLayoutSettingsTab() {
@@ -7757,18 +7865,22 @@ document.getElementById('backToEditorBtn').addEventListener('click', () => {
         gameState = 'EDITING';
         gameHistoryLog = [];
         
-        if (players.length > 0) {
-            players.forEach(p => {
+        if (players.length > 0) {            
+          players.forEach(p => {
                 if (p.aiWorker) {
                     p.aiWorker.terminate();
+                }
+                if (p.hintAiWorker) {
+                    p.hintAiWorker.terminate();
                 }
                 if (p.ruleWorker) {
                     p.ruleWorker.terminate();
                 }
             });
         }
+
         
-                players = [];
+        players = [];
         loadGameSettings();
 
         // --- 追加: 背景とキャンバススタイルのリセット ---
@@ -7966,10 +8078,15 @@ document.getElementById('retryBtn').addEventListener('click', () => {
             if (p.aiWorker) {
                 p.aiWorker.terminate();
             }
+            if (p.hintAiWorker) {
+                p.hintAiWorker.terminate();
+            }
+            
             if (p.ruleWorker) {
                 p.ruleWorker.terminate();
             }
         });
+
 
         loadGameSettings();
         gameHistoryLog = [];
@@ -8327,10 +8444,15 @@ p.ruleWorker.postMessage({
                     if (p.aiWorker) {
                         p.aiWorker.terminate();
                     }
+                    if (p.hintAiWorker) {
+                        p.hintAiWorker.terminate();
+                    }
+            
                     if (p.ruleWorker) {
                         p.ruleWorker.terminate();
                     }
                 });
+
             }
             
             players = [];
