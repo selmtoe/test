@@ -6,11 +6,19 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1a1a2e">
 <link rel="manifest" id="manifest-link">
-<title>Tetris Simulator</title>
+<title>Simulator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-V7TV25SK5M"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-V7TV25SK5M');
+</script>
 <style>
     :root {
         --bg-color: #1a1a2e; --primary-color: #4b4b7c; --primary-hover-color: #6a6aff;
@@ -313,9 +321,9 @@
                         <button class="button" id="p1-field-shift-down">↓ Down</button>
                         <button class="button" id="p1-field-clear">Clear</button>
                         <button class="button" id="p1-field-line-clear">Line Clear</button>
-                        <label for="imageLoader-p1" class="button">Load Img</label>
+                        <label for="imageLoader-p1" class="button">Img</label>
                         <input type="file" id="imageLoader-p1" data-player="p1" accept="image/*">
-                        <label for="pptLoader-p1" class="button">Load PPT</label>
+                        <label for="pptLoader-p1" class="button">PPT</label>
                         <input type="file" id="pptLoader-p1" data-player="p1" accept="image/*">
                     </div>
 <div class="key-config-controls" style="margin-top: 15px; text-align: center; display: flex; justify-content: center; align-items: center; gap: 10px;">
@@ -346,9 +354,9 @@
                         <button class="button" id="p2-field-shift-down">↓ Down</button>
                         <button class="button" id="p2-field-clear">Clear</button>
                         <button class="button" id="p2-field-line-clear">Line Clear</button>
-                        <label for="imageLoader-p2" class="button">Load Img</label>
+                        <label for="imageLoader-p2" class="button">Img</label>
                         <input type="file" id="imageLoader-p2" data-player="p2" accept="image/*">
-                        <label for="pptLoader-p2" class="button">Load PPT</label>
+                        <label for="pptLoader-p2" class="button">PPT</label>
                         <input type="file" id="pptLoader-p2" data-player="p2" accept="image/*">
                     </div>
 <div class="key-config-controls" style="margin-top: 15px; text-align: center; display: flex; justify-content: center; align-items: center; gap: 10px;">
@@ -2778,7 +2786,15 @@ class AIAgent {
                         const templateY = y + offset;
                         const row = currentBoard.rows[y];
 
-                        if (templateY >= BOARD_HEIGHT) continue;
+                        if (templateY >= BOARD_HEIGHT) {
+                            let filledCount = 0;
+                            for (let x = 0; x < WIDTH; x++) {
+                                if ((row & (1 << x)) !== 0) filledCount++;
+                            }
+                            if (filledCount < 9) valid = false;
+                            if (!valid) break;
+                            continue;
+                        }
 
                         for (let x = 0; x < WIDTH; x++) {
                             const isFilled = (row & (1 << x)) !== 0;
@@ -5400,9 +5416,9 @@ this.isAiThinking = false;
         this.customGhosts = [];
     }
     
-setPiece(type, piece, index = 0) {
+    setPiece(type, piece, index = 0) {
         const isValidPiece = Object.keys(TETROMINOS).includes(piece) ||
-piece === null;
+            piece === null || piece === 'E';
         if (!isValidPiece) return;
 
         if (type === 'hold') {
@@ -6599,22 +6615,32 @@ function findClosestMinoOnly(r, g, b) {
 // --- ONNX High Precision PPT Load ---
 let onnxSession = null;
 const ONNX_CLASS_NAMES = ['null', 'G', 'S', 'Z', 'L', 'J', 'O', 'I', 'T'];
+let modelReadyResolver;
+const modelReadyPromise = new Promise(resolve => modelReadyResolver = resolve);
 
 async function initOnnxModel() {
     try {
-        onnxSession = await ort.InferenceSession.create('./Load PPT/tetris.onnx', { executionProviders: ['wasm'] });
+        onnxSession = await ort.InferenceSession.create('./Load%20PPT/tetris.onnx', { executionProviders: ['wasm'] });
         console.log("ONNX Model loaded.");
+        if (modelReadyResolver) modelReadyResolver(true);
     } catch (e) {
         console.error("Failed to load ONNX model:", e);
+        if (modelReadyResolver) modelReadyResolver(false);
     }
 }
 initOnnxModel();
 
-function processPptImage(file) {
+async function processPptImage(file) {
     if (!onnxSession) {
-        alert("AIモデルを読み込み中です。しばらくお待ちください。");
-        return;
+        await modelReadyPromise;
+        if (!onnxSession) {
+            alert("AIモデルの読み込みに失敗しました。");
+            return;
+        }
     }
+    
+    document.getElementById('mode-2p').click();
+
     // High Precision Logic
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -6627,6 +6653,17 @@ function processPptImage(file) {
     };
     reader.readAsDataURL(file);
 }
+
+window.receiveExtensionImage = async (base64Data) => {
+    try {
+        const res = await fetch(base64Data);
+        const blob = await res.blob();
+        const file = new File([blob], "capture.jpg", { type: "image/jpeg" });
+        processPptImage(file);
+    } catch(e) {
+        console.error("Extension image process failed", e);
+    }
+};
 
 async function runHighPrecisionAnalysis(imgBitmap) {
     try {
@@ -6830,7 +6867,10 @@ async function analyzePlayerHighPrecision(canvas, originalBitmap, cropData, conf
         const coord = config.nextCoords[i];
         const avgColor = getAverageColorNonBlack(rawCtx, coord.x * currentScale, coord.y * currentScale, radius);
         if (i === 0) {
-            holdMino = findClosestColor(avgColor.r, avgColor.g, avgColor.b);
+            const isBlack = avgColor.r < 50 && avgColor.g < 50 && avgColor.b < 50;
+            if (!isBlack) {
+                holdMino = findClosestMinoOnly(avgColor.r, avgColor.g, avgColor.b);
+            }
         } else {
             const isBlack = avgColor.r < 50 && avgColor.g < 50 && avgColor.b < 50;
             if (i === 1 && isBlack) break;
