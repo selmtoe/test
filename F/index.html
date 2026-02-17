@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tetris-fumen@1.0.3/dist/tetris-fumen.min.js"></script>
 <style>
     :root {
         --bg-color: #1a1a2e;
@@ -462,14 +463,32 @@ background-color: #30a070;">View</button>
         <hr style="border-color: var(--primary-color); margin: 20px 0;">
         
         <div class="share-section">
-            <h3 style="font-family: var(--font-display); color: var(--primary-hover-color); margin-top: 0; margin-bottom: 10px; border-bottom: 1px solid var(--primary-color); padding-bottom: 5px;">インポート</h3>
+            <h3 style="font-family: var(--font-display);
+color: var(--primary-hover-color); margin-top: 0; margin-bottom: 10px; border-bottom: 1px solid var(--primary-color);
+padding-bottom: 5px;">インポート</h3>
             <p></p>
             <button id="import-from-data-btn" class="button">クリップボードからインポート</button>
         </div>
 
-        <div class="modal-controls" style="text-align: center; margin-top: 15px;">
+        <hr style="border-color: var(--primary-color); margin: 20px 0;">
+
+        <div class="share-section">
+            <h3 style="font-family: var(--font-display); color: var(--primary-hover-color); margin-top: 0; margin-bottom: 10px; border-bottom: 1px solid var(--primary-color); padding-bottom: 5px;">本家テト譜 (knewjade/tetris-fumen)</h3>
+            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                <button id="export-fumen-1p-btn" class="button" style="background-color: #00a0f0;">1Pをエクスポート</button>
+                <button id="export-fumen-2p-btn" class="button" style="background-color: #f0a000; display: none;">2Pをエクスポート</button>
+            </div>
+            <input type="text" id="fumen-export-link" readonly style="width: 100%; margin-bottom: 10px; box-sizing: border-box; background-color: var(--primary-color); color: var(--font-color); border: 1px solid var(--border-color); padding: 8px; border-radius: 4px; font-family: var(--font-ui);">
+            
+            <input type="text" id="fumen-import-input" placeholder="本家のURL(v115@...)を入力" style="width: 100%; margin-bottom: 5px; box-sizing: border-box; background-color: var(--primary-color); color: var(--font-color); border: 1px solid var(--border-color); padding: 8px; border-radius: 4px; font-family: var(--font-ui);">
+            <button id="import-fumen-btn" class="button">本家テト譜を読み込む</button>
+        </div>
+
+        <div class="modal-controls" style="text-align: center;
+margin-top: 15px;">
             <button id="share-close" class="button">閉じる</button>
         </div>
+
     </div>
 </div>
 
@@ -1278,15 +1297,16 @@ function applyFumenData(data) {
 function generateAndDisplayLink() {
     const stateData = getFumenDataForExport();
     const jsonString = JSON.stringify(stateData);
-    const uint8Array = new TextEncoder().encode(jsonString);
+const uint8Array = new TextEncoder().encode(jsonString);
     const base64Data = btoa(String.fromCharCode.apply(null, uint8Array));
     const url = new URL(window.location);
     url.hash = base64Data;
-    document.getElementById('share-link-input').value = url.href;
+document.getElementById('share-link-input').value = url.href;
 }
 
 function openShareModal() {
     generateAndDisplayLink();
+    document.getElementById('export-fumen-2p-btn').style.display = (gameMode === '2P') ? 'inline-block' : 'none';
     document.getElementById('share-modal').style.display = 'flex';
 }
 
@@ -1712,18 +1732,109 @@ window.addEventListener('resize', updateScale);
                 data = JSON.parse(text);
             }
             
-            if(applyFumenData(data)) {
-                 alert('クリップボードから譜面データを読み込みました。');
+                        if(applyFumenData(data)) {
+               
+  alert('クリップボードから譜面データを読み込みました。');
                  document.getElementById('share-modal').style.display = 'none';
             }
 
         } catch (e) {
             alert('クリップボードのデータが無効か、読み込みに失敗しました。');
-            console.error('Failed to import from clipboard:', e);
+console.error('Failed to import from clipboard:', e);
         }
     });
+
+    function exportToFumen(playerId) {
+        try {
+            if (!window.tetrisFumen) throw new Error();
+            const { encoder, Field } = window.tetrisFumen;
+            const pages = [];
+            
+            for (let i = 0; i < fumenPages.length; i++) {
+                const page = fumenPages[i];
+                const board = page[playerId].board;
+                let fieldString = '';
+                for (let y = 17; y <= 39; y++) {
+                    for (let x = 0; x < BOARD_WIDTH; x++) {
+                        const cell = board[y][x];
+                        if (!cell) fieldString += '_';
+                        else if (cell === 'G') fieldString += 'X';
+                        else fieldString += cell;
+                    }
+                }
+                const field = Field.create(fieldString);
+                pages.push({ field: field });
+            }
+            const encoded = encoder.encode(pages);
+            const url = 'https://knewjade.github.io/fumen-for-mobile/#?d=' + encoded;
+            const input = document.getElementById('fumen-export-link');
+            input.value = url;
+            input.select();
+            navigator.clipboard.writeText(url).then(() => {
+                alert(playerId.toUpperCase() + 'の盤面を本家リンクに変換し、クリップボードにコピーしました！\n\n' + url);
+            });
+        } catch(e) {
+            alert('本家テト譜への変換に失敗しました。');
+        }
+    }
+
+    document.getElementById('export-fumen-1p-btn').addEventListener('click', () => exportToFumen('p1'));
+    document.getElementById('export-fumen-2p-btn').addEventListener('click', () => exportToFumen('p2'));
+
+    document.getElementById('import-fumen-btn').addEventListener('click', () => {
+        try {
+            if (!window.tetrisFumen) throw new Error();
+            const urlInput = document.getElementById('fumen-import-input').value.trim();
+            if (!urlInput) {
+                return;
+            }
+            const { decoder } = window.tetrisFumen;
+            let dataString = urlInput;
+            if (urlInput.includes('?d=')) {
+                dataString = urlInput.split('?d=')[1].split('&')[0];
+            } else {
+                const match = urlInput.match(/(v115@[a-zA-Z0-9+/]+={0,2})/);
+                if (match) dataString = match[1];
+            }
+
+            const pages = decoder.decode(dataString);
+            
+            if (!pages || pages.length === 0) throw new Error();
+
+            fumenPages = [];
+            for (let i = 0; i < pages.length; i++) {
+                const fumenPage = pages[i];
+                const field = fumenPage.field;
+                const newPage = createBlankPage();
+                for (let y = 17; y <= 39; y++) {
+                    const fumenY = 39 - y; 
+                    for (let x = 0; x < BOARD_WIDTH; x++) {
+                        const cell = field.at(x, fumenY);
+                        if (cell !== '_') {
+                            newPage.p1.board[y][x] = (cell === 'X') ? 'G' : cell;
+                        }
+                    }
+                }
+                fumenPages.push(newPage);
+            }
+            
+            gameMode = '1P';
+            document.getElementById('mode-1p').classList.add('active');
+            document.getElementById('mode-2p').classList.remove('active');
+            document.getElementById('p2-editor-col').style.display = 'none';
+
+            currentPageIndex = 0;
+            loadPage(0);
+            updateScale();
+            document.getElementById('share-modal').style.display = 'none';
+            alert('本家テト譜から読み込みました。（1P側に反映されます）');
+
+        } catch(e) {
+            alert('本家テト譜からの読み込みに失敗しました。URLが正しいか確認してください。');
+        }
+    });
+
 });
 </script>
 </body>
 </html>
-    
