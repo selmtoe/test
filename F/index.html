@@ -1364,43 +1364,50 @@ const FumenCodec = {
     },
 
     decode: function(str) {
+        str = str.replace(/\?/g, '');
         if (!str.startsWith('v115@')) return null;
         let idx = 5;
         const pages = [];
-        let prevField = Array(240).fill(0); // テト譜は空フィールド(8=Grayではなく0=Empty)から始まる
+        let prevField = Array(240).fill(0);
+        let repeatCount = 0;
 
         while (idx < str.length) {
-            // 1. Field
-            // poll(2) until sum blocks >= 240
             let currentField = Array(240).fill(0);
-            let totalBlocks = 0;
-            let fieldIdx = 0;
+            
+            if (repeatCount > 0) {
+                currentField = [...prevField];
+                repeatCount--;
+            } else {
+                let totalBlocks = 0;
+                let fieldIdx = 0;
+                let isVh = false;
+                let chunkCount = 0;
 
-            while (totalBlocks < 240) {
-                const chunkVal = this.poll(str, idx, 2);
-                idx += 2;
-                const diff = Math.floor(chunkVal / 240) - 8;
-                const count = (chunkVal % 240) + 1;
-
-                for (let k = 0; k < count; k++) {
-                    if (fieldIdx < 240) {
-                        let prevVal = prevField[fieldIdx];
-                        let newVal = prevVal + diff;
-                        currentField[fieldIdx] = newVal;
-                        fieldIdx++;
+                while (totalBlocks < 240) {
+                    const chunkVal = this.poll(str, idx, 2);
+                    idx += 2;
+                    chunkCount++;
+                    if (chunkCount === 1 && chunkVal === 2159) {
+                        isVh = true;
                     }
+                    const diff = Math.floor(chunkVal / 240) - 8;
+                    const count = (chunkVal % 240) + 1;
+                    for (let k = 0; k < count; k++) {
+                        if (fieldIdx < 240) {
+                            currentField[fieldIdx] = prevField[fieldIdx] + diff;
+                            fieldIdx++;
+                        }
+                    }
+                    totalBlocks += count;
                 }
-                totalBlocks += count;
+
+                if (isVh) {
+                    repeatCount = this.poll(str, idx, 1);
+                    idx += 1;
+                }
             }
 
-            // 繰り返しの処理 (テト譜仕様: Repeat)
-            // v115では単純に「次のページも同じフィールド」という概念はない(毎回Diff書く)が、
-            // 実際は diff=0, count=240 (vh) が並ぶ。
-            // ここでの実装は上記whileでDiff適用済みなのでOK。
-
             prevField = [...currentField];
-
-            // 2. Mino/Flags
             const minoVal = this.poll(str, idx, 3);
             idx += 3;
             
@@ -1416,13 +1423,10 @@ const FumenCodec = {
             let hold = '';
             let next = '';
 
-            // 3. Comment
             if (commentFlag === 1) {
                 const lenVal = this.poll(str, idx, 2);
                 idx += 2;
                 
-                // コメントデコード
-                // 5文字読んで4文字復元
                 const COMMENT_TABLE = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
                 let commentStr = '';
                 const numChunks = Math.ceil(lenVal / 4);
@@ -1439,15 +1443,14 @@ const FumenCodec = {
                     }
                 }
 
+                commentStr = unescape(commentStr);
+
                 if (commentStr.startsWith('#Q=')) {
-                    // #Q=[hold](current)next 形式 (優先)
                     const matchStrict = commentStr.match(/#Q=\[([a-zA-Z]*)\]\(([a-zA-Z]*)\)([a-zA-Z]*)/);
                     if (matchStrict) {
                         hold = matchStrict[1];
-                        // ()内のミノがあればNextの先頭に挿入する
                         next = matchStrict[2] + matchStrict[3];
                     } else {
-                        // #Q=[hold]next 形式 (本家/旧形式互換用)
                         const match = commentStr.match(/#Q=\[([a-zA-Z]*)\]([a-zA-Z]*)/);
                         if (match) {
                             hold = match[1];
@@ -1457,13 +1460,8 @@ const FumenCodec = {
                 }
             }
             
-            // Board変換: Fumen(240) -> Custom(40x10)
-            // Fumen[0..229] -> Custom[17..39] (Top to Bottom)
-            // Custom[0..16] -> Empty
             const customBoard = Array.from({length: 40}, () => Array(10).fill(null));
             for(let y=0; y<23; y++) {
-                // Fumen row y (0 is top of 23)
-                // Custom row 17 + y
                 for(let x=0; x<10; x++) {
                     const fVal = currentField[y * 10 + x];
                     customBoard[17 + y][x] = this.FUMEN_TO_TYPE[fVal] || null;
