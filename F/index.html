@@ -331,7 +331,60 @@ flex-wrap: wrap;
         font-family: monospace;
         text-transform: uppercase;
     }
+
+    /* 追加: Next/Holdエディタ用スタイル */
+    .next-editor {
+        margin-bottom: 15px;
+        background-color: rgba(255,255,255,0.05);
+        padding: 10px;
+        border-radius: 8px;
+    }
+    .mino-icons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        justify-content: center;
+        margin-bottom: 10px;
+    }
+    .mino-icon {
+        width: 30px;
+        height: 30px;
+        border-radius: 3px;
+        cursor: pointer;
+        border: 1px solid rgba(255,255,255,0.2);
+        transition: transform 0.1s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: bold;
+        color: white;
+        text-shadow: 0 0 2px black;
+    }
+    .mino-icon:hover {
+        transform: scale(1.1);
+        z-index: 10;
+    }
+    .next-queue-display {
+        background-color: rgba(0,0,0,0.3);
+        padding: 8px;
+        border-radius: 5px;
+        min-height: 38px;
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+        border: 1px solid var(--primary-color);
+        margin-bottom: 10px;
+        align-items: center;
+    }
+    .button-group {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+    }
+
     #debug-console {
+
         display: none;
         position: fixed;
         bottom: 0;
@@ -404,35 +457,46 @@ background-color: #30a070;">View</button>
                     <div class="field-controls">
                         <button class="button" id="p1-field-shift-up">↑ Up</button>
                         <button class="button" id="p1-field-shift-down">↓ Down</button>
-        
-                <button class="button" id="p1-field-shift-left">← Left</button>
+                        <button class="button" id="p1-field-shift-left">← Left</button>
                         <button class="button" id="p1-field-shift-right">→ Right</button>
                         <button class="button" id="p1-field-clear">Clear</button>
                     </div>
-                    <div class="sequence-controls">
-                        <label>Hold: <input type="text" id="p1-hold-input" maxlength="1" placeholder="例: T"></label>
-                        <label>Next: <input type="text" id="p1-next-input" placeholder="例: SZJLO"></label>
+                    
+                    <div class="next-editor">
+                        <h4 style="margin: 0 0 5px 0; color: #aaa;">NEXT / HOLD</h4>
+                        <div class="mino-icons" id="p1-next-icons"></div>
+                        <div class="next-queue-display" id="p1-next-queue"></div>
+                        <div class="button-group">
+                            <button class="button" id="p1-next-delete-left">Delete</button>
+                            <button class="button" id="p1-next-clear">Clear</button>
+                        </div>
                     </div>
-               </div>
+                    </div>
             </div>
             <div class="editor-column" id="p2-editor-col" style="display: none;">
+
                 <div class="edit-section field-editor">
                     <h2>PLAYER 2 - FIELD</h2>
                                   <div class="color-palette" id="p2-palette"></div>
                     <canvas id="field-editor-canvas-p2"></canvas>
                     <div class="field-controls">
                         <button class="button" id="p2-field-shift-up">↑ Up</button>
-               
-         <button class="button" id="p2-field-shift-down">↓ Down</button>
+                        <button class="button" id="p2-field-shift-down">↓ Down</button>
                         <button class="button" id="p2-field-shift-left">← Left</button>
                         <button class="button" id="p2-field-shift-right">→ Right</button>
                         <button class="button" id="p2-field-clear">Clear</button>
                     </div>
-                    <div class="sequence-controls">
-                        <label>Hold: <input type="text" id="p2-hold-input" maxlength="1" placeholder="例: T"></label>
-                        <label>Next: <input type="text" id="p2-next-input" placeholder="例: SZJLO"></label>
+                    
+                    <div class="next-editor">
+                        <h4 style="margin: 0 0 5px 0; color: #aaa;">NEXT / HOLD</h4>
+                        <div class="mino-icons" id="p2-next-icons"></div>
+                        <div class="next-queue-display" id="p2-next-queue"></div>
+                        <div class="button-group">
+                            <button class="button" id="p2-next-delete-left">Delete</button>
+                            <button class="button" id="p2-next-clear">Clear</button>
+                        </div>
                     </div>
-                  </div>
+                </div>
               </div>
             </div>
         </div>
@@ -650,13 +714,13 @@ const DRAW_SHAPE_MAP = {
     "-1,1;-1,2;0,1": { type: "Z", rot: 1, offset: [1, -1] },
 };
 const createEmptyBoard = () => Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(null));
-
 const createBlankPage = () => ({
-    p1: { board: createEmptyBoard(), viewY: BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT, activeColor: 'I', hold: '', next: '' },
-    p2: { board: createEmptyBoard(), viewY: BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT, activeColor: 'I', hold: '', next: '' }
+    // nextInsertionIndex を追加: 0なら先頭、-1なら末尾、'hold'ならホールド
+    p1: { board: createEmptyBoard(), viewY: BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT, activeColor: 'I', hold: '', next: '', nextInsertionIndex: -1 },
+    p2: { board: createEmptyBoard(), viewY: BOARD_HEIGHT - BOARD_VISIBLE_HEIGHT, activeColor: 'I', hold: '', next: '', nextInsertionIndex: -1 }
 });
-
 function loadPage(index) {
+
     if (index < 0 || index >= fumenPages.length) return;
     currentPageIndex = index;
 
@@ -672,12 +736,15 @@ function loadPage(index) {
             }
         });
 
-        document.getElementById(`${playerId}-hold-input`).value = data.hold || '';
-        document.getElementById(`${playerId}-next-input`).value = data.next || '';
+        // 修正: テキスト入力への代入を削除し、UI更新関数を呼び出し
+        // データ読み込み時は末尾に追加するようにインデックスをリセット
+        if (data.nextInsertionIndex === undefined) data.nextInsertionIndex = -1;
+        updateNextQueueDisplay(playerId);
 
         drawEditorField(playerId);
     });
 updatePageControls();
+
     if (currentDisplayMode === 'viewer') {
         drawViewer();
     }}
@@ -801,27 +868,197 @@ function setupPlayerEditor(playerId) {
     document.getElementById(`${playerId}-field-shift-down`).addEventListener('click', () => shiftField(playerId, 'down'));
     document.getElementById(`${playerId}-field-shift-left`).addEventListener('click', () => shiftField(playerId, 'left'));
     document.getElementById(`${playerId}-field-shift-right`).addEventListener('click', () => shiftField(playerId, 'right'));
-document.getElementById(`${playerId}-field-clear`).addEventListener('click', () => {
+    document.getElementById(`${playerId}-field-clear`).addEventListener('click', () => {
         fumenPages[currentPageIndex][playerId].board.forEach(row => row.fill(null));
         drawEditorField(playerId);
     });
 
-    const holdInput = document.getElementById(`${playerId}-hold-input`);
-    const nextInput = document.getElementById(`${playerId}-next-input`);
-
-    holdInput.addEventListener('input', (e) => {
-        const val = e.target.value.toUpperCase().trim();
-        e.target.value = val;
-        fumenPages[currentPageIndex][playerId].hold = val;
+    // --- ここからNext/HoldエディタUIの構築 (シミュレータから移植・調整) ---
+    const nextIcons = document.getElementById(`${playerId}-next-icons`);
+    nextIcons.innerHTML = '';
+    const minoTypes = ['I', 'O', 'T', 'L', 'J', 'S', 'Z'];
+    
+    // 各ミノアイコンの生成
+    minoTypes.forEach(key => {
+        const icon = document.createElement('div');
+        icon.className = 'mino-icon';
+        icon.style.backgroundColor = EDITOR_COLORS[key];
+        icon.textContent = key;
+        
+        icon.addEventListener('click', () => {
+            const data = fumenPages[currentPageIndex][playerId];
+            let nextArr = data.next ? data.next.split('') : [];
+            
+            if (data.nextInsertionIndex === 'hold') {
+                data.hold = key;
+                data.nextInsertionIndex = 0; // ホールド設定後はNext先頭へ
+            } else {
+                if (data.nextInsertionIndex === -1 || data.nextInsertionIndex >= nextArr.length) {
+                    nextArr.push(key);
+                    data.nextInsertionIndex = nextArr.length;
+                } else {
+                    nextArr.splice(data.nextInsertionIndex, 0, key);
+                    data.nextInsertionIndex++;
+                }
+                data.next = nextArr.join('');
+            }
+            updateNextQueueDisplay(playerId);
+        });
+        nextIcons.appendChild(icon);
     });
-    nextInput.addEventListener('input', (e) => {
-        const val = e.target.value.toUpperCase().trim();
-        e.target.value = val;
-        fumenPages[currentPageIndex][playerId].next = val;
+
+    // ENDアイコン (空文字挿入用だが、Next配列では単に無視されるか区切りとして使う想定。今回は削除機能があるので不要かもしれないが、一応「空」として追加)
+    // シミュレータに合わせてDelete/Clearボタンの実装
+    document.getElementById(`${playerId}-next-delete-left`).addEventListener('click', () => {
+        const data = fumenPages[currentPageIndex][playerId];
+        let nextArr = data.next ? data.next.split('') : [];
+        const index = data.nextInsertionIndex;
+
+        if (index === 'hold') {
+            data.hold = '';
+        } else if (index === -1) {
+            // 末尾削除
+            nextArr.pop();
+            data.nextInsertionIndex = nextArr.length;
+        } else if (index > 0) {
+            // カーソル位置の左を削除
+            nextArr.splice(index - 1, 1);
+            data.nextInsertionIndex--;
+        }
+        data.next = nextArr.join('');
+        updateNextQueueDisplay(playerId);
+    });
+
+    document.getElementById(`${playerId}-next-clear`).addEventListener('click', () => {
+        const data = fumenPages[currentPageIndex][playerId];
+        data.next = '';
+        data.hold = '';
+        data.nextInsertionIndex = 0;
+        updateNextQueueDisplay(playerId);
     });
 }
 
+// 新規追加: Next/Hold表示の更新関数
+function updateNextQueueDisplay(playerId) {
+    const qd = document.getElementById(`${playerId}-next-queue`);
+    if (!qd) return;
+    qd.innerHTML = '';
+    const data = fumenPages[currentPageIndex][playerId];
+    const nextArr = data.next ? data.next.split('') : [];
+    
+    // カーソル位置の初期化確認
+    if (data.nextInsertionIndex === undefined) data.nextInsertionIndex = -1;
+
+    // ギャップ(カーソル)生成ヘルパー
+    const createGap = (index) => {
+        const gap = document.createElement('div');
+        gap.style.width = '6px';
+        gap.style.height = '30px';
+        gap.style.cursor = 'pointer';
+        gap.style.display = 'flex';
+        gap.style.alignItems = 'center';
+        gap.style.justifyContent = 'center';
+        
+        gap.addEventListener('click', (e) => {
+            e.stopPropagation();
+            data.nextInsertionIndex = index;
+            updateNextQueueDisplay(playerId);
+        });
+
+        // アクティブなカーソル表示
+        if (data.nextInsertionIndex === index || (index === -1 && data.nextInsertionIndex === nextArr.length)) {
+            gap.style.backgroundColor = '#fff';
+            gap.style.boxShadow = '0 0 5px #fff';
+        } else {
+            gap.style.backgroundColor = 'rgba(255,255,255,0.1)';
+        }
+        return gap;
+    };
+
+    // Hold表示エリア
+    const holdContainer = document.createElement('div');
+    holdContainer.style.display = 'flex';
+    holdContainer.style.alignItems = 'center';
+    holdContainer.style.gap = '3px';
+    holdContainer.style.paddingRight = '8px';
+    holdContainer.style.borderRight = '1px solid #555';
+    holdContainer.style.marginRight = '5px';
+
+    const holdSlot = document.createElement('div');
+    holdSlot.className = 'mino-icon';
+    holdSlot.style.cursor = 'pointer';
+    
+    if (data.hold) {
+        holdSlot.style.backgroundColor = EDITOR_COLORS[data.hold] || '#333';
+        holdSlot.textContent = data.hold;
+    } else {
+        holdSlot.style.backgroundColor = 'transparent';
+        holdSlot.style.border = '1px dashed #555';
+        holdSlot.textContent = '';
+    }
+
+    // Hold選択状態
+    if (data.nextInsertionIndex === 'hold') {
+        holdSlot.style.borderColor = '#FFF';
+        holdSlot.style.boxShadow = '0 0 5px #FFF';
+    }
+
+    holdSlot.addEventListener('click', (e) => {
+        e.stopPropagation();
+        data.nextInsertionIndex = 'hold';
+        updateNextQueueDisplay(playerId);
+    });
+
+    const holdLabel = document.createElement('span');
+    holdLabel.textContent = "H";
+    holdLabel.style.fontSize = '10px';
+    holdLabel.style.color = '#aaa';
+    
+    holdContainer.appendChild(holdLabel);
+    holdContainer.appendChild(holdSlot);
+    qd.appendChild(holdContainer);
+
+    // Next表示エリア
+    const nextContainer = document.createElement('div');
+    nextContainer.style.display = 'flex';
+    nextContainer.style.alignItems = 'center';
+    nextContainer.style.gap = '2px';
+    nextContainer.style.flexWrap = 'wrap';
+    nextContainer.style.flex = '1';
+
+    // 先頭のカーソル (インデックス0)
+    nextContainer.appendChild(createGap(0));
+
+    nextArr.forEach((key, i) => {
+        const icon = document.createElement('div');
+        icon.className = 'mino-icon';
+        icon.style.backgroundColor = EDITOR_COLORS[key] || '#333';
+        icon.textContent = key;
+        
+        // アイコンをクリックしたらその右側にカーソル移動
+        icon.addEventListener('click', (e) => {
+            e.stopPropagation();
+            data.nextInsertionIndex = i + 1;
+            updateNextQueueDisplay(playerId);
+        });
+
+        nextContainer.appendChild(icon);
+        nextContainer.appendChild(createGap(i + 1));
+    });
+
+    // 末尾クリックで末尾選択
+    nextContainer.addEventListener('click', (e) => {
+        if (e.target === nextContainer) {
+            data.nextInsertionIndex = nextArr.length; // -1と同義だが配列長で管理
+            updateNextQueueDisplay(playerId);
+        }
+    });
+
+    qd.appendChild(nextContainer);
+}
+
 function shiftField(playerId, direction) {
+
     const board = fumenPages[currentPageIndex][playerId].board;
     if (direction === 'up') {
         board.shift();
