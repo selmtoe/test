@@ -332,38 +332,28 @@ flex-wrap: wrap;
         text-transform: uppercase;
     }
 
-    /* 追加: Next/Holdエディタ用スタイル */
     .next-editor {
-        margin-bottom: 15px;
         background-color: rgba(255,255,255,0.05);
-        padding: 10px;
+        padding: 15px;
         border-radius: 8px;
     }
     .mino-icons {
         display: flex;
         flex-wrap: wrap;
-        gap: 5px;
+        gap: 8px;
         justify-content: center;
-        margin-bottom: 10px;
     }
     .mino-icon {
-        width: 30px;
-        height: 30px;
-        border-radius: 3px;
+        width: 40px;
+        height: 40px;
+        border-radius: 4px;
         cursor: pointer;
-        border: 1px solid rgba(255,255,255,0.2);
-        transition: transform 0.1s;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 10px;
-        font-weight: bold;
-        color: white;
-        text-shadow: 0 0 2px black;
+        border: 2px solid transparent;
+        transition: all 0.2s;
+        box-sizing: border-box;
     }
     .mino-icon:hover {
         transform: scale(1.1);
-        z-index: 10;
     }
     .next-queue-display {
         background-color: rgba(0,0,0,0.3);
@@ -374,9 +364,8 @@ flex-wrap: wrap;
         gap: 5px;
         flex-wrap: wrap;
         border: 1px solid var(--primary-color);
-        margin-bottom: 10px;
-        align-items: center;
     }
+
     .button-group {
         display: flex;
         gap: 10px;
@@ -450,10 +439,19 @@ background-color: #30a070;">View</button>
         </div>
         <div class="player-editors">
             <div class="editor-column" id="p1-editor-col">
+                <div class="edit-section next-editor">
+                    <h2>PLAYER 1 - NEXT</h2>
+                    <div class="mino-icons" id="p1-next-icons"></div>
+                    <div class="next-queue-display" id="p1-next-queue"></div>
+                    <div class="button-group" style="margin-top: 10px;">
+                        <button class="button" id="p1-next-delete-left">Delete</button>
+                        <button class="button" id="p1-next-clear">Clear</button>
+                    </div>
+                </div>
                 <div class="edit-section field-editor">
                     <h2>PLAYER 1 - FIELD</h2>
                     <div class="color-palette" id="p1-palette"></div>
-                                    <canvas id="field-editor-canvas-p1"></canvas>
+                    <canvas id="field-editor-canvas-p1"></canvas>
                     <div class="field-controls">
                         <button class="button" id="p1-field-shift-up">↑ Up</button>
                         <button class="button" id="p1-field-shift-down">↓ Down</button>
@@ -461,23 +459,21 @@ background-color: #30a070;">View</button>
                         <button class="button" id="p1-field-shift-right">→ Right</button>
                         <button class="button" id="p1-field-clear">Clear</button>
                     </div>
-                    
-                    <div class="next-editor">
-                        <h4 style="margin: 0 0 5px 0; color: #aaa;">NEXT / HOLD</h4>
-                        <div class="mino-icons" id="p1-next-icons"></div>
-                        <div class="next-queue-display" id="p1-next-queue"></div>
-                        <div class="button-group">
-                            <button class="button" id="p1-next-delete-left">Delete</button>
-                            <button class="button" id="p1-next-clear">Clear</button>
-                        </div>
-                    </div>
-                    </div>
+                </div>
             </div>
             <div class="editor-column" id="p2-editor-col" style="display: none;">
-
+                <div class="edit-section next-editor">
+                    <h2>PLAYER 2 - NEXT</h2>
+                    <div class="mino-icons" id="p2-next-icons"></div>
+                    <div class="next-queue-display" id="p2-next-queue"></div>
+                    <div class="button-group" style="margin-top: 10px;">
+                        <button class="button" id="p2-next-delete-left">Delete</button>
+                        <button class="button" id="p2-next-clear">Clear</button>
+                    </div>
+                </div>
                 <div class="edit-section field-editor">
                     <h2>PLAYER 2 - FIELD</h2>
-                                  <div class="color-palette" id="p2-palette"></div>
+                    <div class="color-palette" id="p2-palette"></div>
                     <canvas id="field-editor-canvas-p2"></canvas>
                     <div class="field-controls">
                         <button class="button" id="p2-field-shift-up">↑ Up</button>
@@ -486,18 +482,8 @@ background-color: #30a070;">View</button>
                         <button class="button" id="p2-field-shift-right">→ Right</button>
                         <button class="button" id="p2-field-clear">Clear</button>
                     </div>
-                    
-                    <div class="next-editor">
-                        <h4 style="margin: 0 0 5px 0; color: #aaa;">NEXT / HOLD</h4>
-                        <div class="mino-icons" id="p2-next-icons"></div>
-                        <div class="next-queue-display" id="p2-next-queue"></div>
-                        <div class="button-group">
-                            <button class="button" id="p2-next-delete-left">Delete</button>
-                            <button class="button" id="p2-next-clear">Clear</button>
-                        </div>
-                    </div>
                 </div>
-              </div>
+            </div>
             </div>
         </div>
     </div>
@@ -873,20 +859,20 @@ function setupPlayerEditor(playerId) {
         drawEditorField(playerId);
     });
 
-    // --- ここからNext/HoldエディタUIの構築 (シミュレータから移植・調整) ---
+// --- ここからNext/HoldエディタUIの構築 (シミュレータから移植・調整) ---
     const nextIcons = document.getElementById(`${playerId}-next-icons`);
     nextIcons.innerHTML = '';
     const minoTypes = ['I', 'O', 'T', 'L', 'J', 'S', 'Z'];
-    
     // 各ミノアイコンの生成
     minoTypes.forEach(key => {
         const icon = document.createElement('div');
         icon.className = 'mino-icon';
         icon.style.backgroundColor = EDITOR_COLORS[key];
-        icon.textContent = key;
+        // テキスト削除
         
         icon.addEventListener('click', () => {
             const data = fumenPages[currentPageIndex][playerId];
+
             let nextArr = data.next ? data.next.split('') : [];
             
             if (data.nextInsertionIndex === 'hold') {
@@ -949,11 +935,11 @@ function updateNextQueueDisplay(playerId) {
     // カーソル位置の初期化確認
     if (data.nextInsertionIndex === undefined) data.nextInsertionIndex = -1;
 
-    // ギャップ(カーソル)生成ヘルパー
+// ギャップ(カーソル)生成ヘルパー
     const createGap = (index) => {
         const gap = document.createElement('div');
-        gap.style.width = '6px';
-        gap.style.height = '30px';
+        gap.style.width = '8px';
+        gap.style.height = '38px';
         gap.style.cursor = 'pointer';
         gap.style.display = 'flex';
         gap.style.alignItems = 'center';
@@ -986,21 +972,21 @@ function updateNextQueueDisplay(playerId) {
 
     const holdSlot = document.createElement('div');
     holdSlot.className = 'mino-icon';
+    holdSlot.style.width = '38px';
+    holdSlot.style.height = '38px';
     holdSlot.style.cursor = 'pointer';
-    
     if (data.hold) {
         holdSlot.style.backgroundColor = EDITOR_COLORS[data.hold] || '#333';
-        holdSlot.textContent = data.hold;
+        holdSlot.style.border = 'none';
     } else {
         holdSlot.style.backgroundColor = 'transparent';
-        holdSlot.style.border = '1px dashed #555';
-        holdSlot.textContent = '';
+        holdSlot.style.border = '2px dashed #555';
     }
 
     // Hold選択状態
     if (data.nextInsertionIndex === 'hold') {
         holdSlot.style.borderColor = '#FFF';
-        holdSlot.style.boxShadow = '0 0 5px #FFF';
+        holdSlot.style.boxShadow = '0 0 8px #FFF';
     }
 
     holdSlot.addEventListener('click', (e) => {
@@ -1008,17 +994,13 @@ function updateNextQueueDisplay(playerId) {
         data.nextInsertionIndex = 'hold';
         updateNextQueueDisplay(playerId);
     });
-
     const holdLabel = document.createElement('span');
     holdLabel.textContent = "H";
-    holdLabel.style.fontSize = '10px';
-    holdLabel.style.color = '#aaa';
+    holdLabel.style.fontFamily = 'var(--font-display)';
     
     holdContainer.appendChild(holdLabel);
     holdContainer.appendChild(holdSlot);
     qd.appendChild(holdContainer);
-
-    // Next表示エリア
     const nextContainer = document.createElement('div');
     nextContainer.style.display = 'flex';
     nextContainer.style.alignItems = 'center';
@@ -1032,11 +1014,13 @@ function updateNextQueueDisplay(playerId) {
     nextArr.forEach((key, i) => {
         const icon = document.createElement('div');
         icon.className = 'mino-icon';
+        icon.style.width = '38px';
+        icon.style.height = '38px';
         icon.style.backgroundColor = EDITOR_COLORS[key] || '#333';
-        icon.textContent = key;
         
         // アイコンをクリックしたらその右側にカーソル移動
         icon.addEventListener('click', (e) => {
+
             e.stopPropagation();
             data.nextInsertionIndex = i + 1;
             updateNextQueueDisplay(playerId);
