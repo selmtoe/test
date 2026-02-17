@@ -1294,18 +1294,14 @@ const FumenCodec = {
 
         data += this.encodeInt(minoVal, 3);
 
-        // 3. コメント (Quiz)
         if (hasQuiz) {
-            // #Q=[hold]next
+            // #Q=[hold](current)next
+            // ユーザー指定により () を必須とする
             let quizStr = '#Q=';
             if (hold) quizStr += `[${hold}]`;
             else quizStr += `[]`;
+            quizStr += `()`;
             quizStr += next;
-
-            // コメントエンコード (簡易ASCII変換)
-            // 文字数(poll 2) + 文字列
-            // 文字列エンコードは特殊テーブルを使用
-            // ここでは簡易的に、テト譜互換文字のみとして処理
             const COMMENT_TABLE = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
             let escStr = '';
             for(let j=0; j<quizStr.length; j++) {
@@ -1434,15 +1430,20 @@ const FumenCodec = {
                     }
                 }
 
-                // #Q= 解析
                 if (commentStr.startsWith('#Q=')) {
-                    // #Q=[hold]next
-                    // e.g. #Q=[]TSZ
-                    // e.g. #Q=[I]Z
-                    const match = commentStr.match(/#Q=\[([a-zA-Z]*)\]([a-zA-Z]*)/);
-                    if (match) {
-                        hold = match[1];
-                        next = match[2];
+                    // #Q=[hold](current)next 形式 (優先)
+                    const matchStrict = commentStr.match(/#Q=\[([a-zA-Z]*)\]\(([a-zA-Z]*)\)([a-zA-Z]*)/);
+                    if (matchStrict) {
+                        hold = matchStrict[1];
+                        // ()内のミノがあればNextの先頭に挿入する
+                        next = matchStrict[2] + matchStrict[3];
+                    } else {
+                        // #Q=[hold]next 形式 (本家/旧形式互換用)
+                        const match = commentStr.match(/#Q=\[([a-zA-Z]*)\]([a-zA-Z]*)/);
+                        if (match) {
+                            hold = match[1];
+                            next = match[2];
+                        }
                     }
                 }
             }
@@ -1492,11 +1493,43 @@ const FumenCodec = {
             }
             
             str += this.encodePage(prevField, currentField, pData.hold, pData.next);
-            prevField = currentField;
+            
+            // --- 後処理 (Post Processing) ---
+            // 次のページの差分計算のために、現在ページでライン消去が発生した場合、
+            // それを反映した状態を prevField (基準) とする。
+            // これを行わないと、ライン消去を含むページの次のページで差分がズレてデータが崩壊する。
+            
+            const nextPrevField = Array(240).fill(0);
+            let writeRow = 22; // Fumenフィールドは下から y=22 -> 0
+
+            // 下から順にスキャン
+            for (let y = 22; y >= 0; y--) {
+                let isFull = true;
+                for (let x = 0; x < 10; x++) {
+                    // 0 (Empty) が一つでもあれば揃っていない
+                    if (currentField[y * 10 + x] === 0) {
+                        isFull = false;
+                        break;
+                    }
+                }
+
+                if (!isFull) {
+                    // 揃っていない行だけをコピー（詰め処理）
+                    for (let x = 0; x < 10; x++) {
+                        nextPrevField[writeRow * 10 + x] = currentField[y * 10 + x];
+                    }
+                    writeRow--;
+                }
+                // 揃っている行はコピーしないことで消去とする
+            }
+            // writeRowより上の行は初期化時の0のまま（空白が補充される）
+
+            prevField = nextPrevField;
         }
         return str;
     }
 };
+
 
 function applyFumenData(data) {
     try {
