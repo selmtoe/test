@@ -446,6 +446,7 @@ background-color: #30a070;">View</button>
             <span id="viewer-page-indicator">Page 1 / 1</span>
             <button id="viewer-simulator-btn" class="button">Simulator</button>
             <button id="back-to-editor-btn" class="button">Editor</button>
+            <button id="viewer-share-btn" class="button" style="background-color: #f0a000;">Share</button>
             <button id="viewer-export-btn" class="button" style="background-color: #f0a000;">Export</button>
         </div>
         <div class="viewer-slider-container">
@@ -686,8 +687,8 @@ function updatePageControls() {
     
     document.getElementById('page-indicator').textContent = pageText;
     document.getElementById('prev-page').disabled = (currentPageIndex === 0);
-    document.getElementById('next-page').disabled = (currentPageIndex === fumenPages.length - 1);
     document.getElementById('delete-page').disabled = (fumenPages.length <= 1);
+
 
     const viewerIndicator = document.getElementById('viewer-page-indicator');
     const viewerSlider = document.getElementById('viewer-page-slider');
@@ -1846,11 +1847,11 @@ viewerCanvas = document.getElementById('viewerCanvas');
         if (currentPageIndex < fumenPages.length - 1) {
             loadPage(currentPageIndex + 1);
         } else {
-            // 現在のページのディープコピーを作成
+            // 最終ページの場合は複製して追加
             const newPage = JSON.parse(JSON.stringify(fumenPages[currentPageIndex]));
             fumenPages.push(newPage);
             loadPage(currentPageIndex + 1);
-            updatePageControls(); // ページ数表示更新のために必要
+            updatePageControls(); // ボタン状態と表示の更新
         }
     });
     document.getElementById('new-page').addEventListener('click', () => {
@@ -2036,19 +2037,22 @@ viewerCanvas = document.getElementById('viewerCanvas');
             const srcY = (boardBottomY - (visibleH * BLOCK_SIZE)) * scale;
             const srcW = 10 * BLOCK_SIZE * scale;
             const srcH = visibleH * BLOCK_SIZE * scale;
-            
-            // 出力先
+                        // 出力先
             // tempCanvasのサイズは heightBlocksに合わせてあるが、
             // ソースが足りない場合は下詰めにする
             const dstY = (heightBlocks - visibleH) * BLOCK_SIZE * scale;
-            
             ctx.setTransform(1, 0, 0, 1, 0, 0); // スケールリセットしてピクセル転送
             ctx.drawImage(fullCanvas, srcX, srcY, srcW, srcH, 0, dstY, srcW, srcH);
             
+            // 背景色を合成 (destination-over: 既存の絵の後ろに描画)
+            ctx.globalCompositeOperation = 'destination-over';
+            ctx.fillStyle = '#0f0f18'; // 盤面のみの場合は黒っぽい色
+            ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+            ctx.globalCompositeOperation = 'source-over'; // 戻す
+
             // 復元
             viewerCanvas = savedCanvas;
             viewerCtx = savedCtx;
-            
         } else {
             // 全体 (背景不透明)
             const w = (gameMode === '1P' ? PLAYER_CANVAS_WIDTH : PLAYER_CANVAS_WIDTH * 2);
@@ -2057,17 +2061,19 @@ viewerCanvas = document.getElementById('viewerCanvas');
             tempCanvas.width = w * scale;
             tempCanvas.height = h * scale;
             ctx.scale(scale, scale);
-            
-            // 背景塗りつぶし (全体色 #1a1a2e)
-            ctx.fillStyle = '#1a1a2e';
-            ctx.fillRect(0, 0, w, h);
-            
+            // ※ drawViewer内でclearRectされるため、事前のfillRectは意味がない
             // DrawViewerを一時的に乗っ取る
             viewerCanvas = tempCanvas;
             viewerCtx = ctx;
             
             currentPageIndex = pageIdx;
             drawViewer();
+
+            // 背景色を合成 (destination-over: 既存の絵の後ろに描画)
+            ctx.globalCompositeOperation = 'destination-over';
+            ctx.fillStyle = '#1a1a2e'; // エディタ背景色
+            ctx.fillRect(0, 0, w, h);
+            ctx.globalCompositeOperation = 'source-over'; // 戻す
             
             // 復元
             viewerCanvas = savedCanvas;
@@ -2075,6 +2081,7 @@ viewerCanvas = document.getElementById('viewerCanvas');
         }
         
         return tempCanvas;
+
     }
 
     document.getElementById('do-export-btn').addEventListener('click', async () => {
