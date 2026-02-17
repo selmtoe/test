@@ -1316,13 +1316,11 @@ function encodeFumenComment(str) {
     let hex = '';
     let val = 0;
     let count = 0;
-    
     const pushVal = () => {
         hex += encodeFumenNumber(val, 5);
         val = 0;
         count = 0;
     };
-
     for (let i = 0; i < str.length; i++) {
         const charCode = table.indexOf(str[i]);
         if (charCode === -1) continue; 
@@ -1331,7 +1329,6 @@ function encodeFumenComment(str) {
         if (count === 4) pushVal();
     }
     if (count > 0) pushVal();
-    
     return encodeFumenNumber(str.length, 2) + hex;
 }
 
@@ -1341,7 +1338,6 @@ function decodeFumenComment(str) {
     const table = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
     let comment = '';
     let chunkIdx = 0;
-    
     while (comment.length < len && chunkIdx * 5 < data.length) {
         let val = decodeFumenNumber(data.substr(chunkIdx * 5, 5));
         for (let i = 0; i < 4; i++) {
@@ -1354,141 +1350,297 @@ function decodeFumenComment(str) {
     return comment;
 }
 
-function generateFumen(playerId) {
-    const page = fumenPages[currentPageIndex][playerId];
-    const field10 = []; 
+// ボードの状態をテト譜用の1次元配列(長さ240)に変換
+// 0-9: ガベージ(空), 10-239: データ(下から上へ)
+function boardToFumenField(board) {
+    const field = [];
+    // ガベージライン(0-9)は常に空白
+    for(let i=0; i<10; i++) field.push(0);
     
-    for (let i = 0; i < 10; i++) field10.push(0);
-
-    for (let y = 17; y < 40; y++) { 
+    // 自作ボード(40段)の下から23段分を取得
+    // 自作: board[39]が最下段, board[0]が最上段
+    // テト譜: index 10が最下段, index 230が最上段(22段目)
+    for (let y = 39; y >= 17; y--) { 
         for (let x = 0; x < 10; x++) {
-            const cell = page.board[39 - (y - 17)][x]; 
-            field10.push(REVERSE_FUMEN_MAP[cell] || 0);
+            const cell = board[y][x];
+            field.push(REVERSE_FUMEN_MAP[cell] || 0);
         }
     }
+    return field;
+}
 
-    let fieldStr = '';
-    let prev = 0;
-    let count = 0;
-    
-    for (let i = 0; i < 240; i++) {
-        const val = field10[i];
-        const diff = val - prev + 8;
-        prev = val;
+function generateFumen(playerId) {
+    let code = 'v115@';
+    let prevField = null; // 直前のフィールド状態
+
+    // 全ページをループ
+    for (let i = 0; i < fumenPages.length; i++) {
+        const page = fumenPages[i][playerId];
+        const currentField = boardToFumenField(page.board);
         
-        if (i === 0) {
-            count = 1;
+        // フィールドエンコード (前回と違う場合、または最初のページのみ出力)
+        // ※スナップショットとして正確にするため、基本的には毎回出力推奨だが、
+        // テト譜の仕様上、差分圧縮が可能。ここでは安全のため「変化があれば出力、なければ省略」とする。
+        let needUpdate = false;
+        if (!prevField) {
+            needUpdate = true;
         } else {
-            const prevVal = field10[i-1];
-            const prevDiff = prevVal - (i===1 ? 0 : field10[i-2]) + 8;
-            if (diff === prevDiff && count < 240) { 
-                count++;
-            } else {
-                fieldStr += encodeFumenNumber((prevDiff * 240) + (count - 1), 2);
-                count = 1;
+            for(let k=0; k<240; k++) {
+                if(prevField[k] !== currentField[k]) {
+                    needUpdate = true;
+                    break;
+                }
             }
         }
+
+        if (needUpdate) {
+            // ランレングス圧縮
+            let fieldStr = '';
+            let prevVal = 0;
+            let count = 0;
+            for (let k = 0; k < 240; k++) {
+                const val = currentField[k];
+                const diff = val - prevVal + 8;
+                prevVal = val;
+                
+                if (k === 0) {
+                    count = 1;
+                } else {
+                    const lastVal = currentField[k-1];
+                    const lastDiff = lastVal - (k===1 ? 0 : currentField[k-2]) + 8;
+                    if (diff === lastDiff && count < 240) {
+                        count++;
+                    } else {
+                        fieldStr += encodeFumenNumber((lastDiff * 240) + (count - 1), 2);
+                        count = 1;
+                    }
+                }
+            }
+            // 最後のデータの書き出し
+            const lastDiff = currentField[239] - currentField[238] + 8;
+            fieldStr += encodeFumenNumber((lastDiff * 240) + (count - 1), 2);
+            
+            code += fieldStr;
+            prevField = [...currentField];
+        }
+
+        // フラグ類
+        // Piece=0(None), Lock=1(ページ区切り)
+        const piece = 0; 
+        const rotation = 0;
+        const location = 0;
+        const raise = 0;
+        const mirror = 0;
+        const color = 1;
+        const comment = 1; // コメントあり
+        const lock = 1;    // ページ確定
+
+        let flagVal = piece + 8 * (rotation + 4 * (location + 240 * (raise + 2 * (mirror + 2 * (color + 2 * (comment + 2 * lock))))));
+        code += encodeFumenNumber(flagVal, 3);
+
+        // コメント (#Q=...)
+        const hold = page.hold || '';
+        const next = page.next || '';
+        const commentStr = `#Q=[${hold}](${next})`;
+        code += encodeFumenComment(commentStr);
     }
-    const lastDiff = field10[239] - field10[238] + 8;
-    fieldStr += encodeFumenNumber((lastDiff * 240) + (count - 1), 2);
 
-    const piece = 0; 
-    const rotation = 0;
-    const location = 0;
-    const raise = 0;
-    const mirror = 0;
-    const color = 1;
-    const comment = 1; 
-    const lock = 1;
-
-    let flagVal = piece + 8 * (rotation + 4 * (location + 240 * (raise + 2 * (mirror + 2 * (color + 2 * (comment + 2 * lock))))));
-    const flagStr = encodeFumenNumber(flagVal, 3);
-
-    const hold = page.hold || '';
-    const next = page.next || '';
-    const commentStr = `#Q=[${hold}](${next})`;
-    const commentEnc = encodeFumenComment(commentStr);
-
-    const fumen = 'v115@' + fieldStr + flagStr + commentEnc;
-    document.getElementById('share-link-input').value = 'https://fumen.zui.jp/?' + fumen;
-    alert('テト譜リンクを生成しました');
+    document.getElementById('share-link-input').value = 'https://fumen.zui.jp/?' + code;
+    alert('全ページのテト譜リンクを生成しました');
 }
 
 function importFumenCode(str) {
     try {
-        const code = str.split('?')[1] || str; 
-        if (!code.startsWith('v115@')) return false;
+        // v115@以降を取得
+        const match = str.match(/v115@(.*)/);
+        if (!match) return false;
         
-        const data = code.substring(5);
+        const data = match[1];
         let ptr = 0;
         
-        const field = [];
-        let prev = 0;
-        
-        while (field.length < 240) {
-            const val = decodeFumenNumber(data.substr(ptr, 2));
-            ptr += 2;
-            const diff = Math.floor(val / 240) - 8;
-            const count = (val % 240) + 1;
+        let currentField = [];
+        // 初期フィールドは全部空
+        for(let i=0; i<240; i++) currentField.push(0);
+
+        const newPages = []; // 読み込んだページをここに溜める
+
+        while (ptr < data.length) {
+            // 1. フィールド読み込み (数値がある場合)
+            // 命令(英字)か数値(数字/記号)か判定。A-Z, a-z以外なら数値データの始まり
+            // FUMEN_TABLE: A...Z a...z 0...9 + /
+            // 数値データは 0-9, +, / から始まることはない(テーブルの後半なので)。
+            // 実際は「直前の命令がLockなら、次はフィールドデータの可能性がある」
             
-            for (let k = 0; k < count; k++) {
-                const current = prev + diff;
-                field.push(current);
-                prev = current;
+            // 簡易判定: 次の2文字をデコードして240以上の値(フィールド圧縮特有)になるか、
+            // あるいはフラグ領域か。
+            // テト譜の仕様上、Flagは必ずある。Fieldは省略可能。
+            // Fieldがある場合は数値列が続き、最後にFlag(英字3文字)が来る。
+            
+            // ここでは「英字3文字(Flag)が出るまで読み進める」のが安全
+            let fieldStartPtr = ptr;
+            while (ptr < data.length) {
+                // 残り3文字未満なら終了
+                if (ptr + 3 > data.length) break;
+                
+                // 次の3文字がすべて英字(A-Z, a-z)かどうかチェックしないでも、
+                // テト譜の数値データは必ず2文字ペアであることを利用する。
+                // ただしFlagもBase64文字。
+                // 確実にやるため、値を読んで解析する。
+                
+                // データ構造: [Field Data (数値の羅列)] [Flag (3文字)] [Comment (可変)]
+                // Field Dataは decodeFumenNumber(2文字) < 32768
+                
+                // Flag判定: 3文字読んでデコード。
+                // Fieldの場合: 2文字読んでデコード。
+                
+                // ここは少し複雑なため、仕様に基づき「数値(0-9,+,/)が含まれるならFieldデータ」とみなす、
+                // あるいは「Fieldデータ長文の後ろにFlag」という構造。
+                
+                // シンプルなロジック:
+                // 先頭から2文字読み、それがフィールド圧縮データ(= < FUMEN_TABLE.length^2) ならフィールドとして処理。
+                // これを繰り返す。
+                
+                const val = decodeFumenNumber(data.substr(ptr, 2));
+                // テト譜のフィールド圧縮は (diff*240 + count-1)。
+                // diffは0-16。最大 16*240 + 239 = 4079。
+                // Flagは3文字で最大 64^3 = 262144。
+                // つまり2文字で表せる範囲(4096)ならフィールドデータの可能性が高いが、
+                // 偶然Flagの先頭2文字が小さい値になることもある。
+                
+                // 確実なのは「次の文字が小文字/大文字のアルファベット」ならFlagの開始である可能性が高い。
+                // テト譜の数値（圧縮データ）は 0-9, +, / を多く含むが、アルファベットも含む。
+                
+                // 解決策:
+                // 現在のptrから「次のLockなどの命令」までを1ステップとする。
+                // v115仕様: Fieldは省略可能。
+                // 数値データ(数字や記号)から始まっていればFieldありとみなす。
+                const c = data[ptr];
+                if ("0123456789+/".includes(c)) {
+                    // フィールドデータあり
+                    let fieldPtr = 0; // currentFieldの書き込み位置
+                    let prevVal = 0;
+                    
+                    while (fieldPtr < 240) {
+                        const val = decodeFumenNumber(data.substr(ptr, 2));
+                        ptr += 2;
+                        const diff = Math.floor(val / 240) - 8;
+                        const count = (val % 240) + 1;
+                        
+                        for (let k = 0; k < count; k++) {
+                            const actualVal = prevVal + diff;
+                            if (fieldPtr < 240) currentField[fieldPtr] = actualVal;
+                            fieldPtr++;
+                            prevVal = actualVal;
+                        }
+                    }
+                }
+                
+                // Flag読み込み (3文字)
+                if (ptr + 3 > data.length) break;
+                const flagVal = decodeFumenNumber(data.substr(ptr, 3));
+                ptr += 3;
+                
+                let rem = flagVal;
+                const piece = rem % 8; rem = Math.floor(rem / 8);
+                const rotation = rem % 4; rem = Math.floor(rem / 4);
+                const location = rem % 240; rem = Math.floor(rem / 240);
+                const raise = rem % 2; rem = Math.floor(rem / 2);
+                const mirror = rem % 2; rem = Math.floor(rem / 2);
+                const color = rem % 2; rem = Math.floor(rem / 2);
+                const hasComment = rem % 2; rem = Math.floor(rem / 2);
+                const lock = rem % 2;
+
+                let hold = '';
+                let next = '';
+
+                // コメント読み込み
+                if (hasComment) {
+                    // コメント長(2文字)
+                    const lenVal = decodeFumenNumber(data.substr(ptr, 2));
+                    // 文字列復元
+                    // ここは decodeFumenComment を使うが、長さ指定部分のパースが必要
+                    // decodeFumenComment関数は「長さヘッダ」ごと渡す設計にしていたので、
+                    // ptrを戻さずそのまま渡す形に調整する
+                    
+                    // decodeFumenCommentの仕様再確認:
+                    // len = decode(str.substring(0, 2)) なので、ptrからの文字列を渡せばよい
+                    const commentRaw = data.substring(ptr); 
+                    const commentDecoded = decodeFumenComment(commentRaw);
+                    
+                    // コメント実データ長(エンコード文字数)を計算してptrを進める
+                    // 長さヘッダ(2文字) + データ本体( (len+3)/4 * 5 文字 )
+                    const len = commentDecoded.length;
+                    const encodedLen = 2 + Math.ceil(len / 4) * 5;
+                    ptr += encodedLen;
+
+                    // #Q= 解析
+                    const qMatch = commentDecoded.match(/#Q=\[(.*?)\]\((.*?)\)/);
+                    if (qMatch) {
+                        hold = qMatch[1];
+                        next = qMatch[2];
+                    }
+                }
+
+                if (lock) {
+                    // 1ページ確定。currentFieldを自作ボード形式に変換して保存
+                    const newBoard = createEmptyBoard();
+                    // 10-239 のデータを 39-17 にマッピング
+                    // currentField[10] -> board[39][0] (左下)
+                    for (let i = 10; i < 240; i++) {
+                        const val = currentField[i];
+                        if (val === 0) continue;
+                        
+                        const fumenY = Math.floor((i - 10) / 10); // 0(最下段) - 22
+                        const x = (i - 10) % 10;
+                        const myY = 39 - fumenY; // 39(最下段) - 17
+                        
+                        if (myY >= 0 && myY < 40) {
+                            newBoard[myY][x] = FUMEN_BLOCK_MAP[val];
+                        }
+                    }
+
+                    newPages.push({
+                        p1: { board: JSON.parse(JSON.stringify(newBoard)), hold: hold, next: next },
+                        p2: { board: JSON.parse(JSON.stringify(newBoard)), hold: hold, next: next } // 2Pは複製
+                    });
+                }
             }
         }
 
-        const board = createEmptyBoard();
-        
-        for (let i = 10; i < 240; i++) {
-            const fumenRow = Math.floor(i / 10) - 1; 
-            const x = i % 10;
-            const y = 39 - fumenRow; 
-            if (y >= 0 && y < 40) {
-                const type = FUMEN_BLOCK_MAP[field[i]];
-                if (type) board[y][x] = type;
+        if (newPages.length > 0) {
+            const targetP = (gameMode === '2P' && confirm('2P側データとして読み込みますか？(キャンセルで1P)')) ? 'p2' : 'p1';
+            
+            // ページ数が違う場合、多い方に合わせるか、読み込んだ分だけ上書きするか
+            // ここでは「読み込んだデータで完全に置き換える」挙動にする
+            fumenPages = [];
+            for(let i=0; i<newPages.length; i++) {
+                // 既存構造を維持しつつターゲットだけ更新
+                // ただし一括置換なので、p1を選んだらp2は空(または複製)の新しいページセットを作る
+                const blankBoard = createEmptyBoard();
+                const pageData = {
+                    p1: { board: JSON.parse(JSON.stringify(blankBoard)), hold: '', next: '' },
+                    p2: { board: JSON.parse(JSON.stringify(blankBoard)), hold: '', next: '' }
+                };
+                pageData[targetP] = newPages[i].p1; // newPagesの中身はp1/p2同じデータを入れているのでp1を使う
+                fumenPages.push(pageData);
             }
+            
+            currentPageIndex = 0;
+            drawEditorField('p1');
+            if(gameMode === '2P') drawEditorField('p2');
+            updatePageIndicator();
+            alert(`${newPages.length}ページのテト譜を読み込みました`);
+            return true;
         }
+        return false;
 
-        const flagVal = decodeFumenNumber(data.substr(ptr, 3));
-        ptr += 3;
-        
-        let rem = flagVal;
-        const piece = rem % 8; rem = Math.floor(rem / 8);
-        const rotation = rem % 4; rem = Math.floor(rem / 4);
-        const location = rem % 240; rem = Math.floor(rem / 240);
-        const raise = rem % 2; rem = Math.floor(rem / 2);
-        const mirror = rem % 2; rem = Math.floor(rem / 2);
-        const color = rem % 2; rem = Math.floor(rem / 2);
-        const hasComment = rem % 2; 
-
-        let hold = '';
-        let next = '';
-
-        if (hasComment) {
-            const comment = decodeFumenComment(data.substring(ptr));
-            const match = comment.match(/#Q=\[(.*?)\]\((.*?)\)/);
-            if (match) {
-                hold = match[1];
-                next = match[2];
-            }
-        }
-
-        const targetP = (gameMode === '2P' && confirm('2Pに読み込みますか？(キャンセルで1P)')) ? 'p2' : 'p1';
-        fumenPages[currentPageIndex][targetP].board = board;
-        fumenPages[currentPageIndex][targetP].hold = hold;
-        fumenPages[currentPageIndex][targetP].next = next;
-        
-        drawEditorField('p1');
-        if(gameMode === '2P') drawEditorField('p2');
-        
-        return true;
     } catch (e) {
         console.error(e);
-        alert('テト譜の読み込みに失敗しました');
+        alert('テト譜の読み込みに失敗しました: ' + e.message);
         return false;
     }
 }
+
 
 function openShareModal() {
     generateAndDisplayLink();
@@ -1914,16 +2066,25 @@ window.addEventListener('resize', updateScale);
                 const binaryString = atob(base64Data);
                 const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0));
                 const jsonString = new TextDecoder().decode(bytes);
-                data = JSON.parse(jsonString);
-            } else if (text.startsWith('v115@')) {
-                if (importFumenCode(text)) {
-                    alert('テト譜データを読み込みました。');
-                    document.getElementById('share-modal').style.display = 'none';
-                    return;
-                }
+                              data = JSON.parse(jsonString);
             } else {
-                data = JSON.parse(text);
+                // テト譜(v115)の検出: URLパラメータや直接文字列に対応
+                const v115Match = text.match(/v115@[a-zA-Z0-9+/]+/);
+                if (v115Match) {
+                    if (importFumenCode(v115Match[0])) {
+                        document.getElementById('share-modal').style.display = 'none';
+                        return;
+                    }
+                }
+                // 通常のJSONインポート
+                try {
+                    data = JSON.parse(text);
+                } catch (jsonErr) {
+                    // JSONでもテト譜でもない場合のエラー
+                    throw new Error('不明なデータ形式です');
+                }
             }
+
             
             if(data && applyFumenData(data)) {
 
