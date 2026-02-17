@@ -1794,6 +1794,13 @@ if (data.v === 'f1' || data.v === 'f2') {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    // 隠し機能: cleanモード (URLパラメータに clean があればUIを隠す)
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('clean')) {
+        const viewerControls = document.getElementById('viewer-controls');
+        if (viewerControls) viewerControls.style.display = 'none';
+    }
+
     fumenPages.push(createBlankPage());
     setupEditors();
     loadPage(0);
@@ -2317,11 +2324,21 @@ window.addEventListener('resize', updateScale);
 
     document.getElementById('send-to-simulator').addEventListener('click', sendToSimulator);
 
-    document.getElementById('share-btn').addEventListener('click', () => {
+    // 共通の共有ボタン処理
+    const handleShareClick = () => {
         openShareModal();
         // モードに応じてボタン表示切り替え
         document.getElementById('export-fumen-p2-btn').style.display = (gameMode === '2P') ? 'inline-block' : 'none';
-    });
+    };
+
+    document.getElementById('share-btn').addEventListener('click', handleShareClick);
+    
+    // Viewer側のShareボタンにも同じ処理を割り当て
+    const viewerShareBtn = document.getElementById('viewer-share-btn');
+    if (viewerShareBtn) {
+        viewerShareBtn.addEventListener('click', handleShareClick);
+    }
+
 
     const copyToClipboard = (text) => {
         navigator.clipboard.writeText(text)
