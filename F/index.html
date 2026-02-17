@@ -1264,6 +1264,14 @@ const FumenCodec = {
             i += count;
         }
 
+        // 1ページ目が空白の場合など、フィールドデータが"vh"（全ブロック変更なし）の場合は
+        // Repeat(繰り返し数)を付与する必要がある。今回は毎回出力しているので0回(A)とする。
+        if (data === 'vh') {
+            data += this.encodeInt(0, 1);
+        }
+
+        // 2. ミノ・フラグ (3文字)
+
         // 2. ミノ・フラグ (3文字)
         // 今回はエディタ上のアクティブミノは再現せず、フラグ(コメント)のみ利用する
         // piece=0, rot=0, loc=0
@@ -1275,22 +1283,23 @@ const FumenCodec = {
         const flag_mirror = 0;
         const flag_raise = 0;
         
-        // Value計算 (逆順に構成)
-        // lock -> comment -> color -> mirror -> raise -> loc -> rot -> piece
-        let value = 0;
-        value = (flag_lock ? 0 : 1); // logic is inverted for lock? Slide 29: const flag_lock = !(value % 2). So value even = lock true. value=0 works.
-        // Wait, slide says: const flag_lock = !(value % 2). So if value%2==0, lock=true. 
-        // 構築順:
-        // value = ((((comment * 2 + color) * 2 + mirror) * 2 + raise) * 240 + loc) * 4 + rot) * 8 + piece
+        const piece = 0;
+        const rot = 0;
+        const loc = 0;
+
+        // Value計算 (Decodeの逆順に構成)
+        // Decode順: piece -> rot -> loc -> raise -> mirror -> color -> comment -> lock
+        // Encode順: lock -> comment -> color -> mirror -> raise -> loc -> rot -> piece
+        
         let minoVal = 0;
-        // Comment
-        minoVal = flag_comment;
+        minoVal = (flag_lock ? 0 : 1); // lockフラグは反転 (Slide 29: !(value % 2))
+        minoVal = minoVal * 2 + flag_comment;
         minoVal = minoVal * 2 + flag_color;
         minoVal = minoVal * 2 + flag_mirror;
         minoVal = minoVal * 2 + flag_raise;
-        minoVal = minoVal * 240 + 0; // loc
-        minoVal = minoVal * 4 + 0; // rot
-        minoVal = minoVal * 8 + 0; // piece
+        minoVal = minoVal * 240 + loc;
+        minoVal = minoVal * 4 + rot;
+        minoVal = minoVal * 8 + piece;
 
         data += this.encodeInt(minoVal, 3);
 
