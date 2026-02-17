@@ -1462,11 +1462,11 @@ const FumenCodec = {
             // Custom[0..16] -> Empty
             const customBoard = Array.from({length: 40}, () => Array(10).fill(null));
             for(let y=0; y<23; y++) {
-                // Fumen row y (0 is Bottom)
-                // Custom row 39 - y (39 is Bottom)
+                // Fumen row y (0 is top of 23)
+                // Custom row 17 + y
                 for(let x=0; x<10; x++) {
                     const fVal = currentField[y * 10 + x];
-                    customBoard[39 - y][x] = this.FUMEN_TO_TYPE[fVal] || null;
+                    customBoard[17 + y][x] = this.FUMEN_TO_TYPE[fVal] || null;
                 }
             }
 
