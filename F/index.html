@@ -1407,11 +1407,29 @@ const FumenCodec = {
                 }
             }
 
-            prevField = [...currentField];
+            const nextPrevField = Array(240).fill(0);
+            let writeRow = 22;
+            for (let y = 22; y >= 0; y--) {
+                let isFull = true;
+                for (let x = 0; x < 10; x++) {
+                    if (currentField[y * 10 + x] === 0) {
+                        isFull = false;
+                        break;
+                    }
+                }
+                if (!isFull) {
+                    for (let x = 0; x < 10; x++) {
+                        nextPrevField[writeRow * 10 + x] = currentField[y * 10 + x];
+                    }
+                    writeRow--;
+                }
+            }
+            prevField = nextPrevField;
             const minoVal = this.poll(str, idx, 3);
             idx += 3;
             
             let temp = minoVal;
+
             const piece = temp % 8; temp = Math.floor(temp / 8);
             const rot = temp % 4; temp = Math.floor(temp / 4);
             const loc = temp % 240; temp = Math.floor(temp / 240);
