@@ -1638,7 +1638,7 @@ let isScanning = false;
 async function initOnnxModel() {
     try {
         // Simulatorのパス構成に合わせる (../LoadPPT/tetris.onnx)
-        onnxSession = await ort.InferenceSession.create('../LoadPPT/tetris.onnx', { executionProviders: ['wasm'] });
+        onnxSession = await ort.InferenceSession.create('../Load%20PPT/tetris.onnx', { executionProviders: ['wasm'] });
         console.log("ONNX Model loaded.");
     } catch (e) {
         console.error("Failed to load ONNX model:", e);
