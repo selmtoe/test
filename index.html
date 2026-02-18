@@ -7594,11 +7594,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const stateData = e.data.data;
             autoStartParams.ss = false; // 自動スタートなどは制御可能
             if (applyGameState(stateData)) {
-                console.log("Applied game state from Hub");
+          
+                 console.log("Applied game state from Hub");
             }
+        } else if (e.data && e.data.type === 'requestState') {
+            const stateData = getGameStateForExport();
+            window.parent.postMessage({
+                target: 'hub',
+                type: 'saveSnapshotResponse',
+                source: 'sim',
+                data: stateData
+            }, '*');
         }
     });
-
     const modeTitle = document.querySelector('.mode-selection h2');
 
     let debugClickCount = 0;
