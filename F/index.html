@@ -1645,8 +1645,7 @@ let isScanning = false;
 async function initOnnxModel() {
     try {
         // Warningログを抑制
-        ort.env.logLevel = 'error';
-        // Simulatorのパス構成に合わせる (../LoadPPT/tetris.onnx)
+        ort.env.logLevel = 'fatal';
         onnxSession = await ort.InferenceSession.create('../Load%20PPT/tetris.onnx', { executionProviders: ['wasm'] });
 console.log("ONNX Model loaded.");
     } catch (e) {
@@ -2180,18 +2179,6 @@ document.getElementById('scan-next-step-btn').addEventListener('click', () => {
 document.getElementById('scan-cancel-btn').addEventListener('click', endScanProcess);
 document.getElementById('scan-confirm-btn').addEventListener('click', processAndLoadBoard);
 
-
-// Update Load IMG Button
-document.getElementById('hidden-img-loader').addEventListener('change', (e) => {
-    if (e.target.files && e.target.files[0]) {
-         startScanProcess(e.target.files[0]);
-         document.getElementById('edit-menu-modal').style.display = 'none';
-    }
-    e.target.value = '';
-});
-
-
-// --- 共有 (Share) / URL処理ロジック ---
 
 function getFumenDataForExport() {
     const exportedData = {
