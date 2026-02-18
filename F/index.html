@@ -30,6 +30,7 @@
         height: 100vh;
         overflow: hidden;
         -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
     }
     body {
         background-color: var(--bg-color);
@@ -683,11 +684,14 @@ margin-top: 15px;">
                 <label>ページ操作</label>
                 <button id="copy-page-btn" class="button">コピー</button>
                 <button id="paste-page-btn" class="button">ペースト (挿入)</button>
-            </div>
+       </div>
             <div class="edit-menu-item">
                 <label>画像認識</label>
-                <button id="load-img-btn" class="button">Load IMG</button>
-                <button id="load-ppt-btn" class="button">Load PPT (AI)</button>
+                <div style="display: flex; gap: 5px;">
+                    <button id="load-img-p1-btn" class="button" style="flex: 1; padding: 8px 4px;">IMG (P1)</button>
+                    <button id="load-img-p2-btn" class="button" style="flex: 1; padding: 8px 4px;">IMG (P2)</button>
+                </div>
+                <button id="load-ppt-btn" class="button" style="margin-top: 5px;">Load PPT</button>
             </div>
             <div class="edit-menu-item">
                 <label>入替</label>
@@ -1640,9 +1644,11 @@ let isScanning = false;
 
 async function initOnnxModel() {
     try {
+        // Warningログを抑制
+        ort.env.logLevel = 'error';
         // Simulatorのパス構成に合わせる (../LoadPPT/tetris.onnx)
         onnxSession = await ort.InferenceSession.create('../Load%20PPT/tetris.onnx', { executionProviders: ['wasm'] });
-        console.log("ONNX Model loaded.");
+console.log("ONNX Model loaded.");
     } catch (e) {
         console.error("Failed to load ONNX model:", e);
     }
@@ -1699,15 +1705,16 @@ async function runHighPrecisionAnalysis(imgBitmap) {
         fumenPages[currentPageIndex].p1.board = p1Data.board;
         fumenPages[currentPageIndex].p1.next = p1Data.nextQueue.join('');
         fumenPages[currentPageIndex].p1.hold = p1Data.holdMino || '';
+        
+        // 常にP2も解析してデータを格納する（1Pモードでも内部データは保持）
+        const p2Data = await analyzePlayerHighPrecision(processedCanvas, imgBitmap, cropData, p2Config);
+        fumenPages[currentPageIndex].p2.board = p2Data.board;
+        fumenPages[currentPageIndex].p2.next = p2Data.nextQueue.join('');
+        fumenPages[currentPageIndex].p2.hold = p2Data.holdMino || '';
 
-        if (gameMode === '2P') {
-            const p2Data = await analyzePlayerHighPrecision(processedCanvas, imgBitmap, cropData, p2Config);
-            fumenPages[currentPageIndex].p2.board = p2Data.board;
-            fumenPages[currentPageIndex].p2.next = p2Data.nextQueue.join('');
-            fumenPages[currentPageIndex].p2.hold = p2Data.holdMino || '';
-        }
     } catch (err) {
         console.error("Analysis Error:", err);
+
         alert("解析エラー: " + err.message);
     }
 }
@@ -1980,11 +1987,13 @@ function findClosestMinoOnly(r,g,b) {
 }
 
 // --- Manual Scan Logic (Ported from Simulator) ---
-function startScanProcess(file) {
+function startScanProcess(file, playerId = 'p1') {
+    scanState.targetPlayerId = playerId;
     const reader = new FileReader();
-    reader.onload = e => {
+reader.onload = e => {
         scanState.image = new Image();
-        scanState.image.onload = () => {
+scanState.image.onload = () => {
+
             // スキャナーUIを表示
             document.getElementById('editor-container').style.display = 'none';
             document.getElementById('scanner-container').style.display = 'flex';
@@ -2104,15 +2113,14 @@ function processAndLoadBoard() {
     const bH_px = iBL.y - iTR.y; // Yは上が0なので BL.y > TR.y
     const blW_px = bW_px / 10; // BOARD_WIDTH
     const blH_px = bH_px / 20; // BOARD_VISIBLE_HEIGHT
-    
-    // ターゲットのプレイヤー（現在のページ・現在のモードに応じてよしなにやるか、P1固定）
-    // Load IMGは基本P1に入れる仕様とする
-    const targetBoard = fumenPages[currentPageIndex].p1.board;
-    
-    // 盤面クリア
+    // ターゲットのプレイヤー
+    const targetId = scanState.targetPlayerId || 'p1';
+    const targetBoard = fumenPages[currentPageIndex][targetId].board;
+// 盤面クリア
     targetBoard.forEach(row => row.fill(null));
     
     for (let r = 0; r < 20; r++) {
+
         for (let c = 0; c < 10; c++) {
             // サンプリング座標
             const cX = iBL.x + (c + 0.5) * blW_px;
@@ -2132,13 +2140,14 @@ function processAndLoadBoard() {
         }
     }
     
-    drawEditorField('p1');
+    drawEditorField(targetId);
     pushHistory(); // 変更後に保存
     endScanProcess();
 }
 
 // Event Listeners for Scanner
 document.getElementById('scanner-canvas').addEventListener('click', e => {
+
     if (!isScanning) return;
     const canvas = document.getElementById('scanner-canvas');
     const rect = canvas.getBoundingClientRect();
@@ -2937,7 +2946,7 @@ viewerCanvas = document.getElementById('viewerCanvas');
         editMenuModal.style.display = 'none';
     });
     
-    document.getElementById('swap-p1p2-all-btn').addEventListener('click', () => {
+document.getElementById('swap-p1p2-all-btn').addEventListener('click', () => {
         pushHistory();
         fumenPages.forEach(p => {
              [p.p1, p.p2] = [p.p2, p.p1];
@@ -2945,21 +2954,29 @@ viewerCanvas = document.getElementById('viewerCanvas');
         loadPage(currentPageIndex);
         editMenuModal.style.display = 'none';
     });
-    
-    // Loaders
-    document.getElementById('load-img-btn').addEventListener('click', () => document.getElementById('hidden-img-loader').click());
+// Loaders
+    document.getElementById('load-img-p1-btn').addEventListener('click', () => {
+        const loader = document.getElementById('hidden-img-loader');
+        loader.dataset.target = 'p1';
+        loader.click();
+    });
+    document.getElementById('load-img-p2-btn').addEventListener('click', () => {
+        const loader = document.getElementById('hidden-img-loader');
+        loader.dataset.target = 'p2';
+        loader.click();
+    });
     document.getElementById('load-ppt-btn').addEventListener('click', () => document.getElementById('hidden-ppt-loader').click());
-    
-    document.getElementById('hidden-img-loader').addEventListener('change', (e) => {
+document.getElementById('hidden-img-loader').addEventListener('change', (e) => {
         if (e.target.files && e.target.files[0]) {
-             processLoadedImage(e.target.files[0]); // Using simple logic wrapper
+             startScanProcess(e.target.files[0], e.target.dataset.target || 'p1');
              editMenuModal.style.display = 'none';
         }
         e.target.value = '';
     });
-    document.getElementById('hidden-ppt-loader').addEventListener('change', (e) => {
+document.getElementById('hidden-ppt-loader').addEventListener('change', (e) => {
         if (e.target.files && e.target.files[0]) {
              processPptImage(e.target.files[0]);
+
              editMenuModal.style.display = 'none';
         }
         e.target.value = '';
@@ -3522,8 +3539,12 @@ data;
             console.error('Failed to import from clipboard:', e);
         }
     });
+
+    // ダブルタップによる拡大防止
+    document.addEventListener('dblclick', function(event) {
+        event.preventDefault();
+    }, { passive: false });
 });
 </script>
 </body>
 </html>
-    
