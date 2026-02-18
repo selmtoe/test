@@ -1472,8 +1472,18 @@ const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
         simulatorURL = parentPath + '../index.html';
 } catch(e) { /* fallback to '../index.html' */ }
 
-    location.href = `${simulatorURL}#${base64Data}`;
+    // Hub検知: 親ウィンドウが存在し、自分自身でない場合
+    if (window.parent !== window) {
+        window.parent.postMessage({
+            target: 'sim',
+            type: 'loadState',
+            data: stateData // JSONオブジェクトをそのまま送信
+        }, '*');
+    } else {
+        location.href = `${simulatorURL}#${base64Data}`;
+    }
 }
+
 
 // --- 圧縮ロジック (RLE & 差分) ---
 
@@ -2771,7 +2781,20 @@ if (data.v === 'f1' || data.v === 'f2') {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Hubからのメッセージ受信リスナー
+    window.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'loadFumen') {
+            // シミュレータからのFumenデータ(JSON)受信
+            const fumenData = e.data.data;
+            if (applyFumenData(fumenData)) {
+                // 成功時の処理（必要ならアラートなど）
+                console.log("Applied fumen data from Hub");
+            }
+        }
+    });
+
     // 隠し機能: cleanモード (URLパラメータに clean があればUIを隠す)
+
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('clean')) {
         const viewerControls = document.getElementById('viewer-controls');
