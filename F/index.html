@@ -119,8 +119,10 @@
         cursor: crosshair;
     }
     #scan-controls {
-        position: absolute;
-        bottom: 20px;
+        position: fixed;
+        bottom: 50px;
+        left: 50%;
+        transform: translateX(-50%);
         display: flex;
         gap: 15px;
         z-index: 510;
@@ -707,7 +709,8 @@ margin-top: 15px;">
     <div id="scan-instructions">左下をクリックしてください</div>
     <canvas id="scanner-canvas"></canvas>
     <div id="scan-controls">
-        <button id="scan-confirm-btn" class="button" style="visibility: hidden;">次へ</button>
+        <button id="scan-next-step-btn" class="button" style="display: none;">次へ</button>
+        <button id="scan-confirm-btn" class="button" style="display: none;">読込開始</button>
         <button id="scan-cancel-btn" class="button">キャンセル</button>
     </div>
 </div>
@@ -1632,7 +1635,7 @@ for (const key in SCAN_COLOR_PALETTE) {
 }
 
 // Scanner State for manual selection
-let scanState = { image: null, bottomLeft: null, topRight: null, targetPlayerId: 'p1' };
+let scanState = { image: null, bottomLeft: null, topRight: null, targetPlayerId: 'p1', step: 0 };
 let isScanning = false;
 
 async function initOnnxModel() {
@@ -1650,22 +1653,41 @@ async function processPptImage(file) {
     if (!onnxSession) await initOnnxModel();
     if (!onnxSession) { alert("AIモデルの読み込みに失敗しました。"); return; }
 
+    const btn = document.getElementById('load-ppt-btn');
+    const originalText = btn.textContent;
+    btn.textContent = "処理中...";
+    btn.disabled = true;
+
     const reader = new FileReader();
     reader.onload = async (e) => {
         const img = new Image();
         img.onload = async () => {
-            pushHistory(); 
-            const imgBitmap = await createImageBitmap(img);
-            await runHighPrecisionAnalysis(imgBitmap);
-            drawEditorField('p1');
-            if(gameMode === '2P') drawEditorField('p2');
-            updateNextQueueDisplay('p1');
-            updateNextQueueDisplay('p2');
+            try {
+                pushHistory();
+                const imgBitmap = await createImageBitmap(img);
+                await runHighPrecisionAnalysis(imgBitmap);
+                
+                // 描画更新を確実にするため requestAnimationFrame でラップ
+                requestAnimationFrame(() => {
+                    drawEditorField('p1');
+                    if(gameMode === '2P') drawEditorField('p2');
+                    updateNextQueueDisplay('p1');
+                    updateNextQueueDisplay('p2');
+                    alert("読み込みが完了しました。");
+                });
+            } catch (err) {
+                console.error(err);
+                alert("処理中にエラーが発生しました。");
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
         };
         img.src = e.target.result;
     };
     reader.readAsDataURL(file);
 }
+
 
 async function runHighPrecisionAnalysis(imgBitmap) {
     try {
@@ -1970,9 +1992,11 @@ function startScanProcess(file) {
             isScanning = true;
             scanState.bottomLeft = null;
             scanState.topRight = null;
+            scanState.step = 0; // 0: Wait BL, 1: Confirm BL, 2: Wait TR, 3: Confirm TR
             updateScanUI();
             
             const canvas = document.getElementById('scanner-canvas');
+
             const ar = scanState.image.naturalWidth / scanState.image.naturalHeight;
             
             // 画面に合わせて表示サイズ調整
@@ -2000,23 +2024,29 @@ function startScanProcess(file) {
 
 function updateScanUI() {
     const instr = document.getElementById('scan-instructions');
+    const nextBtn = document.getElementById('scan-next-step-btn');
     const confirmBtn = document.getElementById('scan-confirm-btn');
     
-    if (!scanState.bottomLeft) {
+    // Reset buttons
+    nextBtn.style.display = 'none';
+    confirmBtn.style.display = 'none';
+
+    if (scanState.step === 0) {
         instr.textContent = '盤面の左下をクリックしてください';
-        confirmBtn.style.visibility = 'hidden';
-    } else if (!scanState.topRight) {
+    } else if (scanState.step === 1) {
+        instr.textContent = 'よろしければ「次へ」を押してください';
+        nextBtn.style.display = 'inline-block';
+    } else if (scanState.step === 2) {
         instr.textContent = '盤面の右上をクリックしてください';
-        confirmBtn.style.visibility = 'hidden';
-    } else {
+    } else if (scanState.step === 3) {
         instr.textContent = '範囲が正しければ「読込開始」を押してください';
-        confirmBtn.style.visibility = 'visible';
-        confirmBtn.textContent = '読込開始';
+        confirmBtn.style.display = 'inline-block';
     }
 }
 
 function drawScanner() {
     if (!scanState.image) return;
+
     const canvas = document.getElementById('scanner-canvas');
     const ctx = canvas.getContext('2d');
     
@@ -2120,17 +2150,27 @@ document.getElementById('scanner-canvas').addEventListener('click', e => {
         y: (e.clientY - rect.top) * scaleY 
     };
     
-    if (!scanState.bottomLeft) {
+    if (scanState.step === 0 || scanState.step === 1) {
         scanState.bottomLeft = pos;
-    } else {
+        scanState.step = 1;
+    } else if (scanState.step === 2 || scanState.step === 3) {
         scanState.topRight = pos;
+        scanState.step = 3;
     }
     updateScanUI();
     drawScanner();
 });
 
+document.getElementById('scan-next-step-btn').addEventListener('click', () => {
+    if (scanState.step === 1) {
+        scanState.step = 2;
+        updateScanUI();
+    }
+});
+
 document.getElementById('scan-cancel-btn').addEventListener('click', endScanProcess);
 document.getElementById('scan-confirm-btn').addEventListener('click', processAndLoadBoard);
+
 
 // Update Load IMG Button
 document.getElementById('hidden-img-loader').addEventListener('change', (e) => {
