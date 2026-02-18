@@ -10,8 +10,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
 <style>
     :root {
+
         --bg-color: #1a1a2e;
         --primary-color: #4b4b7c;
         --primary-hover-color: #6a6aff;
@@ -87,7 +89,14 @@
         cursor: not-allowed;
     }
 
+    .undo-redo-btn {
+        font-size: 20px !important;
+        padding: 4px 12px !important;
+        line-height: 1 !important;
+    }
+
     .edit-section {
+
         background-color: rgba(255,255,255,0.05);
         padding: 15px;
         border-radius: 8px;
@@ -411,6 +420,21 @@ flex-wrap: wrap;
     .log-entry { margin-bottom: 4px; border-bottom: 1px solid #333; padding: 2px 0; }
     .log-entry.error { color: #ff6b6b; background: rgba(80, 0, 0, 0.3); }
     .log-entry.warn { color: #f0a000; }
+    .edit-menu-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 15px;
+    }
+    .edit-menu-item {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    .edit-menu-item label {
+        font-size: 12px;
+        color: #aaa;
+    }
 </style>
 </head>
 <body>
@@ -419,24 +443,29 @@ flex-wrap: wrap;
     <div id="editor-container">
         <div class="edit-section top-controls">
             <div class="mode-selection">
-                <h2>MODE</h2>
+                <h2 id="mode-header" style="cursor: pointer; user-select: none;">MODE</h2>
                 <div class="button active" id="mode-1p">1P</div>
                 <div class="button" id="mode-2p">2P</div>
-                      </div>
+                <button id="share-btn" style="margin-left: 15px; background-color: #f0a000;">Share</button>
+                <button id="send-to-simulator" style="margin-left: 5px; background-color: #00a000;">Simulator</button>
+                <button id="view-mode-btn" style="margin-left: 5px; background-color: #30a070;">View</button>
+                <button id="gen-code" style="margin-left: 5px; background-color: #00a0f0; display: none;">Gen Code</button>
+            </div>
             <div class="page-controls">
                 <button id="prev-page">Prev ‹</button>
                 <span id="page-indicator">Page 1 / 1</span>
                 <button id="next-page">Next ›</button>
+                
                 <button id="new-page" style="margin-left: 15px;">New Page</button>
-     
-           <button id="delete-page">Delete</button>
-                <button id="gen-code" style="margin-left: 15px; background-color: #00a0f0;">Gen Code</button>
-                <button id="share-btn" style="margin-left: 5px; background-color: #f0a000;">Share</button>
-                <button id="send-to-simulator" style="margin-left: 5px; background-color: #00a000;">Simulator</button>
-                <button id="view-mode-btn" style="margin-left: 5px;
-background-color: #30a070;">View</button>
+                <button id="delete-page">Delete</button>
+
+                <button id="undo-btn" class="button undo-redo-btn" style="margin-left: 15px;" title="Undo">↩</button>
+                <button id="redo-btn" class="button undo-redo-btn" title="Redo">↪</button>
+                
+                <button id="open-edit-menu-btn" style="margin-left: 15px;">編集</button>
             </div>
         </div>
+
         <div class="player-editors">
             <div class="editor-column" id="p1-editor-col">
                 <div class="edit-section next-editor">
@@ -587,11 +616,43 @@ gap: 10px; margin-top: 5px; flex-wrap: wrap;">
             <button id="import-from-data-btn" class="button">クリップボードからインポート</button>
         </div>
 
-        <div class="modal-controls" style="text-align: center; margin-top: 15px;">
+        <div class="modal-controls" style="text-align: center;
+margin-top: 15px;">
             <button id="share-close" class="button">閉じる</button>
         </div>
     </div>
 </div>
+
+<div id="edit-menu-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.75); display: none; justify-content: center; align-items: center; z-index: 200;">
+    <div class="modal-content" style="background-color: var(--bg-color); padding: 25px; border-radius: 10px; border: 2px solid var(--primary-color); width: 90%; max-width: 400px; font-family: var(--font-ui);">
+        <h2 style="margin-top:0;">編集メニュー</h2>
+        
+        <div class="edit-menu-grid">
+            <div class="edit-menu-item">
+                <label>ページ操作</label>
+                <button id="copy-page-btn" class="button">コピー</button>
+                <button id="paste-page-btn" class="button">ペースト (挿入)</button>
+            </div>
+            <div class="edit-menu-item">
+                <label>画像認識</label>
+                <button id="load-img-btn" class="button">Load IMG</button>
+                <button id="load-ppt-btn" class="button">Load PPT (AI)</button>
+            </div>
+            <div class="edit-menu-item">
+                <label>入替</label>
+                <button id="swap-p1p2-curr-btn" class="button">1P⇄2P (現ページ)</button>
+                <button id="swap-p1p2-all-btn" class="button">1P⇄2P (全ページ)</button>
+            </div>
+        </div>
+
+        <div class="modal-controls" style="text-align: center; margin-top: 15px;">
+            <button id="edit-menu-close" class="button">閉じる</button>
+        </div>
+    </div>
+</div>
+
+<input type="file" id="hidden-img-loader" accept="image/*" style="display: none;">
+<input type="file" id="hidden-ppt-loader" accept="image/*" style="display: none;">
 
 <script>
 (function() {
@@ -669,6 +730,9 @@ const EDITOR_COLORS = {...COLORS, 'EMPTY': '#000000'};
 let gameMode = '1P';
 let fumenPages = [];
 let currentPageIndex = 0;
+let historyStack = [];
+let historyIndex = -1;
+const MAX_HISTORY = 50;
 let currentDisplayMode = 'viewer';
 let viewerCanvas, viewerCtx;
 let viewerLoopHandle;
@@ -741,7 +805,8 @@ function updatePageControls() {
     document.getElementById('page-indicator').textContent = pageText;
     document.getElementById('prev-page').disabled = (currentPageIndex === 0);
     document.getElementById('delete-page').disabled = (fumenPages.length <= 1);
-
+    
+    updateUndoRedoButtons();
 
     const viewerIndicator = document.getElementById('viewer-page-indicator');
     const viewerSlider = document.getElementById('viewer-page-slider');
@@ -801,12 +866,10 @@ function setupPlayerEditor(playerId) {
     
     const applyDraw = (x, y) => {
         if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_VISIBLE_HEIGHT) return;
-        
         const pageData = fumenPages[currentPageIndex][playerId];
         const boardY = y + pageData.viewY;
         
         const newColor = isEraserMode ? null : pageData.activeColor;
-
         if (pageData.board[boardY][x] !== newColor) {
             pageData.board[boardY][x] = newColor;
             drawEditorField(playerId);
@@ -815,7 +878,9 @@ function setupPlayerEditor(playerId) {
 
     const handleDrawStart = e => {
         e.preventDefault();
+        pushHistory(); // Start drawing action
         isDrawing = true;
+
 
         const { x, y } = getCoordsFromEvent(e);
         const pageData = fumenPages[currentPageIndex][playerId];
@@ -850,14 +915,16 @@ function setupPlayerEditor(playerId) {
     canvas.addEventListener('touchcancel', handleDrawEnd, { passive: false });
     canvas.addEventListener('touchmove', handleDrawMove, { passive: false });
 
-    document.getElementById(`${playerId}-field-shift-up`).addEventListener('click', () => shiftField(playerId, 'up'));
-    document.getElementById(`${playerId}-field-shift-down`).addEventListener('click', () => shiftField(playerId, 'down'));
-    document.getElementById(`${playerId}-field-shift-left`).addEventListener('click', () => shiftField(playerId, 'left'));
-    document.getElementById(`${playerId}-field-shift-right`).addEventListener('click', () => shiftField(playerId, 'right'));
+    document.getElementById(`${playerId}-field-shift-up`).addEventListener('click', () => { pushHistory(); shiftField(playerId, 'up'); });
+    document.getElementById(`${playerId}-field-shift-down`).addEventListener('click', () => { pushHistory(); shiftField(playerId, 'down'); });
+    document.getElementById(`${playerId}-field-shift-left`).addEventListener('click', () => { pushHistory(); shiftField(playerId, 'left'); });
+    document.getElementById(`${playerId}-field-shift-right`).addEventListener('click', () => { pushHistory(); shiftField(playerId, 'right'); });
     document.getElementById(`${playerId}-field-clear`).addEventListener('click', () => {
+        pushHistory();
         fumenPages[currentPageIndex][playerId].board.forEach(row => row.fill(null));
         drawEditorField(playerId);
     });
+
 
 // --- ここからNext/HoldエディタUIの構築 (シミュレータから移植・調整) ---
     const nextIcons = document.getElementById(`${playerId}-next-icons`);
@@ -871,6 +938,7 @@ function setupPlayerEditor(playerId) {
         // テキスト削除
         
         icon.addEventListener('click', () => {
+            pushHistory();
             const data = fumenPages[currentPageIndex][playerId];
 
             let nextArr = data.next ? data.next.split('') : [];
@@ -896,9 +964,11 @@ function setupPlayerEditor(playerId) {
     // ENDアイコン (空文字挿入用だが、Next配列では単に無視されるか区切りとして使う想定。今回は削除機能があるので不要かもしれないが、一応「空」として追加)
     // シミュレータに合わせてDelete/Clearボタンの実装
     document.getElementById(`${playerId}-next-delete-left`).addEventListener('click', () => {
+        pushHistory();
         const data = fumenPages[currentPageIndex][playerId];
         let nextArr = data.next ? data.next.split('') : [];
         const index = data.nextInsertionIndex;
+
 
         if (index === 'hold') {
             data.hold = '';
@@ -916,6 +986,7 @@ function setupPlayerEditor(playerId) {
     });
 
     document.getElementById(`${playerId}-next-clear`).addEventListener('click', () => {
+        pushHistory();
         const data = fumenPages[currentPageIndex][playerId];
         data.next = '';
         data.hold = '';
@@ -1427,6 +1498,348 @@ function applyDifference(prevBoard1D, diffData1D) {
         }
     }
     return currentBoard1D;
+}
+
+function pushHistory() {
+    if (historyIndex < historyStack.length - 1) {
+        historyStack = historyStack.slice(0, historyIndex + 1);
+    }
+    const state = {
+        pages: JSON.parse(JSON.stringify(fumenPages)),
+        idx: currentPageIndex,
+        mode: gameMode
+    };
+    historyStack.push(state);
+    if (historyStack.length > MAX_HISTORY) {
+        historyStack.shift();
+    } else {
+        historyIndex++;
+    }
+    updateUndoRedoButtons();
+}
+
+function undo() {
+    if (historyIndex > 0) {
+        historyIndex--;
+        restoreState(historyStack[historyIndex]);
+    }
+}
+
+function redo() {
+    if (historyIndex < historyStack.length - 1) {
+        historyIndex++;
+        restoreState(historyStack[historyIndex]);
+    }
+}
+
+function restoreState(state) {
+    fumenPages = JSON.parse(JSON.stringify(state.pages));
+    currentPageIndex = state.idx;
+    gameMode = state.mode;
+    
+    document.getElementById('mode-1p').classList.toggle('active', gameMode === '1P');
+    document.getElementById('mode-2p').classList.toggle('active', gameMode === '2P');
+    document.getElementById('p2-editor-col').style.display = (gameMode === '2P') ? 'flex' : 'none';
+    
+    loadPage(currentPageIndex);
+    updateUndoRedoButtons();
+    updateScale();
+}
+
+function updateUndoRedoButtons() {
+    document.getElementById('undo-btn').disabled = (historyIndex <= 0);
+    document.getElementById('redo-btn').disabled = (historyIndex >= historyStack.length - 1);
+}
+
+// --- ONNX & Image Recognition Logic (Ported from Simulator) ---
+let onnxSession = null;
+const ONNX_CLASS_NAMES = ['null', 'G', 'S', 'Z', 'L', 'J', 'O', 'I', 'T'];
+const PARSED_SCAN_COLORS = {
+    'NULL': [{r:0,g:0,b:0}, {r:48,g:40,b:56}],
+    'G':    [{r:153,g:153,b:153}, {r:216,g:216,b:216}],
+    'I':    [{r:1,g:152,b:153}, {r:1,g:153,b:213}],
+    'O':    [{r:153,g:154,b:2}, {r:249,g:185,b:0}],
+    'T':    [{r:152,g:0,b:153}, {r:135,g:30,b:136}],
+    'L':    [{r:153,g:103,b:0}, {r:245,g:97,b:0}],
+    'J':    [{r:0,g:0,b:187}, {r:0,g:75,b:165}],
+    'S':    [{r:16,g:151,b:31}, {r:92,g:181,b:35}],
+    'Z':    [{r:153,g:0,b:0}, {r:218,g:24,b:34}]
+};
+
+async function initOnnxModel() {
+    try {
+        onnxSession = await ort.InferenceSession.create('../Load%20PPT/tetris.onnx', { executionProviders: ['wasm'] });
+    } catch (e) {
+        console.error("Failed to load ONNX model:", e);
+    }
+}
+
+async function processPptImage(file) {
+    if (!onnxSession) await initOnnxModel();
+    if (!onnxSession) { alert("AIモデルの読み込みに失敗しました。"); return; }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const img = new Image();
+        img.onload = async () => {
+            pushHistory(); 
+            const imgBitmap = await createImageBitmap(img);
+            await runHighPrecisionAnalysis(imgBitmap);
+            drawEditorField('p1');
+            if(gameMode === '2P') drawEditorField('p2');
+            updateNextQueueDisplay('p1');
+            updateNextQueueDisplay('p2');
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+async function runHighPrecisionAnalysis(imgBitmap) {
+    try {
+        const { canvas: processedCanvas, cropData } = processImageTo1080p(imgBitmap);
+        const p1Config = { boardRect: { x: 304, y: 157, w: 670 - 304, h: 882 - 157 }, nextCoords: [ {x:160, y:155}, {x:500, y:122}, {x:500, y:175}, {x:500, y:225}, {x:500, y:275}, {x:500, y:325} ] };
+        const p2Config = { boardRect: { x: 1257, y: 157, w: 1620 - 1257, h: 882 - 157 }, nextCoords: [ {x:790, y:155}, {x:1130, y:122}, {x:1130, y:175}, {x:1130, y:225}, {x:1130, y:275}, {x:1130, y:325} ] };
+
+        const p1Data = await analyzePlayerHighPrecision(processedCanvas, imgBitmap, cropData, p1Config);
+        fumenPages[currentPageIndex].p1.board = p1Data.board;
+        fumenPages[currentPageIndex].p1.next = p1Data.nextQueue.join('');
+        fumenPages[currentPageIndex].p1.hold = p1Data.holdMino || '';
+
+        if (gameMode === '2P') {
+            const p2Data = await analyzePlayerHighPrecision(processedCanvas, imgBitmap, cropData, p2Config);
+            fumenPages[currentPageIndex].p2.board = p2Data.board;
+            fumenPages[currentPageIndex].p2.next = p2Data.nextQueue.join('');
+            fumenPages[currentPageIndex].p2.hold = p2Data.holdMino || '';
+        }
+    } catch (err) {
+        console.error("Analysis Error:", err);
+        alert("解析エラー: " + err.message);
+    }
+}
+
+function processImageTo1080p(imgBitmap) {
+    const srcW = imgBitmap.width, srcH = imgBitmap.height;
+    const targetAspect = 16 / 9;
+    const srcAspect = srcW / srcH;
+    let cropW, cropH, cropX, cropY;
+    if (srcAspect > targetAspect) { cropH = srcH; cropW = srcH * targetAspect; cropX = (srcW - cropW) / 2; cropY = 0; }
+    else { cropW = srcW; cropH = srcW / targetAspect; cropX = 0; cropY = (srcH - cropH) / 2; }
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920; canvas.height = 1080;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(imgBitmap, cropX, cropY, cropW, cropH, 0, 0, 1920, 1080);
+    return { canvas, cropData: { cropX, cropY, cropW, cropH } };
+}
+
+async function analyzePlayerHighPrecision(canvas, originalBitmap, cropData, config) {
+    const ctx = canvas.getContext('2d');
+    const boardRect = config.boardRect;
+    const boardImgData = ctx.getImageData(boardRect.x, boardRect.y, boardRect.w, boardRect.h);
+    const cellW = boardRect.w / 10, cellH = boardRect.h / 20;
+    const recognizedBoard = [];
+    
+    const classicBoard = [];
+    for (let r = 0; r < 20; r++) {
+        const row = [];
+        for (let c = 0; c < 10; c++) {
+            const sampleX = boardRect.x + (c + 0.5) * cellW;
+            const sampleY = boardRect.y + (r + 0.5) * cellH;
+            const sampleSize = Math.max(1, Math.floor(cellW * 0.25));
+            const imgD = ctx.getImageData(sampleX - sampleSize/2, sampleY - sampleSize/2, sampleSize, sampleSize).data;
+            let avgR=0, avgG=0, avgB=0;
+            for(let i=0; i<imgD.length; i+=4){ avgR+=imgD[i]; avgG+=imgD[i+1]; avgB+=imgD[i+2]; }
+            const cnt = imgD.length/4;
+            row.push(findClosestColor(avgR/cnt, avgG/cnt, avgB/cnt));
+        }
+        classicBoard.push(row);
+    }
+
+    const batchFeatures = [];
+    for (let r = 0; r < 20; r++) {
+        const row = [];
+        for (let c = 0; c < 10; c++) {
+            const x = c * cellW, y = r * cellH;
+            const cellPixels = extractCellPixels(boardImgData, x, y, cellW, cellH);
+            const feats = extractFeaturesJS(cellPixels, Math.floor(cellW), Math.floor(cellH));
+            batchFeatures.push(feats);
+            row.push(null);
+        }
+        recognizedBoard.push(row);
+    }
+    const flatInput = new Float32Array(batchFeatures.length * 63);
+    for (let i = 0; i < batchFeatures.length; i++) flatInput.set(batchFeatures[i], i * 63);
+    const tensor = new ort.Tensor('float32', flatInput, [200, 63]);
+    const results = await onnxSession.run({ [onnxSession.inputNames[0]]: tensor }, [onnxSession.outputNames[0]]);
+    const labelData = results[onnxSession.outputNames[0]].data;
+    for (let i = 0; i < 200; i++) {
+        const label = ONNX_CLASS_NAMES[Number(labelData[i])];
+        recognizedBoard[Math.floor(i / 10)][i % 10] = (label === 'null') ? null : label;
+    }
+
+    for (let r = 0; r < 20; r++) {
+        if (recognizedBoard[r].every(c => c === null || c === 'G')) {
+            const gCnt = recognizedBoard[r].filter(c => c === 'G').length;
+            if (gCnt !== 10) {
+                const classicRow = classicBoard[r];
+                if (classicRow.filter(c => c === 'G').length === 9 && classicRow.filter(c => c === null).length === 1) {
+                    recognizedBoard[r] = [...classicRow];
+                }
+            }
+        }
+    }
+
+    const fullBoard = Array.from({ length: 40 }, () => Array(10).fill(null));
+    for(let r=0; r<20; r++) fullBoard[20+r] = recognizedBoard[r];
+    
+    // Garbage cleanup
+    let firstNonG = -1;
+    for (let y = 39; y >= 0; y--) { if (!fullBoard[y].includes('G')) { firstNonG = y; break; } }
+    if (firstNonG !== -1) { for (let y = firstNonG - 1; y >= 0; y--) { for (let x = 0; x < 10; x++) { if (fullBoard[y][x] === 'G') fullBoard[y][x] = null; } } }
+
+    // Next/Hold
+    const nextQueue = [];
+    let holdMino = null;
+    const rawCropCanvas = document.createElement('canvas');
+    rawCropCanvas.width = cropData.cropW; rawCropCanvas.height = cropData.cropH;
+    const rawCtx = rawCropCanvas.getContext('2d', { willReadFrequently: true });
+    rawCtx.drawImage(originalBitmap, cropData.cropX, cropData.cropY, cropData.cropW, cropData.cropH, 0, 0, cropData.cropW, cropData.cropH);
+    const scale = cropData.cropW / 1280;
+    const radius = 5 * scale;
+    for (let i = 0; i < config.nextCoords.length; i++) {
+        const c = config.nextCoords[i];
+        const avg = getAverageColorNonBlack(rawCtx, c.x * scale, c.y * scale, radius);
+        if (i === 0) {
+            if (!(avg.r < 50 && avg.g < 50 && avg.b < 50)) holdMino = findClosestMinoOnly(avg.r, avg.g, avg.b);
+        } else {
+            if (i === 1 && (avg.r < 50 && avg.g < 50 && avg.b < 50)) break;
+            const fm = findClosestMinoOnly(avg.r, avg.g, avg.b);
+            if (fm) nextQueue.push(fm);
+        }
+    }
+    return { board: fullBoard, holdMino, nextQueue };
+}
+
+function extractCellPixels(imgD, x, y, w, h) {
+    const sw = imgD.width, ix = Math.floor(x), iy = Math.floor(y), iw = Math.floor(w), ih = Math.floor(h);
+    const d = new Uint8ClampedArray(iw * ih * 4);
+    for (let r = 0; r < ih; r++) {
+        const s = ((iy + r) * sw + ix) * 4;
+        d.set(imgD.data.subarray(s, s + iw * 4), r * iw * 4);
+    }
+    return d;
+}
+function extractFeaturesJS(p, w, h) {
+    const n = w * h, bC = new Float32Array(n), gC = new Float32Array(n), rC = new Float32Array(n);
+    const hC = new Float32Array(n), sC = new Float32Array(n), vC = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+        const r = p[i*4], g = p[i*4+1], b = p[i*4+2];
+        bC[i]=b; gC[i]=g; rC[i]=r;
+        const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max - min;
+        vC[i] = max; sC[i] = max? (d/max)*255 : 0;
+        let hVal = 0;
+        if(max!==min){ if(max===r) hVal=(g-b)/d+(g<b?6:0); else if(max===g) hVal=(b-r)/d+2; else hVal=(r-g)/d+4; hVal*=60; }
+        hC[i] = hVal/2;
+    }
+    const gs = (a) => { let s=0; for(let v of a)s+=v; const m=s/a.length; let ss=0; for(let v of a)ss+=(v-m)**2; return [m, Math.sqrt(ss/a.length)]; };
+    const f = [...gs(bC), ...gs(gC), ...gs(rC), ...gs(hC), ...gs(sC), ...gs(vC)];
+    const stepX = w/4, stepY = h/4;
+    for(let ty=0;ty<4;ty++) for(let tx=0;tx<4;tx++) {
+        const sx=Math.floor(tx*stepX), sy=Math.floor(ty*stepY), ex=Math.floor((tx+1)*stepX), ey=Math.floor((ty+1)*stepY);
+        let sb=0, sg=0, sr=0, c=0;
+        for(let py=sy;py<ey;py++) for(let px=sx;px<ex;px++) { const idx=py*w+px; sb+=bC[idx]; sg+=gC[idx]; sr+=rC[idx]; c++; }
+        if(c) f.push(sb/c, sg/c, sr/c); else f.push(0,0,0);
+    }
+    let cb=0, cg=0, cr=0, cc=0;
+    const cx=Math.floor(w/2), cy=Math.floor(h/2), cw=Math.floor(w/4), ch=Math.floor(h/4);
+    for(let py=cy-ch;py<cy+ch;py++) for(let px=cx-cw;px<cx+cw;px++) { if(px>=0&&px<w&&py>=0&&py<h) { const i=py*w+px; cb+=bC[i]; cg+=gC[i]; cr+=rC[i]; cc++; } }
+    f.push(cc?cb/cc:0, cc?cg/cc:0, cc?cr/cc:0);
+    return new Float32Array(f);
+}
+function findClosestColor(r,g,b) {
+    const dist = (c1, c2) => (c1.r-c2.r)**2 + (c1.g-c2.g)**2 + (c1.b-c2.b)**2;
+    if(dist({r,g,b}, PARSED_SCAN_COLORS.NULL[0]) < 6000) return null;
+    let minD = Infinity, k = null;
+    for(const key of Object.keys(PARSED_SCAN_COLORS)) {
+        if(key==='NULL'||key==='G') continue;
+        for(const tc of PARSED_SCAN_COLORS[key]) {
+            const d = dist({r,g,b}, tc);
+            if(d < minD) { minD = d; k = key; }
+        }
+    }
+    return minD > 25000 ? null : k;
+}
+function getAverageColorNonBlack(ctx, cx, cy, rad) {
+    const d = Math.ceil(rad*2), sx=Math.floor(cx-rad), sy=Math.floor(cy-rad);
+    const id = ctx.getImageData(sx, sy, d, d).data;
+    let tr=0, tg=0, tb=0, c=0;
+    for(let y=0; y<d; y++) for(let x=0; x<d; x++) {
+        if((x-rad)**2+(y-rad)**2 <= rad*rad) {
+            const i=(y*d+x)*4; if(id[i]>50||id[i+1]>50||id[i+2]>50) { tr+=id[i]; tg+=id[i+1]; tb+=id[i+2]; c++; }
+        }
+    }
+    return c ? {r:tr/c, g:tg/c, b:tb/c} : {r:0,g:0,b:0};
+}
+function findClosestMinoOnly(r,g,b) {
+    const dist = (c1, c2) => (c1.r-c2.r)**2 + (c1.g-c2.g)**2 + (c1.b-c2.b)**2;
+    let minD = Infinity, best = 'I';
+    for(const key of Object.keys(PARSED_SCAN_COLORS)) {
+        if(key==='NULL'||key==='G') continue;
+        for(const tc of PARSED_SCAN_COLORS[key]) {
+            const d = dist({r,g,b}, tc);
+            if(d < minD) { minD = d; best = key; }
+        }
+    }
+    return best;
+}
+
+function processLoadedImage(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+        const img = new Image();
+        img.onload = () => {
+            pushHistory();
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width; canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            
+            // Standard Scan Logic (Simpler than ONNX)
+            const sX = img.width / 1920; 
+            // 簡易的にシミュレータのscanロジックを模倣 (scanStateなしで、全画面を盤面として扱う簡易実装)
+            // ここではユーザー利便性を考え、単純に「ロードされた画像全体を盤面として解析」するロジックは複雑すぎるため、
+            // SimにあるscanProcessと同様のフロー（クリックして四隅指定）はエディタではUIが複雑になりすぎる。
+            // 代わりに、ONNX用の1080pクロップ→Classic Scanのロジックを流用してP1盤面に入れる。
+            
+            // Re-use processImageTo1080p for consistency
+            createImageBitmap(file).then(bmp => {
+                 const { canvas: pC, cropData } = processImageTo1080p(bmp);
+                 const p1Config = { boardRect: { x: 304, y: 157, w: 366, h: 725 }, nextCoords: [] }; // Approximate coords for P1
+                 
+                 // Classic scan logic embedded
+                 const ctx = pC.getContext('2d');
+                 const boardRect = p1Config.boardRect;
+                 const cellW = boardRect.w / 10, cellH = boardRect.h / 20;
+                 const targetBoard = fumenPages[currentPageIndex].p1.board;
+                 
+                 for (let r = 0; r < 20; r++) {
+                    for (let c = 0; c < 10; c++) {
+                        const sampleX = boardRect.x + (c + 0.5) * cellW;
+                        const sampleY = boardRect.y + (r + 0.5) * cellH;
+                        const sampleSize = Math.max(1, Math.floor(cellW * 0.25));
+                        const imgD = ctx.getImageData(sampleX - sampleSize/2, sampleY - sampleSize/2, sampleSize, sampleSize).data;
+                        let avgR=0, avgG=0, avgB=0;
+                        for(let i=0; i<imgD.length; i+=4){ avgR+=imgD[i]; avgG+=imgD[i+1]; avgB+=imgD[i+2]; }
+                        const cnt = imgD.length/4;
+                        targetBoard[20+r][c] = findClosestColor(avgR/cnt, avgG/cnt, avgB/cnt);
+                    }
+                 }
+                 drawEditorField('p1');
+            });
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
 }
 
 // --- 共有 (Share) / URL処理ロジック ---
@@ -2051,7 +2464,18 @@ viewerCanvas = document.getElementById('viewerCanvas');
 
     updatePageControls();
     drawViewer();
+    
+    // Init History
+    historyStack = [{
+        pages: JSON.parse(JSON.stringify(fumenPages)),
+        idx: currentPageIndex,
+        mode: gameMode
+    }];
+    historyIndex = 0;
+    updateUndoRedoButtons();
+
     document.getElementById('mode-1p').addEventListener('click', () => {
+        pushHistory();
         gameMode = '1P';
         document.getElementById('mode-1p').classList.add('active');
         document.getElementById('mode-2p').classList.remove('active');
@@ -2059,12 +2483,27 @@ viewerCanvas = document.getElementById('viewerCanvas');
         setTimeout(updateScale, 0);
     });
     document.getElementById('mode-2p').addEventListener('click', () => {
+        pushHistory();
         gameMode = '2P';
         document.getElementById('mode-2p').classList.add('active');
         document.getElementById('mode-1p').classList.remove('active');
         document.getElementById('p2-editor-col').style.display = 'flex';
         setTimeout(updateScale, 0);
     });
+    
+    // Hidden Gen Code Logic
+    let modeClickCount = 0;
+    document.getElementById('mode-header').addEventListener('click', () => {
+        modeClickCount++;
+        if (modeClickCount >= 10) {
+            document.getElementById('gen-code').style.display = 'inline-block';
+            alert('Gen Code button enabled.');
+            modeClickCount = 0;
+        }
+    });
+
+    document.getElementById('undo-btn').addEventListener('click', undo);
+    document.getElementById('redo-btn').addEventListener('click', redo);
 
     document.getElementById('prev-page').addEventListener('click', () => {
         if (currentPageIndex > 0) {
@@ -2075,27 +2514,117 @@ viewerCanvas = document.getElementById('viewerCanvas');
         if (currentPageIndex < fumenPages.length - 1) {
             loadPage(currentPageIndex + 1);
         } else {
-            // 最終ページの場合は複製して追加
+            pushHistory();
             const newPage = JSON.parse(JSON.stringify(fumenPages[currentPageIndex]));
             fumenPages.push(newPage);
             loadPage(currentPageIndex + 1);
-            updatePageControls(); // ボタン状態と表示の更新
+             updatePageControls();
         }
     });
     document.getElementById('new-page').addEventListener('click', () => {
+        pushHistory();
         fumenPages.splice(currentPageIndex + 1, 0, createBlankPage());
         loadPage(currentPageIndex + 1);
     });
     document.getElementById('delete-page').addEventListener('click', () => {
         if (fumenPages.length > 1) {
+            pushHistory();
             fumenPages.splice(currentPageIndex, 1);
             if (currentPageIndex >= fumenPages.length) {
                 currentPageIndex = fumenPages.length - 1;
             }
-                     loadPage(currentPageIndex);
-        }
+            loadPage(currentPageIndex);
+         }
+    });
     
-});
+    // Edit Menu Logic
+    const editMenuModal = document.getElementById('edit-menu-modal');
+    document.getElementById('open-edit-menu-btn').addEventListener('click', () => {
+        editMenuModal.style.display = 'flex';
+    });
+    document.getElementById('edit-menu-close').addEventListener('click', () => {
+        editMenuModal.style.display = 'none';
+    });
+    
+    let pageClipboard = null;
+    document.getElementById('copy-page-btn').addEventListener('click', () => {
+        pageClipboard = JSON.parse(JSON.stringify(fumenPages[currentPageIndex]));
+        alert('現在のページをコピーしました');
+        editMenuModal.style.display = 'none';
+    });
+    
+    document.getElementById('paste-page-btn').addEventListener('click', async () => {
+        editMenuModal.style.display = 'none';
+        // Try clipboard text first for Fumen links
+        try {
+            const text = await navigator.clipboard.readText();
+            if (text && text.includes('v115@')) {
+                const match = text.match(/v115@[\w+/?]*/);
+                if (match) {
+                    const pages = FumenCodec.decode(match[0]);
+                    if (pages && pages.length > 0) {
+                        pushHistory();
+                        pages.forEach(p => {
+                            const newPage = createBlankPage();
+                            newPage.p1 = { ...newPage.p1, board: p.board, hold: p.hold, next: p.next };
+                            fumenPages.splice(currentPageIndex + 1, 0, newPage);
+                            currentPageIndex++;
+                        });
+                        loadPage(currentPageIndex);
+                        alert('テト譜リンクからページを挿入しました');
+                        return;
+                    }
+                }
+            }
+        } catch(e) {}
+
+        if (pageClipboard) {
+            pushHistory();
+            const newPage = JSON.parse(JSON.stringify(pageClipboard));
+            fumenPages.splice(currentPageIndex + 1, 0, newPage);
+            loadPage(currentPageIndex + 1);
+            alert('コピーしたページを挿入しました');
+        } else {
+            alert('クリップボードにページがなく、有効なテト譜リンクも検出されませんでした');
+        }
+    });
+
+    document.getElementById('swap-p1p2-curr-btn').addEventListener('click', () => {
+        pushHistory();
+        const p = fumenPages[currentPageIndex];
+        [p.p1, p.p2] = [p.p2, p.p1];
+        loadPage(currentPageIndex);
+        editMenuModal.style.display = 'none';
+    });
+    
+    document.getElementById('swap-p1p2-all-btn').addEventListener('click', () => {
+        pushHistory();
+        fumenPages.forEach(p => {
+             [p.p1, p.p2] = [p.p2, p.p1];
+        });
+        loadPage(currentPageIndex);
+        editMenuModal.style.display = 'none';
+    });
+    
+    // Loaders
+    document.getElementById('load-img-btn').addEventListener('click', () => document.getElementById('hidden-img-loader').click());
+    document.getElementById('load-ppt-btn').addEventListener('click', () => document.getElementById('hidden-ppt-loader').click());
+    
+    document.getElementById('hidden-img-loader').addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+             processLoadedImage(e.target.files[0]); // Using simple logic wrapper
+             editMenuModal.style.display = 'none';
+        }
+        e.target.value = '';
+    });
+    document.getElementById('hidden-ppt-loader').addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+             processPptImage(e.target.files[0]);
+             editMenuModal.style.display = 'none';
+        }
+        e.target.value = '';
+    });
+
 
     document.getElementById('view-mode-btn').addEventListener('click', () => {
         currentDisplayMode = 'viewer';
