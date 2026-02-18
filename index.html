@@ -7587,7 +7587,20 @@ function updateScale() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Hubからのメッセージ受信リスナー
+    window.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'loadState') {
+            // エディタからのStateデータ(JSON)受信
+            const stateData = e.data.data;
+            autoStartParams.ss = false; // 自動スタートなどは制御可能
+            if (applyGameState(stateData)) {
+                console.log("Applied game state from Hub");
+            }
+        }
+    });
+
     const modeTitle = document.querySelector('.mode-selection h2');
+
     let debugClickCount = 0;
     let debugClickTimer = null;
 
@@ -8680,9 +8693,18 @@ const parentPath = path.substring(0, path.lastIndexOf('/') + 1);
 fumenEditorURL = parentPath + 'F/index.html';
 } catch (e) { /* fallback */ }
 
-                window.open(`${fumenEditorURL}#${base64Data}`, '_blank');
-} catch (e) {
+                if (window.parent !== window) {
+                    window.parent.postMessage({
+                        target: 'editor',
+                        type: 'loadFumen',
+                        data: fumenData // JSONオブジェクトをそのまま送信
+                    }, '*');
+                } else {
+                    window.open(`${fumenEditorURL}#${base64Data}`, '_blank');
+                }
+            } catch (e) {
                 console.error('譜面データの生成に失敗しました:', e);
+
 if (confirm('リンクの生成に失敗しました。データが長すぎる可能性があります。\n譜面データ（Base64）をクリップボードにコピーしますか？')) {
                 navigator.clipboard.writeText(base64Data)
                     .then(() => {
