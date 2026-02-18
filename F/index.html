@@ -90,12 +90,55 @@
     }
 
     .undo-redo-btn {
-        font-size: 20px !important;
-        padding: 4px 12px !important;
-        line-height: 1 !important;
+        padding: 6px 12px !important;
+        line-height: 0 !important;
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+    }
+    .undo-redo-btn svg {
+        width: 20px;
+        height: 20px;
+        fill: currentColor;
+    }
+
+    #scanner-container {
+        display: none;
+        position: fixed;
+        top: 0; left: 0; width: 100vw; height: 100vh;
+        background-color: var(--bg-color);
+        z-index: 500;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+    #scanner-canvas {
+        max-width: 90vw;
+        max-height: 80vh;
+        border: 2px solid var(--primary-color);
+        cursor: crosshair;
+    }
+    #scan-controls {
+        position: absolute;
+        bottom: 20px;
+        display: flex;
+        gap: 15px;
+        z-index: 510;
+    }
+    #scan-instructions {
+        position: absolute;
+        top: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 10px;
+        font-size: 18px;
+        z-index: 510;
+        pointer-events: none;
     }
 
     .edit-section {
+
 
         background-color: rgba(255,255,255,0.05);
         padding: 15px;
@@ -459,8 +502,12 @@ flex-wrap: wrap;
                 <button id="new-page" style="margin-left: 15px;">New Page</button>
                 <button id="delete-page">Delete</button>
 
-                <button id="undo-btn" class="button undo-redo-btn" style="margin-left: 15px;" title="Undo">↩</button>
-                <button id="redo-btn" class="button undo-redo-btn" title="Redo">↪</button>
+                <button id="undo-btn" class="button undo-redo-btn" style="margin-left: 15px;" title="Undo">
+                    <svg viewBox="0 0 24 24"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.17 8 12.5 8z"/></svg>
+                </button>
+                <button id="redo-btn" class="button undo-redo-btn" title="Redo">
+                    <svg viewBox="0 0 24 24"><path d="M18.4 10.6C16.55 9 14.15 8 11.5 8c-4.67 0-8.58 3.03-9.96 7.22l2.37.78c1.05-3.19 4.05-5.5 7.59-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/></svg>
+                </button>
                 
                 <button id="open-edit-menu-btn" style="margin-left: 15px;">編集</button>
             </div>
@@ -655,6 +702,15 @@ margin-top: 15px;">
 
 <input type="file" id="hidden-img-loader" accept="image/*" style="display: none;">
 <input type="file" id="hidden-ppt-loader" accept="image/*" style="display: none;">
+
+<div id="scanner-container">
+    <div id="scan-instructions">左下をクリックしてください</div>
+    <canvas id="scanner-canvas"></canvas>
+    <div id="scan-controls">
+        <button id="scan-confirm-btn" class="button" style="visibility: hidden;">次へ</button>
+        <button id="scan-cancel-btn" class="button">キャンセル</button>
+    </div>
+</div>
 
 <script>
 (function() {
@@ -880,7 +936,6 @@ function setupPlayerEditor(playerId) {
 
     const handleDrawStart = e => {
         e.preventDefault();
-        pushHistory(); // Start drawing action
         isDrawing = true;
 
 
@@ -905,7 +960,10 @@ function setupPlayerEditor(playerId) {
     };
     
     const handleDrawEnd = () => {
-        isDrawing = false;
+        if (isDrawing) {
+            isDrawing = false;
+            pushHistory(); // Save state AFTER drawing
+        }
     };
 
     canvas.addEventListener('mousedown', handleDrawStart);
@@ -917,17 +975,15 @@ function setupPlayerEditor(playerId) {
     canvas.addEventListener('touchcancel', handleDrawEnd, { passive: false });
     canvas.addEventListener('touchmove', handleDrawMove, { passive: false });
 
-    document.getElementById(`${playerId}-field-shift-up`).addEventListener('click', () => { pushHistory(); shiftField(playerId, 'up'); });
-    document.getElementById(`${playerId}-field-shift-down`).addEventListener('click', () => { pushHistory(); shiftField(playerId, 'down'); });
-    document.getElementById(`${playerId}-field-shift-left`).addEventListener('click', () => { pushHistory(); shiftField(playerId, 'left'); });
-    document.getElementById(`${playerId}-field-shift-right`).addEventListener('click', () => { pushHistory(); shiftField(playerId, 'right'); });
+    document.getElementById(`${playerId}-field-shift-up`).addEventListener('click', () => { shiftField(playerId, 'up'); pushHistory(); });
+    document.getElementById(`${playerId}-field-shift-down`).addEventListener('click', () => { shiftField(playerId, 'down'); pushHistory(); });
+    document.getElementById(`${playerId}-field-shift-left`).addEventListener('click', () => { shiftField(playerId, 'left'); pushHistory(); });
+    document.getElementById(`${playerId}-field-shift-right`).addEventListener('click', () => { shiftField(playerId, 'right'); pushHistory(); });
     document.getElementById(`${playerId}-field-clear`).addEventListener('click', () => {
-        pushHistory();
         fumenPages[currentPageIndex][playerId].board.forEach(row => row.fill(null));
         drawEditorField(playerId);
+        pushHistory();
     });
-
-
 // --- ここからNext/HoldエディタUIの構築 (シミュレータから移植・調整) ---
     const nextIcons = document.getElementById(`${playerId}-next-icons`);
     nextIcons.innerHTML = '';
@@ -939,15 +995,14 @@ function setupPlayerEditor(playerId) {
         icon.style.backgroundColor = EDITOR_COLORS[key];
         // テキスト削除
         
-        icon.addEventListener('click', () => {
-            pushHistory();
+                icon.addEventListener('click', () => {
             const data = fumenPages[currentPageIndex][playerId];
 
             let nextArr = data.next ? data.next.split('') : [];
             
             if (data.nextInsertionIndex === 'hold') {
                 data.hold = key;
-                data.nextInsertionIndex = 0; // ホールド設定後はNext先頭へ
+                data.nextInsertionIndex = 0; 
             } else {
                 if (data.nextInsertionIndex === -1 || data.nextInsertionIndex >= nextArr.length) {
                     nextArr.push(key);
@@ -959,42 +1014,39 @@ function setupPlayerEditor(playerId) {
                 data.next = nextArr.join('');
             }
             updateNextQueueDisplay(playerId);
+            pushHistory(); // Moved to end
         });
+
         nextIcons.appendChild(icon);
     });
 
-    // ENDアイコン (空文字挿入用だが、Next配列では単に無視されるか区切りとして使う想定。今回は削除機能があるので不要かもしれないが、一応「空」として追加)
-    // シミュレータに合わせてDelete/Clearボタンの実装
     document.getElementById(`${playerId}-next-delete-left`).addEventListener('click', () => {
-        pushHistory();
         const data = fumenPages[currentPageIndex][playerId];
         let nextArr = data.next ? data.next.split('') : [];
         const index = data.nextInsertionIndex;
 
-
         if (index === 'hold') {
             data.hold = '';
         } else if (index === -1) {
-            // 末尾削除
             nextArr.pop();
             data.nextInsertionIndex = nextArr.length;
         } else if (index > 0) {
-            // カーソル位置の左を削除
             nextArr.splice(index - 1, 1);
             data.nextInsertionIndex--;
         }
         data.next = nextArr.join('');
         updateNextQueueDisplay(playerId);
+        pushHistory(); // Moved to end
     });
-
     document.getElementById(`${playerId}-next-clear`).addEventListener('click', () => {
-        pushHistory();
         const data = fumenPages[currentPageIndex][playerId];
         data.next = '';
         data.hold = '';
         data.nextInsertionIndex = 0;
         updateNextQueueDisplay(playerId);
+        pushHistory(); // Moved to end
     });
+
 }
 
 // 新規追加: Next/Hold表示の更新関数
@@ -1553,28 +1605,46 @@ function updateUndoRedoButtons() {
     document.getElementById('redo-btn').disabled = (historyIndex >= historyStack.length - 1);
 }
 
-// --- ONNX & Image Recognition Logic (Ported from Simulator) ---
+// --- ONNX & Image Recognition Logic ---
 let onnxSession = null;
 const ONNX_CLASS_NAMES = ['null', 'G', 'S', 'Z', 'L', 'J', 'O', 'I', 'T'];
-const PARSED_SCAN_COLORS = {
-    'NULL': [{r:0,g:0,b:0}, {r:48,g:40,b:56}],
-    'G':    [{r:153,g:153,b:153}, {r:216,g:216,b:216}],
-    'I':    [{r:1,g:152,b:153}, {r:1,g:153,b:213}],
-    'O':    [{r:153,g:154,b:2}, {r:249,g:185,b:0}],
-    'T':    [{r:152,g:0,b:153}, {r:135,g:30,b:136}],
-    'L':    [{r:153,g:103,b:0}, {r:245,g:97,b:0}],
-    'J':    [{r:0,g:0,b:187}, {r:0,g:75,b:165}],
-    'S':    [{r:16,g:151,b:31}, {r:92,g:181,b:35}],
-    'Z':    [{r:153,g:0,b:0}, {r:218,g:24,b:34}]
+// シミュレータと同じパレット定義
+const SCAN_COLOR_PALETTE = {
+    'NULL': ['#000000', '#302838'],
+    'G':    ['#999999', '#D8D8D8'],
+    'I':    ['#019899', '#0199D5'],
+    'O':    ['#999A02', '#F9B900'],
+    'T':    ['#980099', '#871E88'],
+    'L':    ['#996700', '#F56100'],
+    'J':    ['#0000BB', '#004BA5'],
+    'S':    ['#10971F', '#5CB523'],
+    'Z':    ['#990000', '#DA1822']
 };
+const hexToRgb = (hex) => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return { r, g, b };
+};
+const PARSED_SCAN_COLORS = {};
+for (const key in SCAN_COLOR_PALETTE) {
+    PARSED_SCAN_COLORS[key] = SCAN_COLOR_PALETTE[key].map(hexToRgb);
+}
+
+// Scanner State for manual selection
+let scanState = { image: null, bottomLeft: null, topRight: null, targetPlayerId: 'p1' };
+let isScanning = false;
 
 async function initOnnxModel() {
     try {
-        onnxSession = await ort.InferenceSession.create('../Load%20PPT/tetris.onnx', { executionProviders: ['wasm'] });
+        // Simulatorのパス構成に合わせる (../LoadPPT/tetris.onnx)
+        onnxSession = await ort.InferenceSession.create('../LoadPPT/tetris.onnx', { executionProviders: ['wasm'] });
+        console.log("ONNX Model loaded.");
     } catch (e) {
         console.error("Failed to load ONNX model:", e);
     }
 }
+
 
 async function processPptImage(file) {
     if (!onnxSession) await initOnnxModel();
@@ -1638,9 +1708,11 @@ async function analyzePlayerHighPrecision(canvas, originalBitmap, cropData, conf
     const ctx = canvas.getContext('2d');
     const boardRect = config.boardRect;
     const boardImgData = ctx.getImageData(boardRect.x, boardRect.y, boardRect.w, boardRect.h);
-    const cellW = boardRect.w / 10, cellH = boardRect.h / 20;
-    const recognizedBoard = [];
-    
+    const cellW = boardRect.w / 10;
+    const cellH = boardRect.h / 20;
+    const recognizedBoard = []; 
+
+    // (A) Classic Scan (Correction)
     const classicBoard = [];
     for (let r = 0; r < 20; r++) {
         const row = [];
@@ -1648,20 +1720,26 @@ async function analyzePlayerHighPrecision(canvas, originalBitmap, cropData, conf
             const sampleX = boardRect.x + (c + 0.5) * cellW;
             const sampleY = boardRect.y + (r + 0.5) * cellH;
             const sampleSize = Math.max(1, Math.floor(cellW * 0.25));
-            const imgD = ctx.getImageData(sampleX - sampleSize/2, sampleY - sampleSize/2, sampleSize, sampleSize).data;
-            let avgR=0, avgG=0, avgB=0;
-            for(let i=0; i<imgD.length; i+=4){ avgR+=imgD[i]; avgG+=imgD[i+1]; avgB+=imgD[i+2]; }
-            const cnt = imgD.length/4;
-            row.push(findClosestColor(avgR/cnt, avgG/cnt, avgB/cnt));
+            const imageData = ctx.getImageData(sampleX - sampleSize / 2, sampleY - sampleSize / 2, sampleSize, sampleSize).data;
+            let avgR = 0, avgG = 0, avgB = 0;
+            for (let i = 0; i < imageData.length; i += 4) {
+                avgR += imageData[i];
+                avgG += imageData[i+1]; avgB += imageData[i+2];
+            }
+            const pixelCount = imageData.length / 4;
+            avgR /= pixelCount; avgG /= pixelCount; avgB /= pixelCount;
+            row.push(findClosestColor(avgR, avgG, avgB));
         }
         classicBoard.push(row);
     }
 
+    // (B) ONNX Inference
     const batchFeatures = [];
     for (let r = 0; r < 20; r++) {
         const row = [];
         for (let c = 0; c < 10; c++) {
-            const x = c * cellW, y = r * cellH;
+            const x = c * cellW;
+            const y = r * cellH;
             const cellPixels = extractCellPixels(boardImgData, x, y, cellW, cellH);
             const feats = extractFeaturesJS(cellPixels, Math.floor(cellW), Math.floor(cellH));
             batchFeatures.push(feats);
@@ -1669,11 +1747,21 @@ async function analyzePlayerHighPrecision(canvas, originalBitmap, cropData, conf
         }
         recognizedBoard.push(row);
     }
+
     const flatInput = new Float32Array(batchFeatures.length * 63);
-    for (let i = 0; i < batchFeatures.length; i++) flatInput.set(batchFeatures[i], i * 63);
+    for (let i = 0; i < batchFeatures.length; i++) {
+        flatInput.set(batchFeatures[i], i * 63);
+    }
+    
     const tensor = new ort.Tensor('float32', flatInput, [200, 63]);
-    const results = await onnxSession.run({ [onnxSession.inputNames[0]]: tensor }, [onnxSession.outputNames[0]]);
-    const labelData = results[onnxSession.outputNames[0]].data;
+    const inputName = onnxSession.inputNames[0];
+    const feeds = { [inputName]: tensor };
+    const labelOutputName = onnxSession.outputNames[0]; 
+    const fetches = [labelOutputName];
+    const results = await onnxSession.run(feeds, fetches);
+    const outputLabel = results[labelOutputName];
+    const labelData = outputLabel.data;
+
     for (let i = 0; i < 200; i++) {
         const label = ONNX_CLASS_NAMES[Number(labelData[i])];
         recognizedBoard[Math.floor(i / 10)][i % 10] = (label === 'null') ? null : label;
@@ -1731,46 +1819,120 @@ function extractCellPixels(imgD, x, y, w, h) {
     }
     return d;
 }
-function extractFeaturesJS(p, w, h) {
-    const n = w * h, bC = new Float32Array(n), gC = new Float32Array(n), rC = new Float32Array(n);
-    const hC = new Float32Array(n), sC = new Float32Array(n), vC = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-        const r = p[i*4], g = p[i*4+1], b = p[i*4+2];
-        bC[i]=b; gC[i]=g; rC[i]=r;
-        const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max - min;
-        vC[i] = max; sC[i] = max? (d/max)*255 : 0;
-        let hVal = 0;
-        if(max!==min){ if(max===r) hVal=(g-b)/d+(g<b?6:0); else if(max===g) hVal=(b-r)/d+2; else hVal=(r-g)/d+4; hVal*=60; }
-        hC[i] = hVal/2;
+function extractFeaturesJS(pixelsRGBA, w, h) {
+    const numPixels = w * h;
+    const feats = [];
+    const bCh = new Float32Array(numPixels);
+    const gCh = new Float32Array(numPixels);
+    const rCh = new Float32Array(numPixels);
+    const hCh = new Float32Array(numPixels);
+    const sCh = new Float32Array(numPixels);
+    const vCh = new Float32Array(numPixels);
+    for (let i = 0; i < numPixels; i++) {
+        const r = pixelsRGBA[i * 4];
+        const g = pixelsRGBA[i * 4 + 1];
+        const b = pixelsRGBA[i * 4 + 2];
+        bCh[i] = b;
+        gCh[i] = g; rCh[i] = r;
+        
+        const maxVal = Math.max(r, g, b);
+        const minVal = Math.min(r, g, b);
+        const diff = maxVal - minVal;
+        const v = maxVal;
+        let s = (maxVal !== 0) ?
+        (diff / maxVal) * 255 : 0;
+        let h_val = 0;
+        if (maxVal === minVal) h_val = 0;
+        else if (maxVal === r) h_val = (60 * (g - b) / diff + 360) % 360;
+        else if (maxVal === g) h_val = (60 * (b - r) / diff + 120) % 360;
+        else if (maxVal === b) h_val = (60 * (r - g) / diff + 240) % 360;
+        h_val = h_val / 2;
+        vCh[i] = v; sCh[i] = s; hCh[i] = h_val;
     }
-    const gs = (a) => { let s=0; for(let v of a)s+=v; const m=s/a.length; let ss=0; for(let v of a)ss+=(v-m)**2; return [m, Math.sqrt(ss/a.length)]; };
-    const f = [...gs(bC), ...gs(gC), ...gs(rC), ...gs(hC), ...gs(sC), ...gs(vC)];
-    const stepX = w/4, stepY = h/4;
-    for(let ty=0;ty<4;ty++) for(let tx=0;tx<4;tx++) {
-        const sx=Math.floor(tx*stepX), sy=Math.floor(ty*stepY), ex=Math.floor((tx+1)*stepX), ey=Math.floor((ty+1)*stepY);
-        let sb=0, sg=0, sr=0, c=0;
-        for(let py=sy;py<ey;py++) for(let px=sx;px<ex;px++) { const idx=py*w+px; sb+=bC[idx]; sg+=gC[idx]; sr+=rC[idx]; c++; }
-        if(c) f.push(sb/c, sg/c, sr/c); else f.push(0,0,0);
-    }
-    let cb=0, cg=0, cr=0, cc=0;
-    const cx=Math.floor(w/2), cy=Math.floor(h/2), cw=Math.floor(w/4), ch=Math.floor(h/4);
-    for(let py=cy-ch;py<cy+ch;py++) for(let px=cx-cw;px<cx+cw;px++) { if(px>=0&&px<w&&py>=0&&py<h) { const i=py*w+px; cb+=bC[i]; cg+=gC[i]; cr+=rC[i]; cc++; } }
-    f.push(cc?cb/cc:0, cc?cg/cc:0, cc?cr/cc:0);
-    return new Float32Array(f);
-}
-function findClosestColor(r,g,b) {
-    const dist = (c1, c2) => (c1.r-c2.r)**2 + (c1.g-c2.g)**2 + (c1.b-c2.b)**2;
-    if(dist({r,g,b}, PARSED_SCAN_COLORS.NULL[0]) < 6000) return null;
-    let minD = Infinity, k = null;
-    for(const key of Object.keys(PARSED_SCAN_COLORS)) {
-        if(key==='NULL'||key==='G') continue;
-        for(const tc of PARSED_SCAN_COLORS[key]) {
-            const d = dist({r,g,b}, tc);
-            if(d < minD) { minD = d; k = key; }
+
+    const getStats = (arr) => {
+        let sum = 0;
+        for(let v of arr) sum += v;
+        const mean = sum / arr.length;
+        let sqDiffSum = 0;
+        for(let v of arr) sqDiffSum += (v - mean) ** 2;
+        const std = Math.sqrt(sqDiffSum / arr.length);
+        return [mean, std];
+    };
+
+    const statsB = getStats(bCh); const statsG = getStats(gCh); const statsR = getStats(rCh);
+    feats.push(statsB[0], statsB[1], statsG[0], statsG[1], statsR[0], statsR[1]);
+    const statsH = getStats(hCh); const statsS = getStats(sCh); const statsV = getStats(vCh);
+    feats.push(statsH[0], statsH[1], statsS[0], statsS[1], statsV[0], statsV[1]);
+    const tinyFeats = [];
+    const stepX = w / 4;
+    const stepY = h / 4;
+    for (let ty = 0; ty < 4; ty++) {
+        for (let tx = 0; tx < 4; tx++) {
+            const sx = Math.floor(tx * stepX), sy = Math.floor(ty * stepY);
+            const ex = Math.floor((tx + 1) * stepX), ey = Math.floor((ty + 1) * stepY);
+            let sumB=0, sumG=0, sumR=0, count=0;
+            for(let py=sy; py<ey; py++){
+                for(let px=sx; px<ex; px++){
+                    const idx = py * w + px;
+                    if(idx < numPixels) { sumB += bCh[idx]; sumG += gCh[idx]; sumR += rCh[idx]; count++;
+                    }
+                }
+            }
+            if(count===0) { tinyFeats.push(0,0,0);
+            } else { tinyFeats.push(sumB/count, sumG/count, sumR/count); }
         }
     }
-    return minD > 25000 ? null : k;
+    feats.push(...tinyFeats);
+    const cx = Math.floor(w/2), cy = Math.floor(h/2);
+    const cw = Math.floor(w/4), ch = Math.floor(h/4);
+    const startX = cx - cw, endX = cx + cw;
+    const startY = cy - ch, endY = cy + ch;
+    let cSumB=0, cSumG=0, cSumR=0, cCount=0;
+    for(let py=startY; py<endY; py++){
+        for(let px=startX; px<endX; px++){
+            if(px>=0 && px<w && py>=0 && py<h){
+                const idx = py * w + px;
+                cSumB += bCh[idx]; cSumG += gCh[idx]; cSumR += rCh[idx]; cCount++;
+            }
+        }
+    }
+    if(cCount===0) feats.push(0,0,0);
+    else feats.push(cSumB/cCount, cSumG/cCount, cSumR/cCount);
+
+    return new Float32Array(feats);
 }
+
+function findClosestColor(r, g, b) {
+    const inputColor = { r, g, b };
+    const colorDistanceSq = (c1, c2) => {
+        return Math.pow(c1.r - c2.r, 2) + Math.pow(c1.g - c2.g, 2) + Math.pow(c1.b - c2.b, 2);
+    };
+    for (const nullColor of PARSED_SCAN_COLORS.NULL) {
+        if (colorDistanceSq(inputColor, nullColor) < 6000) {
+            return null;
+        }
+    }
+    for (const gColor of PARSED_SCAN_COLORS.G) {
+        if (colorDistanceSq(inputColor, gColor) < 10000) {
+            return 'G';
+        }
+    }
+    let minDistance = Infinity;
+    let closestKey = null;
+    const minoKeys = Object.keys(PARSED_SCAN_COLORS).filter(k => k !== 'NULL' && k !== 'G');
+    for (const key of minoKeys) {
+        for (const targetColor of PARSED_SCAN_COLORS[key]) {
+            const distance = colorDistanceSq(inputColor, targetColor);
+            if (distance < minDistance) {
+                minDistance = distance;
+                closestKey = key;
+            }
+        }
+    }
+    return (minDistance > 25000) ? null : closestKey;
+}
+
 function getAverageColorNonBlack(ctx, cx, cy, rad) {
     const d = Math.ceil(rad*2), sx=Math.floor(cx-rad), sy=Math.floor(cy-rad);
     const id = ctx.getImageData(sx, sy, d, d).data;
@@ -1795,54 +1957,190 @@ function findClosestMinoOnly(r,g,b) {
     return best;
 }
 
-function processLoadedImage(file) {
+// --- Manual Scan Logic (Ported from Simulator) ---
+function startScanProcess(file) {
     const reader = new FileReader();
     reader.onload = e => {
-        const img = new Image();
-        img.onload = () => {
-            pushHistory();
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width; canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
+        scanState.image = new Image();
+        scanState.image.onload = () => {
+            // スキャナーUIを表示
+            document.getElementById('editor-container').style.display = 'none';
+            document.getElementById('scanner-container').style.display = 'flex';
             
-            // Standard Scan Logic (Simpler than ONNX)
-            const sX = img.width / 1920; 
-            // 簡易的にシミュレータのscanロジックを模倣 (scanStateなしで、全画面を盤面として扱う簡易実装)
-            // ここではユーザー利便性を考え、単純に「ロードされた画像全体を盤面として解析」するロジックは複雑すぎるため、
-            // SimにあるscanProcessと同様のフロー（クリックして四隅指定）はエディタではUIが複雑になりすぎる。
-            // 代わりに、ONNX用の1080pクロップ→Classic Scanのロジックを流用してP1盤面に入れる。
+            isScanning = true;
+            scanState.bottomLeft = null;
+            scanState.topRight = null;
+            updateScanUI();
             
-            // Re-use processImageTo1080p for consistency
-            createImageBitmap(file).then(bmp => {
-                 const { canvas: pC, cropData } = processImageTo1080p(bmp);
-                 const p1Config = { boardRect: { x: 304, y: 157, w: 366, h: 725 }, nextCoords: [] }; // Approximate coords for P1
-                 
-                 // Classic scan logic embedded
-                 const ctx = pC.getContext('2d');
-                 const boardRect = p1Config.boardRect;
-                 const cellW = boardRect.w / 10, cellH = boardRect.h / 20;
-                 const targetBoard = fumenPages[currentPageIndex].p1.board;
-                 
-                 for (let r = 0; r < 20; r++) {
-                    for (let c = 0; c < 10; c++) {
-                        const sampleX = boardRect.x + (c + 0.5) * cellW;
-                        const sampleY = boardRect.y + (r + 0.5) * cellH;
-                        const sampleSize = Math.max(1, Math.floor(cellW * 0.25));
-                        const imgD = ctx.getImageData(sampleX - sampleSize/2, sampleY - sampleSize/2, sampleSize, sampleSize).data;
-                        let avgR=0, avgG=0, avgB=0;
-                        for(let i=0; i<imgD.length; i+=4){ avgR+=imgD[i]; avgG+=imgD[i+1]; avgB+=imgD[i+2]; }
-                        const cnt = imgD.length/4;
-                        targetBoard[20+r][c] = findClosestColor(avgR/cnt, avgG/cnt, avgB/cnt);
-                    }
-                 }
-                 drawEditorField('p1');
-            });
+            const canvas = document.getElementById('scanner-canvas');
+            const ar = scanState.image.naturalWidth / scanState.image.naturalHeight;
+            
+            // 画面に合わせて表示サイズ調整
+            const maxWidth = window.innerWidth * 0.9;
+            const maxHeight = window.innerHeight * 0.8;
+            let dW = maxWidth, dH = maxWidth / ar;
+            if (dH > maxHeight) { dH = maxHeight; dW = dH * ar; }
+            
+            // Canvasサイズは実際の画像サイズに合わせる（高解像度維持）か、
+            // Simに合わせて「表示サイズ」と「内部サイズ」を使い分けるが、
+            // Simは width=2048上限で描画している。
+            const canvasWidth = Math.min(2048, scanState.image.naturalWidth);
+            canvas.width = canvasWidth;
+            canvas.height = canvasWidth / ar;
+            
+            canvas.style.width = `${dW}px`;
+            canvas.style.height = `${dH}px`;
+            
+            drawScanner();
         };
-        img.src = e.target.result;
+        scanState.image.src = e.target.result;
     };
     reader.readAsDataURL(file);
 }
+
+function updateScanUI() {
+    const instr = document.getElementById('scan-instructions');
+    const confirmBtn = document.getElementById('scan-confirm-btn');
+    
+    if (!scanState.bottomLeft) {
+        instr.textContent = '盤面の左下をクリックしてください';
+        confirmBtn.style.visibility = 'hidden';
+    } else if (!scanState.topRight) {
+        instr.textContent = '盤面の右上をクリックしてください';
+        confirmBtn.style.visibility = 'hidden';
+    } else {
+        instr.textContent = '範囲が正しければ「読込開始」を押してください';
+        confirmBtn.style.visibility = 'visible';
+        confirmBtn.textContent = '読込開始';
+    }
+}
+
+function drawScanner() {
+    if (!scanState.image) return;
+    const canvas = document.getElementById('scanner-canvas');
+    const ctx = canvas.getContext('2d');
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(scanState.image, 0, 0, canvas.width, canvas.height);
+    
+    if (scanState.bottomLeft) {
+        ctx.fillStyle = 'lime';
+        ctx.beginPath();
+        ctx.arc(scanState.bottomLeft.x, scanState.bottomLeft.y, 10, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    if (scanState.topRight) {
+        const {x: blx, y: bly} = scanState.bottomLeft;
+        const {x: trx, y: try_} = scanState.topRight;
+        
+        ctx.fillStyle = 'fuchsia';
+        ctx.beginPath();
+        ctx.arc(scanState.topRight.x, scanState.topRight.y, 10, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.strokeStyle = 'fuchsia';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(blx, try_, trx - blx, bly - try_);
+    }
+}
+
+function endScanProcess() {
+    isScanning = false;
+    document.getElementById('scanner-container').style.display = 'none';
+    document.getElementById('editor-container').style.display = 'flex';
+    updateScale();
+}
+
+function processAndLoadBoard() {
+    if (!scanState.image || !scanState.bottomLeft || !scanState.topRight) return;
+    
+    const canvas = document.getElementById('scanner-canvas');
+    
+    // 元画像からピクセルデータを取得するためのCanvas
+    const tempC = document.createElement('canvas');
+    tempC.width = scanState.image.naturalWidth;
+    tempC.height = scanState.image.naturalHeight;
+    const tempCtx = tempC.getContext('2d', { willReadFrequently: true });
+    tempCtx.drawImage(scanState.image, 0, 0);
+    
+    // 表示用Canvasと元画像のスケール比
+    const sX = scanState.image.naturalWidth / canvas.width;
+    const sY = scanState.image.naturalHeight / canvas.height;
+    
+    const iBL = { x: scanState.bottomLeft.x * sX, y: scanState.bottomLeft.y * sY };
+    const iTR = { x: scanState.topRight.x * sX, y: scanState.topRight.y * sY };
+    
+    const bW_px = iTR.x - iBL.x;
+    const bH_px = iBL.y - iTR.y; // Yは上が0なので BL.y > TR.y
+    const blW_px = bW_px / 10; // BOARD_WIDTH
+    const blH_px = bH_px / 20; // BOARD_VISIBLE_HEIGHT
+    
+    // ターゲットのプレイヤー（現在のページ・現在のモードに応じてよしなにやるか、P1固定）
+    // Load IMGは基本P1に入れる仕様とする
+    const targetBoard = fumenPages[currentPageIndex].p1.board;
+    
+    // 盤面クリア
+    targetBoard.forEach(row => row.fill(null));
+    
+    for (let r = 0; r < 20; r++) {
+        for (let c = 0; c < 10; c++) {
+            // サンプリング座標
+            const cX = iBL.x + (c + 0.5) * blW_px;
+            const cY = iTR.y + (r + 0.5) * blH_px;
+            
+            const sampleSize = Math.max(1, Math.floor(blW_px * 0.25));
+            const iD = tempCtx.getImageData(cX - sampleSize/2, cY - sampleSize/2, sampleSize, sampleSize).data;
+            
+            let avgR=0, avgG=0, avgB=0;
+            for(let i=0; i<iD.length; i+=4){ avgR+=iD[i]; avgG+=iD[i+1]; avgB+=iD[i+2]; }
+            const pCount = iD.length / 4;
+            avgR /= pCount; avgG /= pCount; avgB /= pCount;
+            
+            // 下から埋めていく (r=0 is top visual row)
+            // targetBoardは [0..39]。表示領域は [20..39]
+            targetBoard[20 + r][c] = findClosestColor(avgR, avgG, avgB);
+        }
+    }
+    
+    drawEditorField('p1');
+    pushHistory(); // 変更後に保存
+    endScanProcess();
+}
+
+// Event Listeners for Scanner
+document.getElementById('scanner-canvas').addEventListener('click', e => {
+    if (!isScanning) return;
+    const canvas = document.getElementById('scanner-canvas');
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    const pos = { 
+        x: (e.clientX - rect.left) * scaleX, 
+        y: (e.clientY - rect.top) * scaleY 
+    };
+    
+    if (!scanState.bottomLeft) {
+        scanState.bottomLeft = pos;
+    } else {
+        scanState.topRight = pos;
+    }
+    updateScanUI();
+    drawScanner();
+});
+
+document.getElementById('scan-cancel-btn').addEventListener('click', endScanProcess);
+document.getElementById('scan-confirm-btn').addEventListener('click', processAndLoadBoard);
+
+// Update Load IMG Button
+document.getElementById('hidden-img-loader').addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) {
+         startScanProcess(e.target.files[0]);
+         document.getElementById('edit-menu-modal').style.display = 'none';
+    }
+    e.target.value = '';
+});
+
 
 // --- 共有 (Share) / URL処理ロジック ---
 
