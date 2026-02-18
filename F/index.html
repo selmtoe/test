@@ -2788,10 +2788,20 @@ document.addEventListener('DOMContentLoaded', () => {
             const fumenData = e.data.data;
             if (applyFumenData(fumenData)) {
                 // 成功時の処理（必要ならアラートなど）
-                console.log("Applied fumen data from Hub");
+  
+               console.log("Applied fumen data from Hub");
             }
+        } else if (e.data && e.data.type === 'requestState') {
+            const fumenData = getFumenDataForExport();
+            window.parent.postMessage({
+                target: 'hub',
+                type: 'saveSnapshotResponse',
+                source: 'editor',
+                data: fumenData
+            }, '*');
         }
     });
+
 
     // 隠し機能: cleanモード (URLパラメータに clean があればUIを隠す)
 
