@@ -2780,18 +2780,15 @@ if (data.v === 'f1' || data.v === 'f2') {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    // Hubからのメッセージ受信リスナー
-    window.addEventListener('message', (e) => {
-        if (e.data && e.data.type === 'loadFumen') {
-            // シミュレータからのFumenデータ(JSON)受信
-            const fumenData = e.data.data;
-            if (applyFumenData(fumenData)) {
-                // 成功時の処理（必要ならアラートなど）
-  
-               console.log("Applied fumen data from Hub");
-            }
-        } else if (e.data && e.data.type === 'requestState') {
+// Hubからのメッセージ受信リスナー (DOMContentLoadedの外に出す)
+window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'loadFumen') {
+        const fumenData = e.data.data;
+        if (typeof applyFumenData === 'function' && applyFumenData(fumenData)) {
+           console.log("Applied fumen data from Hub");
+        }
+    } else if (e.data && e.data.type === 'requestState') {
+        try {
             const fumenData = getFumenDataForExport();
             window.parent.postMessage({
                 target: 'hub',
@@ -2799,11 +2796,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 source: 'editor',
                 data: fumenData
             }, '*');
+        } catch (err) {
+            console.error("Export Error:", err);
         }
-    });
+    }
+});
 
-
+document.addEventListener('DOMContentLoaded', () => {
     // 隠し機能: cleanモード (URLパラメータに clean があればUIを隠す)
+
 
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('clean')) {
