@@ -7340,11 +7340,15 @@ function getDifference(prevBoard1D, currentBoard1D) {
 }
 
 let autoStartParams = { ss: false, nh: false, hb: false };
-
 function getGameStateForExport(options = {}) {
+    // データが未初期化の場合はダミーを返す
+    if (!editorData.p1.board) editorData.p1.board = Array.from({ length: 40 }, () => Array(10).fill(null));
+    if (gameMode === '2P' && !editorData.p2.board) editorData.p2.board = Array.from({ length: 40 }, () => Array(10).fill(null));
+
     const p1Data = { ...editorData.p1, nextQueue: [...editorData.p1.nextQueue] };
-    const p2Data = gameMode === '2P' ? { ...editorData.p2, nextQueue: [...editorData.p2.nextQueue] } : null;
-    if (options.noHold) {
+const p2Data = gameMode === '2P' ? { ...editorData.p2, nextQueue: [...editorData.p2.nextQueue] } : null;
+if (options.noHold) {
+
         if (p1Data.hold) { p1Data.nextQueue.unshift(p1Data.hold); p1Data.hold = null; }
         if (p2Data && p2Data.hold) { p2Data.nextQueue.unshift(p2Data.hold); p2Data.hold = null; }
     }
@@ -7586,18 +7590,16 @@ function updateScale() {
     mainContainer.style.transform = `scale(${scale})`;
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    // Hubからのメッセージ受信リスナー
-    window.addEventListener('message', (e) => {
-        if (e.data && e.data.type === 'loadState') {
-            // エディタからのStateデータ(JSON)受信
-            const stateData = e.data.data;
-            autoStartParams.ss = false; // 自動スタートなどは制御可能
-            if (applyGameState(stateData)) {
-          
-                 console.log("Applied game state from Hub");
-            }
-        } else if (e.data && e.data.type === 'requestState') {
+// Hubからのメッセージ受信リスナー (DOMContentLoadedの外に出す)
+window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'loadState') {
+        const stateData = e.data.data;
+        autoStartParams.ss = false;
+        if (typeof applyGameState === 'function' && applyGameState(stateData)) {
+             console.log("Applied game state from Hub");
+        }
+    } else if (e.data && e.data.type === 'requestState') {
+        try {
             const stateData = getGameStateForExport();
             window.parent.postMessage({
                 target: 'hub',
@@ -7605,9 +7607,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 source: 'sim',
                 data: stateData
             }, '*');
+        } catch (err) {
+            console.error("Export Error:", err);
         }
-    });
+    }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
     const modeTitle = document.querySelector('.mode-selection h2');
+
 
     let debugClickCount = 0;
     let debugClickTimer = null;
