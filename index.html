@@ -3999,6 +3999,7 @@ let gameSettings = {
     arr: 30,
     sdf: 20,
     lineClearDelay: 0,
+    spawnDelay: 0,
     gravity: 9999999,
     lockDelay: 9999999,
     garbageGrace: 1000,
@@ -4268,9 +4269,12 @@ this.nextQueue = [];
 this.holdPiece = this.initialHold;this.canHold = true;
 this.gravityTimer = gameSettings.gravity; this.lockTimer = 0;
 
-        this.dasTimer = 0; this.arrTimer = 0; this.sdfTimer = 0; this.dasDirection = 0;
+        this.dasTimer = 0; this.arrTimer = 0; this.sdfTimer = 0;
+        this.dasDirection = 0;
         this.isGrounded = false; this.gameOver = false; this.isClearingLine = false; this.lineClearDelayTimer = 0;
+        this.isSpawning = false; this.spawnDelayTimer = 0;
         this.gameClear = false;
+
 
         this.stats = {
             tSpinSingle: 0, tSpinDouble: 0, tSpinTriple: 0,
@@ -4336,11 +4340,14 @@ this.gravityTimer = gameSettings.gravity; this.lockTimer = 0;
         return false;
     }
     handlePress(action) {
-        if (action === 'retry') { document.getElementById('retryBtn').click(); return; }
-        if (action === 'exit') { document.getElementById('backToEditorBtn').click(); return; }
+        if (action === 'retry') { document.getElementById('retryBtn').click(); return;
+        }
+        if (action === 'exit') { document.getElementById('backToEditorBtn').click(); return;
+        }
 
-        if (this.gameOver || this.isClearingLine || this.isExecutingSequence) return;
-switch (action) {
+        if (this.gameOver || this.isClearingLine || this.isSpawning || this.isExecutingSequence) return;
+        switch (action) {
+
             case 'rotateCCW': this.rotate(-1); break;
 case 'rotateCW':  this.rotate(1); break;
 
@@ -4367,43 +4374,48 @@ this.processGarbageQueue();
         const left = this.isActionPressed('left');
         const right = this.isActionPressed('right');
 
-        const horizDir = left ? -1 : (right ? 1 : 0);
+        const horizDir = left ?
+-1 : (right ? 1 : 0);
         if (horizDir !== 0) {
             if (this.dasDirection !== horizDir) { 
                 this.dasTimer = 0;
-                this.arrTimer = 0;
-                if (!this.isClearingLine) this.move(horizDir, 0);
+this.arrTimer = 0;
+                if (!this.isClearingLine && !this.isSpawning) this.move(horizDir, 0);
             } else { 
                 this.dasTimer += dt;
-                if (this.dasTimer >= gameSettings.das) {
+if (this.dasTimer >= gameSettings.das) {
                     if (gameSettings.arr === 0) {
-                        if (!this.isClearingLine) {
+                        if (!this.isClearingLine && !this.isSpawning) {
                             let successfulMoves = 0;
-                            while (!this.checkCollision(this.player.x + horizDir, this.player.y, this.getShape(this.player.pieceType, this.player.rotation))) {
+while (!this.checkCollision(this.player.x + horizDir, this.player.y, this.getShape(this.player.pieceType, this.player.rotation))) {
                                 this.player.x += horizDir;
-                                successfulMoves++;
+successfulMoves++;
                             }
                             if (successfulMoves > 0) {
                                this.lockTimer = 0;
-                               this.lastMoveWasRotation = false;
+this.lastMoveWasRotation = false;
                             }
                         }
                     } else {
                         this.arrTimer += dt;
-                        if (this.arrTimer >= gameSettings.arr) {
-                            if (!this.isClearingLine) this.move(horizDir, 0);
-                            this.arrTimer -= gameSettings.arr;
+if (this.arrTimer >= gameSettings.arr) {
+                            if (!this.isClearingLine && !this.isSpawning) this.move(horizDir, 0);
+this.arrTimer -= gameSettings.arr;
                         }
                     }
                 }
             }
         }
         this.dasDirection = horizDir;
-
-        if (this.isClearingLine) {
-            this.lineClearDelayTimer -= dt;
-if (this.lineClearDelayTimer <= 0) { 
+if (this.isClearingLine || this.isSpawning) {
+            if (this.isClearingLine) {
+                this.lineClearDelayTimer -= dt;
+            } else {
+                this.spawnDelayTimer -= dt;
+            }
+if ((this.isClearingLine && this.lineClearDelayTimer <= 0) || (this.isSpawning && this.spawnDelayTimer <= 0)) { 
                 this.isClearingLine = false;
+                this.isSpawning = false;
 this.riseGarbage(); 
                 if (this.nextQueue[0] === 'E') {
                     if (this.holdPiece) {
@@ -4567,10 +4579,10 @@ if (this.isActionPressed('softDrop')) {
 
         const occupiedCells = new Set();
         let shape, ghostY;
-        if (!this.gameOver && !this.gameClear && !this.isClearingLine && this.player.pieceType) { 
+        if (!this.gameOver && !this.gameClear && !this.isClearingLine && !this.isSpawning && this.player.pieceType) { 
             shape = this.getShape(this.player.pieceType, this.player.rotation);
             ghostY = this.getGhostY(); 
-            
+
             if (ghostY > this.player.y) {
                 // Ghost
                 this.drawPiece(shape, this.player.x, ghostY, this.player.pieceType, 0.4, bSize);
@@ -4865,6 +4877,8 @@ return;
         this.lockTimer = 0;
 if (this.linesClearedLastLock > 0) { this.isClearingLine = true; this.lineClearDelayTimer = gameSettings.lineClearDelay;
 } 
+        else if (gameSettings.spawnDelay > 0) { this.isSpawning = true; this.spawnDelayTimer = gameSettings.spawnDelay;
+}
         else { this.riseGarbage(); this.spawnNewPiece();
 }
     }
@@ -6267,6 +6281,7 @@ function populateGeneralSettingsTab() {
         arr: { label: 'ARR (ms)', min: 0, max: 100, step: 1 },
         sdf: { label: 'SDF (ms)', min: 0, max: 100, step: 1 },
         lineClearDelay: { label: 'ライン消去時間 (ms)', min: 0, max: 2000, step: 50 },
+        spawnDelay: { label: '設置時硬直時間 (ms)', min: 0, max: 2000, step: 50 },
         gravity: { label: '落下間隔時間 (ms)', min: 0, max: 9999999, step: 50 },
         lockDelay: { label: '設置猶予時間 (ms)', min: 0, max: 9999999, step: 50 },
         maxNext: { label: 'ネクスト表示数', min: 1, max: 8, step: 1 },
