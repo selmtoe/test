@@ -1,589 +1,791 @@
-```react
-import React, { useState, useEffect, useRef } from 'react';
-import { BookOpen, Play, Wrench, XCircle, Zap, Info, ChevronRight, AlertTriangle, Flame } from 'lucide-react';
-
-// ==========================================
-// 1. カリキュラム構想データ (100ステージのロードマップ)
-// ==========================================
-const CURRICULUM = [
-  { phase: 1, title: '基礎直流回路と限界突破', desc: 'オームの法則、キルヒホッフの法則、絶対最大定格', stages: 10 },
-  { phase: 2, title: '半導体の覚醒 (LEDとダイオード)', desc: 'PN接合、順方向電圧(Vf)、定電流駆動、整流回路', stages: 10 },
-  { phase: 3, title: 'スイッチと入力信号の真実', desc: 'プルアップ/ダウン、チャタリング防止、状態確定', stages: 10 },
-  { phase: 4, title: 'トランジスタ・スイッチング', desc: 'バイポーラ(NPN/PNP)、ベース電流、hFE、ダーリントン', stages: 10 },
-  { phase: 5, title: 'キャパシタ(コンデンサ)の魔術', desc: '時定数(RC回路)、平滑化、バイパス、カップリング', stages: 10 },
-  { phase: 6, title: 'インダクタと逆起電力の恐怖', desc: 'モーター駆動、還流ダイオード、リレー、電磁誘導', stages: 10 },
-  { phase: 7, title: 'オペアンプ(演算増幅器)基礎', desc: '反転/非反転増幅、ボルテージフォロワ、コンパレータ', stages: 10 },
-  { phase: 8, title: 'タイマーIC 555の実践', desc: '非安定/単安定マルチバイブレータ、発振回路の構築', stages: 10 },
-  { phase: 9, title: 'デジタルロジックと状態記憶', desc: 'AND/OR/NOT、フリップフロップ、カウンタ回路', stages: 10 },
-  { phase: 10, title: 'マイコン・インターフェース', desc: 'PWM制御、ADC入力、I2C/SPI通信の物理層', stages: 10 },
-];
-
-// プレイ可能なステージのデータ
-const STAGES = {
-  1: {
-    title: 'Stage 1: オームの法則と電力の限界',
-    briefing: `
-【座学: 電子工作の死活問題】
-高校物理で学んだ V = IR (電圧 = 電流 × 抵抗)。これは単なる数式ではなく、部品の命を繋ぐ命綱だ。
-さらに重要なのが P = VI = I²R (電力 = 電流² × 抵抗)。
-現実の抵抗器には「定格電力」という限界がある。一般的な炭素皮膜抵抗は「1/4W (0.25W)」。
-これを超える電力を消費させると、抵抗は発熱し、焦げ、最終的に燃え上がる。
-
-【絶対最大定格】
-・抵抗器 (1/4W): 許容損失 P_max = 0.25W
-
-【ミッション】
-9Vの電源に対して回路を組み、**約20mA (0.015A 〜 0.025A)** の電流を流せ。
-ただし、抵抗の消費電力が0.25Wを超えてはならない。計算して適切な抵抗値を選べ。
-（パーツをタップして抵抗値を変更できる）
-    `,
-    targetCurrent: [0.015, 0.025], // 15mA ~ 25mA
-  },
-  2: {
-    title: 'Stage 2: 光の代償 (LEDとVf)',
-    briefing: `
-【座学: LEDは豆電球ではない】
-LED（発光ダイオード）にはオームの法則がそのまま適用できない。
-LEDが光るためには一定の電圧を奪う。これを「順方向電圧降下 (Vf)」と呼ぶ。
-赤色LEDのVfは約2.0Vだ。
-
-5Vの電源にLEDを直結するとどうなるか？
-抵抗値がほぼゼロのため、無限大に近い電流が流れ、LEDは一瞬で破裂する。
-
-【絶対最大定格】
-・赤色LED: 順方向電流 I_max = 20mA (0.02A), Vf = 2.0V
-・抵抗器 (1/4W): 許容損失 P_max = 0.25W
-
-【設計計算式】
-電源電圧(V)からVfを引いた残りの電圧を、直列に繋いだ抵抗(R)で消費させる。
-R = (V - Vf) / 目的の電流(I)
-
-【ミッション】
-5V電源を使用し、赤色LED(Vf=2.0V)に**約15mA (0.015A)** の電流を流して安全に光らせよ。
-LEDには極性がある(アノードからカソードへ流れる)点に注意。
-    `,
-    targetCurrent: [0.012, 0.018],
-  }
-};
-
-// ==========================================
-// 2. 部品定義とシミュレーションロジック
-// ==========================================
-const COMPONENT_DEF = {
-  Battery: {
-    name: '電源',
-    width: 2, height: 1,
-    pins: [{ id: 'pos', x: 0, y: 0.5 }, { id: 'neg', x: 2, y: 0.5 }],
-    render: () => (
-      <g>
-        <rect x="0.2" y="0.2" width="1.6" height="0.6" fill="#334155" stroke="#94a3b8" strokeWidth="0.05" rx="0.1"/>
-        <text x="0.5" y="0.55" fill="#ef4444" fontSize="0.3" textAnchor="middle">+</text>
-        <text x="1.5" y="0.55" fill="#3b82f6" fontSize="0.3" textAnchor="middle">-</text>
-        <text x="1" y="0.55" fill="white" fontSize="0.25" textAnchor="middle">9V/5V</text>
-      </g>
-    )
-  },
-  Resistor: {
-    name: '抵抗器',
-    width: 2, height: 1,
-    pins: [{ id: 'a', x: 0, y: 0.5 }, { id: 'b', x: 2, y: 0.5 }],
-    render: (params) => (
-      <g>
-        <path d="M 0.2 0.5 L 0.5 0.5 L 0.6 0.3 L 0.8 0.7 L 1.0 0.3 L 1.2 0.7 L 1.4 0.3 L 1.5 0.5 L 1.8 0.5" fill="none" stroke="#fbbf24" strokeWidth="0.1" strokeLinejoin="bevel"/>
-        <text x="1" y="0.85" fill="#fbbf24" fontSize="0.25" textAnchor="middle">{params.value}Ω</text>
-      </g>
-    )
-  },
-  LED: {
-    name: 'LED (赤)',
-    width: 2, height: 1,
-    pins: [{ id: 'anode', x: 0, y: 0.5 }, { id: 'cathode', x: 2, y: 0.5 }], // アノード(+) -> カソード(-)
-    render: () => (
-      <g>
-        <path d="M 0.2 0.5 L 0.7 0.5" fill="none" stroke="#ef4444" strokeWidth="0.1"/>
-        <polygon points="0.7,0.3 0.7,0.7 1.3,0.5" fill="#ef4444" />
-        <line x1="1.3" y1="0.2" x2="1.3" y2="0.8" stroke="#ef4444" strokeWidth="0.1"/>
-        <path d="M 1.3 0.5 L 1.8 0.5" fill="none" stroke="#ef4444" strokeWidth="0.1"/>
-        <text x="1" y="0.9" fill="#ef4444" fontSize="0.2" textAnchor="middle">Vf:2.0V</text>
-      </g>
-    )
-  }
-};
-
-// 簡易トポロジー解析（直列回路のみ対応する教育用エンジン）
-const analyzeCircuit = (stageId, comps, wires) => {
-  let log = [];
-  const battery = comps.find(c => c.type === 'Battery');
-  if (!battery) return { success: false, log: ['電源がありません。'] };
-
-  const vcc = stageId === 1 ? 9.0 : 5.0; // Stageによる電圧
-  
-  // 閉回路探索 (BFS/DFS 簡易版: Battery(+) から Wiresを辿って Battery(-)へ戻るか)
-  // 今回の要件を満たすため、直列の一本道ルートのみを解析
-  let currentPinStr = `${battery.id}:pos`;
-  let pathComps = [];
-  let visitedWires = new Set();
-  let loopClosed = false;
-  let shortCircuit = false;
-
-  for (let step = 0; step < 10; step++) { // 無限ループ防止
-    const wire = wires.find(w => 
-      !visitedWires.has(w.id) && 
-      (w.start === currentPinStr || w.end === currentPinStr)
-    );
-
-    if (!wire) break; // 行き止まり
-    visitedWires.add(wire.id);
-
-    const nextPinStr = wire.start === currentPinStr ? w.end : w.start;
-    const [nextCompId, nextPinName] = nextPinStr.split(':');
-
-    if (nextCompId === battery.id && nextPinName === 'neg') {
-      loopClosed = true;
-      break;
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>究極の電子工作シミュレータ</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background-color: #121212; color: #e0e0e0; margin: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; font-family: 'Helvetica Neue', Arial, sans-serif; }
+    .grid-bg {
+      background-color: #1e1e1e;
+      background-image: 
+        linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+      background-size: 20px 20px;
     }
+    .svg-canvas { width: 100%; height: 100%; display: block; }
+    .comp-broken { filter: grayscale(100%) brightness(50%) sepia(100%) hue-rotate(-50deg) saturate(500%); }
+    .scrollable::-webkit-scrollbar { width: 6px; }
+    .scrollable::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
 
-    const nextComp = comps.find(c => c.id === nextCompId);
-    if (!nextComp) break;
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo } = React;
 
-    pathComps.push({ comp: nextComp, entryPin: nextPinName });
+    // ==========================================
+    // 第2部: 全100ステージ・カリキュラムデータ
+    // ==========================================
+    const STAGE_DATA = [
+      // Phase 1: 直流回路理論と受動部品の極意 (Stage 1 - 15)
+      { phase: 1, title: "オームの法則の真実", desc: "10V電源と抵抗。ただ電流を合わせるだけでなく、1/4W抵抗を燃やさない抵抗値を選択せよ。定格電力を超えれば即座に発火する。" },
+      { phase: 1, title: "直列回路と分圧", desc: "複数抵抗での分圧。テスター（内部抵抗10MΩ）を当てた時の微小な電圧降下もシミュレートされていることに注意せよ。" },
+      { phase: 1, title: "並列回路と分流", desc: "キルヒホッフの電流則。全体電流の計算を行い、各経路の電流配分を導き出せ。" },
+      { phase: 1, title: "合成抵抗のパズル", desc: "E12系列の抵抗だけを組み合わせて、指定の精密な抵抗値を作り出せ。" },
+      { phase: 1, title: "ブリッジ回路", desc: "ホイートストンブリッジによる未知の抵抗値の測定。電位差がゼロになる点を見つけよ。" },
+      { phase: 1, title: "定格電力の恐怖", desc: "1/8W, 1/4W, 1W, 5Wセメント抵抗の使い分け。間違えればジャンクション温度が急上昇し即発火する。" },
+      { phase: 1, title: "コンデンサの基礎", desc: "静電容量と耐圧。耐圧10Vのコンデンサに12Vをかけて破裂させるトラップを回避せよ。" },
+      { phase: 1, title: "RC時定数 (充放電)", desc: "抵抗とコンデンサで、電圧が63.2%に達するまでの時間 τ=RC を計算し、指定時間の遅延回路を作れ。" },
+      { phase: 1, title: "結合コンデンサ", desc: "直流成分をカットし、交流（信号）成分だけを通すハイパス特性を確認せよ。" },
+      { phase: 1, title: "バイパスコンデンサ (パスコン)", desc: "ICの電源ピン直近に配置し、急激な電流変化による電圧降下を防げ。無いとICがリセットする。" },
+      { phase: 1, title: "コイル (インダクタ) の基礎", desc: "インダクタンス。電流の急激な変化を妨げる性質をオシロスコープで確認せよ。" },
+      { phase: 1, title: "RL回路の過渡現象", desc: "スイッチを入れた瞬間の電流の立ち上がり遅れを計算・実測せよ。" },
+      { phase: 1, title: "テブナンの定理", desc: "複雑な電源回路を、1つの理想電圧源と1つの直列抵抗に等価変換して計算を簡略化せよ。" },
+      { phase: 1, title: "ノートンの定理", desc: "電流源への変換。テブナンの定理と対をなす概念をマスターせよ。" },
+      { phase: 1, title: "Phase1 総合試験", desc: "E系列抵抗とコンデンサのみを用いて、指定された電圧・電流・遅延時間を満たすブラックボックス回路を設計せよ。" },
+      // Phase 2: 半導体の覚醒とLED制御 (Stage 16 - 30)
+      { phase: 2, title: "ダイオードの基礎 (PN接合)", desc: "順方向電圧降下(Vf)。約0.6V下がることを計算に入れないと失格となる。" },
+      { phase: 2, title: "半波整流回路", desc: "交流電源から直流を作る。リップル電圧の観察を行え。" },
+      { phase: 2, title: "全波整流と平滑回路", desc: "ブリッジダイオードと大容量コンデンサで、綺麗な直流を作れ。" },
+      { phase: 2, title: "ツェナーダイオード", desc: "逆方向の降伏電圧を利用した簡易定電圧回路を設計せよ。" },
+      { phase: 2, title: "ショットキーバリアダイオード", desc: "スイッチング速度の速さとVfの低さを活かした回路を構築せよ。" },
+      { phase: 2, title: "LEDの絶対最大定格", desc: "Vfと電流制限抵抗の計算。抵抗なしで繋いでLEDを爆発させる失敗を経験せよ。" },
+      { phase: 2, title: "LEDの直列接続", desc: "12V電源で3VのLEDを3つ直列にし、抵抗での電力損失を減らすエコ設計をせよ。" },
+      { phase: 2, title: "LEDの並列接続の罠", desc: "複数のLEDを「抵抗1つ」で並列接続すると、Vfの個体差で特定のLEDに電流が集中して燃える現象を確認せよ。" },
+      { phase: 2, title: "トランジスタの基礎 (NPN)", desc: "ベース電流Ib、コレクタ電流Ic、増幅率hFEの計算。電流増幅の基本。" },
+      { phase: 2, title: "トランジスタの基礎 (PNP)", desc: "電源側でのスイッチング（ハイサイドスイッチ）を学習せよ。" },
+      { phase: 2, title: "スイッチング回路の完全設計", desc: "マイコンからの5V/20mA出力で、12V/1Aの強力なランプを点灯させる。ベース抵抗をサチュレーション領域に入るように計算せよ。" },
+      { phase: 2, title: "エミッタ接地増幅回路", desc: "小さな音声信号を増幅する。バイアス電圧の設定（A級アンプ）を極めよ。" },
+      { phase: 2, title: "ダーリントン接続", desc: "2つのトランジスタを組み合わせて超高増幅率を得る構成を組め。" },
+      { phase: 2, title: "MOSFETの基礎 (Nch)", desc: "電圧駆動（ゲート・ソース間電圧Vgs）。オン抵抗(Ron)による発熱計算を忘れるな。" },
+      { phase: 2, title: "MOSFETとゲート容量", desc: "スイッチング時のゲート突入電流を防ぐためのゲート抵抗を選定せよ。" },
+      // Phase 3: インターフェースとセンサ (Stage 31 - 45)
+      { phase: 3, title: "機械式スイッチと浮き", desc: "ハイ・インピーダンスの恐怖。プルアップ/プルダウン抵抗を忘れるとノイズで誤作動する。" },
+      { phase: 3, title: "チャタリングの脅威", desc: "スイッチの機械的なバウンドによる複数回入力。オシロスコープで確認せよ。" },
+      { phase: 3, title: "ハードウェア・デバウンス", desc: "RCローパスフィルタによるチャタリング除去回路を設計せよ。" },
+      { phase: 3, title: "シュミットトリガインバータ", desc: "なまった波形を綺麗な矩形波に整形するICの利用。" },
+      { phase: 3, title: "リレーの駆動", desc: "電磁石によるメカニカルスイッチ。トランジスタで駆動回路を組め。" },
+      { phase: 3, title: "逆起電力と還流ダイオード", desc: "【必須】リレーOFF時の数百ボルトのスパイク。還流ダイオードを忘れるとトランジスタが即破壊される。" },
+      { phase: 3, title: "可変抵抗 (ポテンショメータ)", desc: "つまみによる電圧の分圧回路を構築せよ。" },
+      { phase: 3, title: "CdSセル (光センサ)", desc: "光量による抵抗値変化。分圧回路と組み合わせて明るさ判定電圧を作れ。" },
+      { phase: 3, title: "サーミスタ (温度センサ)", desc: "温度係数（NTC）と非線形性の理解。温度変化を電圧変化に変換せよ。" },
+      { phase: 3, title: "フォトトランジスタ", desc: "赤外線などの光信号の受信と増幅回路を組め。" },
+      { phase: 3, title: "圧電ブザー", desc: "PWMによる音階生成。自励式と他励式の違いを理解せよ。" },
+      { phase: 3, title: "マイクアンプ回路", desc: "コンデンサマイクの微小信号を、トランジスタで実用レベルに増幅せよ。" },
+      { phase: 3, title: "ロータリーエンコーダ", desc: "A相/B相の位相差から回転方向と量を読み取る論理回路を構築せよ。" },
+      { phase: 3, title: "ホールセンサ", desc: "磁界の検出。モータの回転数カウントへの応用回路を設計せよ。" },
+      { phase: 3, title: "Phase3 総合", desc: "センサ入力→信号整形→スイッチング→アクチュエータ駆動を全てアナログ回路で構築せよ。" },
+      // Phase 4: アナログの魔術・オペアンプ (Stage 46 - 60)
+      { phase: 4, title: "オペアンプの理想と現実", desc: "イマジナリ・ショートと入力インピーダンス。レール・ツー・レールの制約を理解せよ。" },
+      { phase: 4, title: "コンパレータ (比較器)", desc: "基準電圧とセンサ電圧を比較し、ON/OFFを出力する回路を作れ。" },
+      { phase: 4, title: "ヒステリシス・コンパレータ", desc: "境界付近でのノイズによるバタつきを防ぐ正帰還回路を設計せよ。" },
+      { phase: 4, title: "ボルテージ・フォロワ", desc: "インピーダンス変換。センサの微小出力を強力な出力に変換せよ。" },
+      { phase: 4, title: "反転増幅回路", desc: "ゲイン -Rf/Rs の計算と設計。" },
+      { phase: 4, title: "非反転増幅回路", desc: "ゲイン 1+(Rf/Rs) の計算と設計。" },
+      { phase: 4, title: "加算回路", desc: "複数のアナログ電圧を足し合わせるオーディオミキサーの原理。" },
+      { phase: 4, title: "差動増幅回路", desc: "2つの入力の差だけを増幅する、ノイズに強い伝送回路。" },
+      { phase: 4, title: "積分回路", desc: "矩形波を入力して三角波を作る。ローパスフィルタの性質。" },
+      { phase: 4, title: "微分回路", desc: "信号の変化を捉える。ハイパスフィルタの性質。" },
+      { phase: 4, title: "アクティブ・ローパスフィルタ", desc: "オペアンプを用いた急峻なノイズカットフィルタの設計。" },
+      { phase: 4, title: "ウィーンブリッジ発振回路", desc: "オペアンプで作る綺麗な正弦波発振回路。" },
+      { phase: 4, title: "無安定マルチバイブレータ", desc: "トランジスタ2石で作る矩形波発振回路（Lチカの元祖）。" },
+      { phase: 4, title: "555タイマーIC (単安定)", desc: "トリガー入力から一定時間だけONになるタイマー回路。" },
+      { phase: 4, title: "555タイマーIC (無安定)", desc: "抵抗とコンデンサの計算で正確な周波数のクロックを作れ。" },
+      // Phase 5: デジタルの真髄・論理ICとモーター (Stage 61 - 75)
+      { phase: 5, title: "論理レベル (TTL vs CMOS)", desc: "High/Lowの閾値電圧の違い。異種IC接続時のトラブルを体験せよ。" },
+      { phase: 5, title: "基本論理ゲート", desc: "NOT, AND, OR。真理値表に基づく配線を行え。" },
+      { phase: 5, title: "NANDゲートの万能性", desc: "NANDゲートだけで全ての論理回路を構築せよ。" },
+      { phase: 5, title: "XORと半加算器", desc: "排他的論理和による2進数の1ビット足し算回路。" },
+      { phase: 5, title: "全加算器", desc: "桁上がり（キャリー）を考慮した足し算回路を完成させよ。" },
+      { phase: 5, title: "SRフリップフロップ", desc: "データを1ビット記憶する回路の構成。" },
+      { phase: 5, title: "Dフリップフロップ", desc: "クロックに同期してデータを記憶するラッチ回路。" },
+      { phase: 5, title: "シフトレジスタ", desc: "シリアルデータをパラレルに変換し、マイコンのピン数を節約せよ。" },
+      { phase: 5, title: "カウンタIC", desc: "クロックパルスを数えて2進数で出力する回路。" },
+      { phase: 5, title: "DCモーターの駆動とノイズ", desc: "モーターノイズによる誤作動と、スナバ回路による対策。" },
+      { phase: 5, title: "PWM駆動と平均電圧", desc: "デューティ比によるモータの速度制御とLEDの調光。" },
+      { phase: 5, title: "Hブリッジ回路", desc: "4つのトランジスタによるDCモータの正転・逆転制御。貫通電流によるFET爆発トラップを避けよ。" },
+      { phase: 5, title: "モータドライバIC", desc: "内部保護回路付きICの正しい使い方を学べ。" },
+      { phase: 5, title: "ステッピングモーター", desc: "4相コイルを順番に励磁して正確な角度を回す論理パターン生成。" },
+      { phase: 5, title: "サーボモーター", desc: "PWMの「パルス幅（1.5ms中心）」による角度制御を実装せよ。" },
+      // Phase 6: マイクロコントローラとADC (Stage 76 - 85)
+      { phase: 6, title: "GPIO出力とLチカ", desc: "コードによるピン制御。ピンの絶対最大定格(シンク/ソース)を確認せよ。" },
+      { phase: 6, title: "GPIO入力とポーリング", desc: "スイッチ状態のループ読み取りと、ソフトウェア・デバウンスの実装。" },
+      { phase: 6, title: "割り込み (Interrupt)", desc: "ピンの状態変化で瞬時に処理を実行するプログラムを組め。" },
+      { phase: 6, title: "ADC (アナログ・デジタル変換)", desc: "アナログ電圧を数値として読み取る。基準電圧(Vref)の重要性を理解せよ。" },
+      { phase: 6, title: "サンプリング定理", desc: "対象の周波数に対し、2倍以上のサンプリング速度が必要なこと（エイリアシング）を観察せよ。" },
+      { phase: 6, title: "ハードウェアPWM", desc: "タイマーレジスタを設定し、CPU負荷ゼロでPWM信号を出力し続けよ。" },
+      { phase: 6, title: "ウォッチドッグタイマー", desc: "プログラムフリーズ時に自動でリセットをかける安全機構を実装せよ。" },
+      { phase: 6, title: "スリープモード", desc: "バッテリー駆動を想定し、必要な時だけマイコンを起こして消費電流を極限まで下げよ。" },
+      { phase: 6, title: "EEPROMへの保存", desc: "電源を切っても消えないデータ保存。書き込み寿命への配慮を学べ。" },
+      { phase: 6, title: "マルチプレクサ", desc: "少ないアナログピンで多数のセンサを切り替えて読み取る回路を構築せよ。" },
+      // Phase 7: 通信と高度な電源設計 (Stage 86 - 95)
+      { phase: 7, title: "UART通信 (シリアル)", desc: "ボーレート、パリティ。タイミングずれによる文字化けを解消せよ。" },
+      { phase: 7, title: "I2C通信", desc: "SCL/SDAの2線式。プルアップ抵抗の必須性とアドレス衝突を回避せよ。" },
+      { phase: 7, title: "SPI通信", desc: "高速同期式通信。SS(CS)ピンによるデバイス選択を制御せよ。" },
+      { phase: 7, title: "レベルシフタ", desc: "3.3Vセンサと5Vマイコンを安全に通信させる双方向電圧変換回路。" },
+      { phase: 7, title: "フォトカプラ (絶縁)", desc: "光で信号を伝え、ノイズの多いモーター回路とマイコンを完全に電気的絶縁せよ。" },
+      { phase: 7, title: "3端子レギュレータ", desc: "12Vから5Vを作る。熱損失計算を行い、放熱器が必要か判定せよ。" },
+      { phase: 7, title: "LDO (Low Drop Out)", desc: "入出力電位差が少ないレギュレータの特性を活かした回路設計。" },
+      { phase: 7, title: "降圧型スイッチング電源", desc: "インダクタとFETの高速スイッチングによる高効率な降圧回路を設計せよ。" },
+      { phase: 7, title: "昇圧型スイッチング電源", desc: "3Vの電池から5Vを作るブーストコンバータのインダクタ計算。" },
+      { phase: 7, title: "バッテリーの放電特性", desc: "内部抵抗による電圧降下と、過放電保護回路の重要性を理解せよ。" },
+      // Phase 8: グランドマスター（究極のシステム統合） (Stage 96 - 100)
+      { phase: 8, title: "マトリクスLEDダイナミック駆動", desc: "8x8マトリクスLEDを、シフトレジスタとトランジスタでチラつきなくスキャン点灯させよ。" },
+      { phase: 8, title: "PID制御 (姿勢・速度)", desc: "ロータリーエンコーダを用い、P, I, Dゲインを調整して目標値にピタリと追従させよ。" },
+      { phase: 8, title: "D級アンプ", desc: "音声信号をPWM波に変換し、FETでスイッチング、ローパスで戻す高効率アンプ設計。" },
+      { phase: 8, title: "無線モジュールの電源強化", desc: "送信時の大電流スパイクによるマイコンリセットを防ぐ完璧なデカップリング設計。" },
+      { phase: 8, title: "Final Stage: 自律走行ライントレーサー", desc: "【最終試練】センサ入力、ADC、マイコン、PWM、モータドライバ、電源を全て統合し完走せよ。発熱・ノイズによるリセットは即ゲームオーバー。" }
+    ];
+
+    // ==========================================
+    // 第1部: 完全シミュレータ・コア仕様 (アルゴリズム設計)
+    // ==========================================
     
-    // 次のピンへ抜ける
-    const exitPin = COMPONENT_DEF[nextComp.type].pins.find(p => p.id !== nextPinName);
-    currentPinStr = `${nextComp.id}:${exitPin.id}`;
-  }
-
-  if (!loopClosed) return { success: false, log: ['回路が閉じていません。電源の＋から－まで配線が繋がっていません。'] };
-
-  // パラメータ集計
-  let totalResistance = 0;
-  let totalVf = 0;
-  let hasLED = false;
-  let reverseLED = false;
-
-  pathComps.forEach(node => {
-    if (node.comp.type === 'Resistor') {
-      totalResistance += Number(node.comp.params.value);
+    // ガウス消去法 (ピボット選択付き)
+    function solveLinearSystem(A, b) {
+      const n = b.length;
+      let x = new Array(n).fill(0);
+      for (let i = 0; i < n; i++) {
+        let maxRow = i;
+        for (let k = i + 1; k < n; k++) {
+          if (Math.abs(A[k][i]) > Math.abs(A[maxRow][i])) maxRow = k;
+        }
+        [A[i], A[maxRow]] = [A[maxRow], A[i]];
+        [b[i], b[maxRow]] = [b[maxRow], b[i]];
+        
+        if (Math.abs(A[i][i]) < 1e-12) continue; // ほぼ特異行列
+        
+        for (let k = i + 1; k < n; k++) {
+          let c = -A[k][i] / A[i][i];
+          for (let j = i; j < n; j++) {
+            A[k][j] += c * A[i][j];
+          }
+          b[k] += c * b[i];
+        }
+      }
+      for (let i = n - 1; i >= 0; i--) {
+        if (Math.abs(A[i][i]) < 1e-12) {
+          x[i] = 0; continue;
+        }
+        x[i] = b[i] / A[i][i];
+        for (let k = i - 1; k >= 0; k--) {
+          b[k] -= A[k][i] * x[i];
+        }
+      }
+      return x;
     }
-    if (node.comp.type === 'LED') {
-      hasLED = true;
-      // アノードから入っているか（極性チェック）
-      if (node.entryPin === 'anode') {
-        totalVf += 2.0;
-      } else {
-        reverseLED = true; // 逆接続
+
+    // 回路シミュレータエンジン (MNA + Newton-Raphson + Backward Euler + Thermal)
+    class CircuitSimulator {
+      constructor() {
+        this.dt = 0.001; // 1ms timestep
+        this.time = 0;
+        this.ambientTemp = 25.0; // ℃
+        this.nodes = [];
+        this.voltageSources = [];
+      }
+
+      // ノード抽出 (Union-Findで接続されたピンをグループ化)
+      buildNodes(components, wires) {
+        let parent = {};
+        const find = (i) => {
+          if (parent[i] === undefined) parent[i] = i;
+          if (parent[i] === i) return i;
+          return parent[i] = find(parent[i]);
+        };
+        const union = (i, j) => {
+          let rootI = find(i);
+          let rootJ = find(j);
+          if (rootI !== rootJ) parent[rootI] = rootJ;
+        };
+
+        // 配線による結合
+        wires.forEach(w => {
+          const pin1 = `${w.from.compId}_${w.from.pinId}`;
+          const pin2 = `${w.to.compId}_${w.to.pinId}`;
+          union(pin1, pin2);
+        });
+
+        // グラウンドのノードを0とする
+        let groundNodeRoot = null;
+        components.forEach(c => {
+          if (c.type === 'GROUND') {
+            groundNodeRoot = find(`${c.id}_0`);
+          }
+        });
+
+        let nodeMap = {};
+        let nodeIndex = 1;
+        
+        // 全ピンにノードIDを振る
+        components.forEach(c => {
+          c.pins.forEach((p, idx) => {
+            const pinStr = `${c.id}_${idx}`;
+            const root = find(pinStr);
+            if (root === groundNodeRoot) {
+              nodeMap[pinStr] = 0;
+            } else {
+              if (nodeMap[root] === undefined) {
+                nodeMap[root] = nodeIndex++;
+              }
+              nodeMap[pinStr] = nodeMap[root];
+            }
+          });
+        });
+
+        return { nodeMap, numNodes: nodeIndex - 1 };
+      }
+
+      // 1ステップ計算
+      step(components, wires) {
+        if(components.length === 0) return;
+        
+        const { nodeMap, numNodes } = this.buildNodes(components, wires);
+        
+        // 電圧源の数 (インダクタも未知電流として扱う)
+        let vSources = [];
+        components.forEach(c => {
+          if (c.type === 'VOLTAGE' || c.type === 'INDUCTOR') {
+            vSources.push(c);
+          }
+        });
+        const M = vSources.length;
+        const N = numNodes;
+        const matrixSize = N + M;
+
+        // Newton-Raphson Loop (最大10回)
+        let nodeVoltages = new Array(N + 1).fill(0); // index 0 is ground
+        let branchCurrents = new Array(M).fill(0);
+        
+        for (let iter = 0; iter < 10; iter++) {
+          let A = Array.from({length: matrixSize}, () => new Array(matrixSize).fill(0));
+          let b = new Array(matrixSize).fill(0);
+
+          const stampConductor = (n1, n2, g) => {
+            if(n1 > 0) { A[n1-1][n1-1] += g; }
+            if(n2 > 0) { A[n2-1][n2-1] += g; }
+            if(n1 > 0 && n2 > 0) { A[n1-1][n2-1] -= g; A[n2-1][n1-1] -= g; }
+          };
+          const stampCurrent = (n1, n2, i) => { // n1からn2へ i 流れる
+            if(n1 > 0) b[n1-1] -= i;
+            if(n2 > 0) b[n2-1] += i;
+          };
+          const stampVoltageSource = (n1, n2, v, mIdx) => {
+            const row = N + mIdx;
+            if(n1 > 0) { A[n1-1][row] += 1; A[row][n1-1] += 1; }
+            if(n2 > 0) { A[n2-1][row] -= 1; A[row][n2-1] -= 1; }
+            b[row] = v;
+          };
+
+          components.forEach(c => {
+            if (c.broken) {
+              // 壊れた部品は高抵抗（ショート破壊の場合は別だが、今回はオープン破壊とする）
+              if(c.type !== 'GROUND') {
+                const n1 = nodeMap[`${c.id}_0`];
+                const n2 = nodeMap[`${c.id}_1`];
+                if(n1 !== undefined && n2 !== undefined) stampConductor(n1, n2, 1e-9);
+              }
+              return;
+            }
+
+            if (c.type === 'RESISTOR') {
+              const n1 = nodeMap[`${c.id}_0`];
+              const n2 = nodeMap[`${c.id}_1`];
+              if(n1 !== undefined && n2 !== undefined) {
+                const R = c.params.R || 1000;
+                stampConductor(n1, n2, 1.0 / R);
+              }
+            }
+            else if (c.type === 'VOLTAGE') {
+              const n1 = nodeMap[`${c.id}_0`]; // +
+              const n2 = nodeMap[`${c.id}_1`]; // -
+              const mIdx = vSources.findIndex(vs => vs.id === c.id);
+              if(n1 !== undefined && n2 !== undefined && mIdx !== -1) {
+                stampVoltageSource(n1, n2, c.params.V || 5, mIdx);
+              }
+            }
+            else if (c.type === 'CAPACITOR') {
+              // 後退オイラー法: i(t) = C/dt * v(t) - C/dt * v(t-dt)
+              const n1 = nodeMap[`${c.id}_0`];
+              const n2 = nodeMap[`${c.id}_1`];
+              if(n1 !== undefined && n2 !== undefined) {
+                const C = c.params.C || 0.000001;
+                const g = C / this.dt;
+                const prevV = (c.state && c.state.v) ? c.state.v : 0;
+                const ieq = g * prevV; // 等価電流源
+                stampConductor(n1, n2, g);
+                stampCurrent(n1, n2, -ieq); // n2からn1へ電流源
+              }
+            }
+            else if (c.type === 'INDUCTOR') {
+               // 後退オイラー法: v(t) = L/dt * i(t) - L/dt * i(t-dt)
+               // 電圧源として扱い、V = L/dt * i(t) - L/dt * i(t-dt) を組み込む（実装略化のため今回は抵抗成分付きで扱うか、簡単なモデルに）
+               const n1 = nodeMap[`${c.id}_0`];
+               const n2 = nodeMap[`${c.id}_1`];
+               const mIdx = vSources.findIndex(vs => vs.id === c.id);
+               if(n1 !== undefined && n2 !== undefined && mIdx !== -1) {
+                 const L = c.params.L || 0.001;
+                 const prevI = (c.state && c.state.i) ? c.state.i : 0;
+                 // A(row, row)に -L/dt を入れることで L/dt * i 項を表現
+                 const row = N + mIdx;
+                 if(n1 > 0) { A[n1-1][row] += 1; A[row][n1-1] += 1; }
+                 if(n2 > 0) { A[n2-1][row] -= 1; A[row][n2-1] -= 1; }
+                 A[row][row] -= (L / this.dt);
+                 b[row] = -(L / this.dt) * prevI;
+               }
+            }
+            else if (c.type === 'DIODE' || c.type === 'LED') {
+              // 非線形素子 (Newton-Raphson)
+              const n1 = nodeMap[`${c.id}_0`]; // Anode
+              const n2 = nodeMap[`${c.id}_1`]; // Cathode
+              if(n1 !== undefined && n2 !== undefined) {
+                const v1 = n1 === 0 ? 0 : nodeVoltages[n1];
+                const v2 = n2 === 0 ? 0 : nodeVoltages[n2];
+                let vd = v1 - v2;
+                
+                // Shockley diode equation parameters
+                const Is = c.type === 'LED' ? 1e-20 : 1e-12; // 簡易調整
+                const N_factor = c.type === 'LED' ? (c.params.Vf / 0.8) : 1; 
+                const Vt = 0.02585; // 25C
+                const nVt = N_factor * Vt;
+                
+                // クリップして発散防止
+                if(vd > 3.0) vd = 3.0; 
+                if(vd < -100) vd = -100;
+
+                const expTerm = Math.exp(vd / nVt);
+                const id = Is * (expTerm - 1);
+                const gd = (Is / nVt) * expTerm + 1e-9; // 最小コンダクタンス
+                const ieq = id - gd * vd;
+
+                stampConductor(n1, n2, gd);
+                stampCurrent(n1, n2, ieq);
+                
+                // 記録用
+                c._tempV = vd;
+                c._tempI = id;
+              }
+            }
+          });
+
+          // 行列を解く
+          let x = solveLinearSystem(A, b);
+          
+          // 電圧・電流を更新
+          let maxDiff = 0;
+          for(let i=0; i<N; i++) {
+            let newVal = x[i];
+            maxDiff = Math.max(maxDiff, Math.abs(newVal - nodeVoltages[i+1]));
+            nodeVoltages[i+1] = newVal;
+          }
+          for(let i=0; i<M; i++) {
+            branchCurrents[i] = x[N+i];
+          }
+
+          if(maxDiff < 1e-6) break; // 収束
+        }
+
+        // --- 状態の更新と熱・破壊シミュレーション ---
+        components.forEach(c => {
+          if(c.broken) return;
+
+          let v = 0, i = 0;
+          if (c.type === 'RESISTOR') {
+            const n1 = nodeMap[`${c.id}_0`] || 0;
+            const n2 = nodeMap[`${c.id}_1`] || 0;
+            v = nodeVoltages[n1] - nodeVoltages[n2];
+            i = v / (c.params.R || 1000);
+          }
+          else if (c.type === 'VOLTAGE' || c.type === 'INDUCTOR') {
+            const mIdx = vSources.findIndex(vs => vs.id === c.id);
+            i = branchCurrents[mIdx] || 0;
+            const n1 = nodeMap[`${c.id}_0`] || 0;
+            const n2 = nodeMap[`${c.id}_1`] || 0;
+            v = nodeVoltages[n1] - nodeVoltages[n2];
+            
+            if (c.type === 'INDUCTOR') {
+              if(!c.state) c.state = {i: 0};
+              c.state.i = i; // 状態保存
+            }
+          }
+          else if (c.type === 'CAPACITOR') {
+            const n1 = nodeMap[`${c.id}_0`] || 0;
+            const n2 = nodeMap[`${c.id}_1`] || 0;
+            v = nodeVoltages[n1] - nodeVoltages[n2];
+            if(!c.state) c.state = {v: 0};
+            c.state.v = v; // 状態保存
+          }
+          else if (c.type === 'DIODE' || c.type === 'LED') {
+             v = c._tempV || 0;
+             i = c._tempI || 0;
+          }
+          
+          // 消費電力計算
+          const power = Math.abs(v * i);
+          
+          // 熱シミュレーション (Tj = Ta + P * Rth)
+          // 熱時定数を考慮した一次遅れ系
+          const Rth = c.params.Rth || 150; // ℃/W
+          const targetTj = this.ambientTemp + power * Rth;
+          c.tj = c.tj ? c.tj + (targetTj - c.tj) * 0.1 : targetTj;
+
+          // 破壊判定
+          let brokenNow = false;
+          let breakReason = "";
+          
+          if (c.tj > (c.params.maxTj || 150)) {
+            brokenNow = true;
+            breakReason = `熱破壊! (Tj=${Math.round(c.tj)}℃ > Max=${c.params.maxTj || 150}℃)`;
+          } else if (c.params.maxV && Math.abs(v) > c.params.maxV) {
+            brokenNow = true;
+            breakReason = `耐圧破壊! (${Math.abs(v).toFixed(1)}V > Max=${c.params.maxV}V)`;
+          } else if (c.params.maxI && Math.abs(i) > c.params.maxI) {
+             brokenNow = true;
+             breakReason = `過電流破壊! (${(Math.abs(i)*1000).toFixed(1)}mA > Max=${c.params.maxI*1000}mA)`;
+          }
+
+          if (brokenNow) {
+            c.broken = true;
+            c.breakReason = breakReason;
+            console.log(`[Component Destoyed] ${c.type}(${c.id}): ${breakReason}`);
+          }
+          
+          // 表示用データ保存
+          c.currentV = v;
+          c.currentI = i;
+          c.currentP = power;
+        });
+
+        this.time += this.dt;
       }
     }
-  });
 
-  if (reverseLED) {
-    return { success: false, log: ['LEDが逆向きに接続されています。電流が流れません。'] };
-  }
-
-  if (stageId === 2 && !hasLED) {
-      return { success: false, log: ['LEDが配置されていません。'] };
-  }
-
-  // 電流計算 (オームの法則)
-  const effectiveVoltage = vcc - totalVf;
-  
-  if (effectiveVoltage <= 0) {
-      return { success: false, log: ['電源電圧がLEDのVfを下回っています。光りません。'] };
-  }
-
-  if (totalResistance === 0) {
-    // ショート回路またはLED直結
-    return { 
-      success: false, 
-      exploded: pathComps.map(n => n.comp.id), // 全部燃える
-      log: ['【警告】抵抗が0Ωです！過大電流が発生し、回路がショート・破裂しました！'] 
+    // ==========================================
+    // UI 定数 & コンポーネント定義
+    // ==========================================
+    const COMPONENT_DEF = {
+      RESISTOR:  { type: 'RESISTOR', name: '抵抗', pins: [{x:0, y:1}, {x:4, y:1}], w: 4, h: 2, params: { R: 1000, Rth: 200, maxTj: 150 }, color: '#d97706' },
+      VOLTAGE:   { type: 'VOLTAGE', name: '直流電源', pins: [{x:2, y:0}, {x:2, y:4}], w: 4, h: 4, params: { V: 5 }, color: '#ef4444' },
+      GROUND:    { type: 'GROUND', name: 'GND', pins: [{x:2, y:0}], w: 4, h: 2, params: {}, color: '#10b981' },
+      CAPACITOR: { type: 'CAPACITOR', name: 'コンデンサ', pins: [{x:0, y:1}, {x:4, y:1}], w: 4, h: 2, params: { C: 10e-6, maxV: 16 }, color: '#3b82f6' },
+      INDUCTOR:  { type: 'INDUCTOR', name: 'コイル', pins: [{x:0, y:1}, {x:4, y:1}], w: 4, h: 2, params: { L: 1e-3 }, color: '#8b5cf6' },
+      LED:       { type: 'LED', name: 'LED', pins: [{x:0, y:1}, {x:4, y:1}], w: 4, h: 2, params: { Vf: 2.0, maxI: 0.02, Rth: 500, maxTj: 120 }, color: '#ec4899' }
     };
-  }
 
-  const currentA = effectiveVoltage / totalResistance;
-  log.push(`計算結果: 電流 I = ${effectiveVoltage.toFixed(1)}V / ${totalResistance}Ω = ${(currentA*1000).toFixed(1)}mA`);
+    const GRID_SIZE = 20;
+    
+    // --- メインアプリ ---
+    function App() {
+      const [stageIdx, setStageIdx] = useState(0);
+      const [components, setComponents] = useState([]);
+      const [wires, setWires] = useState([]);
+      const [isRunning, setIsRunning] = useState(false);
+      const [selectedComp, setSelectedComp] = useState(null);
+      const [wiringStart, setWiringStart] = useState(null); // {compId, pinId, x, y}
+      
+      const simRef = useRef(new CircuitSimulator());
+      const canvasRef = useRef(null);
+      const requestRef = useRef();
 
-  let exploded = [];
-  let isFailure = false;
+      const stage = STAGE_DATA[stageIdx];
 
-  // 定格チェック
-  pathComps.forEach(node => {
-    if (node.comp.type === 'Resistor') {
-      const power = currentA * currentA * Number(node.comp.params.value);
-      log.push(`抵抗の消費電力 P = I²R = ${power.toFixed(3)}W`);
-      if (power > 0.25) {
-        log.push(`🔥 【定格超過】抵抗の許容損失(0.25W)を超過！燃焼しました！`);
-        exploded.push(node.comp.id);
-        isFailure = true;
-      }
-    }
-    if (node.comp.type === 'LED') {
-      if (currentA > 0.02) {
-        log.push(`🔥 【定格超過】LEDの最大順方向電流(20mA)を超過！破裂しました！`);
-        exploded.push(node.comp.id);
-        isFailure = true;
-      }
-    }
-  });
-
-  if (isFailure) return { success: false, exploded, log };
-
-  // 目標達成チェック
-  const target = STAGES[stageId].targetCurrent;
-  if (currentA >= target[0] && currentA <= target[1]) {
-    log.push(`✅ 目標電流値達成！見事な設計です。`);
-    return { success: true, log };
-  } else {
-    log.push(`❌ 回路は安全ですが、目標とする電流値(${target[0]*1000}mA〜${target[1]*1000}mA)に収まっていません。抵抗値を見直してください。`);
-    return { success: false, log };
-  }
-};
-
-
-// ==========================================
-// 3. メインアプリケーション
-// ==========================================
-export default function CircuitForge() {
-  const [gameState, setGameState] = useState('menu'); // menu, briefing, editor
-  const [currentStage, setCurrentStage] = useState(1);
-  
-  // 回路状態
-  const [components, setComponents] = useState([]);
-  const [wires, setWires] = useState([]);
-  
-  // エディタ状態
-  const [mode, setMode] = useState('select'); // select, place, wire, delete
-  const [selectedTool, setSelectedTool] = useState(null); // 'Resistor', etc
-  const [wiringStart, setWiringStart] = useState(null);
-  const [simResult, setSimResult] = useState(null);
-
-  // パラメータ変更用
-  const [editingComp, setEditingComp] = useState(null);
-
-  const startStage = (id) => {
-    setCurrentStage(id);
-    setComponents([
-      // 初期配置：電源
-      { id: 'batt1', type: 'Battery', x: 2, y: 5, params: {}, rotation: 0 }
-    ]);
-    setWires([]);
-    setSimResult(null);
-    setGameState('briefing');
-  };
-
-  const handleGridClick = (x, y) => {
-    if (mode === 'place' && selectedTool) {
-      const newComp = {
-        id: `comp_${Date.now()}`,
-        type: selectedTool,
-        x, y,
-        params: selectedTool === 'Resistor' ? { value: 100 } : {},
-        rotation: 0
+      // シミュレーションループ
+      const tick = () => {
+        if (isRunning) {
+          // 1フレームあたり数ステップ実行してリアルタイム性を確保
+          for(let i=0; i<10; i++) {
+             simRef.current.step(components, wires);
+          }
+          setComponents([...components]); // 強制再描画
+        }
+        requestRef.current = requestAnimationFrame(tick);
       };
-      setComponents([...components, newComp]);
-      setMode('select'); // 配置後は選択モードに戻す
-    }
-  };
 
-  const handlePinClick = (comp, pin) => {
-    if (mode === 'wire') {
-      const pinStr = `${comp.id}:${pin.id}`;
-      if (!wiringStart) {
-        setWiringStart({ comp, pin, pinStr });
-      } else {
-        if (wiringStart.pinStr !== pinStr) {
-          setWires([...wires, {
-            id: `wire_${Date.now()}`,
-            start: wiringStart.pinStr,
-            end: pinStr
-          }]);
+      useEffect(() => {
+        requestRef.current = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(requestRef.current);
+      }, [isRunning, components, wires]);
+
+      // 部品追加
+      const addComponent = (typeKey) => {
+        const def = COMPONENT_DEF[typeKey];
+        const newComp = {
+          ...JSON.parse(JSON.stringify(def)), // Deep copy
+          id: `C_${Date.now()}_${Math.floor(Math.random()*1000)}`,
+          x: 5, y: 5, // Grid coordinates
+          tj: 25.0, broken: false
+        };
+        setComponents([...components, newComp]);
+      };
+
+      // タッチ＆マウス操作ハンドラ (SVG Canvas)
+      const [dragInfo, setDragInfo] = useState(null);
+      
+      const getGridPos = (e) => {
+        const rect = canvasRef.current.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const x = Math.round((clientX - rect.left) / GRID_SIZE);
+        const y = Math.round((clientY - rect.top) / GRID_SIZE);
+        return {x, y};
+      };
+
+      const handlePointerDown = (e, comp, type, pinId) => {
+        e.stopPropagation();
+        if (type === 'pin') {
+          // 配線開始
+          const pinDef = comp.pins[pinId];
+          setWiringStart({
+            compId: comp.id, pinId, 
+            x: comp.x + pinDef.x, y: comp.y + pinDef.y
+          });
+        } else if (type === 'body') {
+          // 部品移動 & 選択
+          setSelectedComp(comp);
+          const pos = getGridPos(e);
+          setDragInfo({ compId: comp.id, offsetX: comp.x - pos.x, offsetY: comp.y - pos.y });
+        }
+      };
+
+      const handlePointerMove = (e) => {
+        if (dragInfo) {
+          const pos = getGridPos(e);
+          setComponents(comps => comps.map(c => 
+            c.id === dragInfo.compId ? { ...c, x: pos.x + dragInfo.offsetX, y: pos.y + dragInfo.offsetY } : c
+          ));
+        }
+      };
+
+      const handlePointerUp = (e) => {
+        setDragInfo(null);
+      };
+      
+      const handlePinPointerUp = (e, targetComp, targetPinId) => {
+        e.stopPropagation();
+        if (wiringStart && (wiringStart.compId !== targetComp.id || wiringStart.pinId !== targetPinId)) {
+          // 配線追加
+          const newWire = {
+            id: `W_${Date.now()}`,
+            from: { compId: wiringStart.compId, pinId: wiringStart.pinId },
+            to: { compId: targetComp.id, pinId: targetPinId }
+          };
+          setWires([...wires, newWire]);
         }
         setWiringStart(null);
-      }
-    }
-  };
+      };
 
-  const handleCompClick = (comp) => {
-    if (mode === 'delete') {
-      if (comp.type === 'Battery') return; // 電源は消せない
-      setComponents(components.filter(c => c.id !== comp.id));
-      // 関連するワイヤーも削除
-      setWires(wires.filter(w => !w.start.startsWith(comp.id) && !w.end.startsWith(comp.id)));
-    } else if (mode === 'select' && comp.type === 'Resistor') {
-      setEditingComp(comp);
-    }
-  };
+      const clearAll = () => {
+        setComponents([]); setWires([]); setSelectedComp(null); setIsRunning(false);
+        simRef.current = new CircuitSimulator();
+      };
 
-  const runSimulation = () => {
-    setSimResult(null);
-    const result = analyzeCircuit(currentStage, components, wires);
-    setSimResult(result);
-  };
+      const renderComponentSvg = (c) => {
+        const x = c.x * GRID_SIZE;
+        const y = c.y * GRID_SIZE;
+        const cls = c.broken ? 'comp-broken' : '';
+        
+        let visual = null;
+        if (c.type === 'RESISTOR') {
+          visual = (
+            <path d="M 0 20 L 15 20 L 20 10 L 30 30 L 40 10 L 50 30 L 60 10 L 65 20 L 80 20" fill="none" stroke={c.color} strokeWidth="3" />
+          );
+        } else if (c.type === 'VOLTAGE') {
+          visual = (
+            <g>
+              <line x1="40" y1="0" x2="40" y2="35" stroke={c.color} strokeWidth="3" />
+              <line x1="20" y1="35" x2="60" y2="35" stroke={c.color} strokeWidth="4" />
+              <line x1="30" y1="45" x2="50" y2="45" stroke={c.color} strokeWidth="6" />
+              <line x1="40" y1="45" x2="40" y2="80" stroke={c.color} strokeWidth="3" />
+              <text x="50" y="25" fill={c.color} fontSize="14">+</text>
+            </g>
+          );
+        } else if (c.type === 'GROUND') {
+          visual = (
+            <g>
+              <line x1="40" y1="0" x2="40" y2="20" stroke={c.color} strokeWidth="3" />
+              <line x1="20" y1="20" x2="60" y2="20" stroke={c.color} strokeWidth="3" />
+              <line x1="28" y1="28" x2="52" y2="28" stroke={c.color} strokeWidth="3" />
+              <line x1="36" y1="36" x2="44" y2="36" stroke={c.color} strokeWidth="3" />
+            </g>
+          );
+        } else if (c.type === 'LED') {
+           visual = (
+             <g>
+               <path d="M 0 20 L 30 20 L 30 10 L 50 20 L 30 30 L 30 20" fill={c.color} />
+               <line x1="50" y1="5" x2="50" y2="35" stroke={c.color} strokeWidth="4" />
+               <line x1="50" y1="20" x2="80" y2="20" stroke={c.color} strokeWidth="3" />
+               {c.currentI > 0.001 && !c.broken && (
+                 <circle cx="40" cy="20" r="15" fill={c.color} opacity={Math.min(1, c.currentI / c.params.maxI)} filter="blur(4px)" />
+               )}
+             </g>
+           );
+        } else {
+           // Default box
+           visual = <rect x="10" y="10" width={c.w*GRID_SIZE-20} height={c.h*GRID_SIZE-20} fill="#333" stroke={c.color} strokeWidth="2" />;
+        }
 
-  // ピンの絶対座標を計算するヘルパー
-  const getPinAbsPos = (compStr) => {
-    const [compId, pinId] = compStr.split(':');
-    const comp = components.find(c => c.id === compId);
-    if (!comp) return {x:0, y:0};
-    const pinDef = COMPONENT_DEF[comp.type].pins.find(p => p.id === pinId);
-    return {
-      x: comp.x + pinDef.x,
-      y: comp.y + pinDef.y
-    };
-  };
+        return (
+          <g key={c.id} transform={`translate(${x}, ${y})`} className={cls}>
+            {/* Body hit area */}
+            <rect x="0" y="0" width={c.w*GRID_SIZE} height={c.h*GRID_SIZE} fill="transparent" 
+                  onPointerDown={(e) => handlePointerDown(e, c, 'body')} style={{cursor: 'move'}} />
+            {visual}
+            
+            {/* Warning Icon if broken */}
+            {c.broken && <text x="10" y="-5" fontSize="20" fill="red">🔥破壊</text>}
 
-  // --- Render Functions ---
+            {/* Pins */}
+            {c.pins.map((p, idx) => (
+              <circle key={idx} cx={p.x*GRID_SIZE} cy={p.y*GRID_SIZE} r="6" fill="#fff" stroke="#444" strokeWidth="2"
+                      onPointerDown={(e) => handlePointerDown(e, c, 'pin', idx)}
+                      onPointerUp={(e) => handlePinPointerUp(e, c, idx)}
+                      style={{cursor: 'crosshair'}} />
+            ))}
+          </g>
+        );
+      };
 
-  if (gameState === 'menu') {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 font-sans p-6 overflow-y-auto">
-        <div className="max-w-4xl mx-auto">
-          <header className="mb-10 text-center">
-            <h1 className="text-4xl font-black tracking-tight text-blue-400 mb-2 flex items-center justify-center gap-3">
-              <Zap size={40} className="text-yellow-400" />
-              Circuit Forge: Master Class
-            </h1>
-            <p className="text-slate-400">ごまかし一切なし。限界突破と絶対最大定格を学ぶ究極の電子工作シミュレータ</p>
+      const renderWires = () => {
+        return wires.map(w => {
+          const c1 = components.find(c => c.id === w.from.compId);
+          const c2 = components.find(c => c.id === w.to.compId);
+          if(!c1 || !c2) return null;
+          const p1 = c1.pins[w.from.pinId];
+          const p2 = c2.pins[w.to.pinId];
+          const x1 = (c1.x + p1.x) * GRID_SIZE;
+          const y1 = (c1.y + p1.y) * GRID_SIZE;
+          const x2 = (c2.x + p2.x) * GRID_SIZE;
+          const y2 = (c2.y + p2.y) * GRID_SIZE;
+          return <line key={w.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#cbd5e1" strokeWidth="3" strokeLinecap="round" />;
+        });
+      };
+
+      return (
+        <div className="flex flex-col h-screen overflow-hidden">
+          {/* Header */}
+          <header className="bg-gray-900 border-b border-gray-700 p-3 flex justify-between items-center z-10">
+            <div>
+              <h1 className="text-xl font-bold text-blue-400">究極の電子工作シミュレータ <span className="text-sm text-gray-400 font-normal ml-2">Phase {stage.phase} / Stage {stageIdx + 1}</span></h1>
+            </div>
+            <div className="flex gap-2">
+               <button onClick={() => setStageIdx(Math.max(0, stageIdx-1))} className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded">◀ 前へ</button>
+               <button onClick={() => setStageIdx(Math.min(STAGE_DATA.length-1, stageIdx+1))} className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded">次へ ▶</button>
+            </div>
           </header>
 
-          <div className="space-y-6">
-            <h2 className="text-2xl font-bold border-b border-slate-800 pb-2">カリキュラム・ロードマップ (全100ステージ構想)</h2>
-            <div className="grid gap-4">
-              {CURRICULUM.map((phase, idx) => (
-                <div key={idx} className="bg-slate-900 border border-slate-800 p-4 rounded-lg flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-100">Phase {phase.phase}: {phase.title}</h3>
-                    <p className="text-sm text-slate-400">{phase.desc}</p>
-                    <div className="text-xs text-slate-500 mt-1">{phase.stages} Stages</div>
-                  </div>
-                  {idx === 0 || idx === 1 ? ( // 最初の一部だけプレイ可能に
-                     <div className="flex gap-2">
-                       {idx === 0 && <button onClick={() => startStage(1)} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold transition flex items-center gap-1">Stage 1 Play <ChevronRight size={16}/></button>}
-                       {idx === 1 && <button onClick={() => startStage(2)} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold transition flex items-center gap-1">Stage 2 Play <ChevronRight size={16}/></button>}
-                     </div>
-                  ) : (
-                    <span className="px-3 py-1 bg-slate-800 text-slate-500 rounded text-sm font-bold flex items-center gap-1"><XCircle size={14}/> Locked</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (gameState === 'briefing') {
-    const stageData = STAGES[currentStage];
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-200 p-6 flex flex-col items-center justify-center">
-        <div className="max-w-2xl bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden">
-          <div className="bg-blue-900 p-4 border-b border-slate-700 flex items-center gap-3">
-            <BookOpen className="text-blue-300" />
-            <h2 className="text-xl font-bold text-white">{stageData.title}</h2>
-          </div>
-          <div className="p-6 whitespace-pre-wrap font-mono text-sm leading-relaxed text-slate-300">
-            {stageData.briefing}
-          </div>
-          <div className="p-4 bg-slate-950 flex justify-end">
-            <button 
-              onClick={() => setGameState('editor')}
-              className="px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-yellow-950 font-black rounded-lg transition shadow-lg flex items-center gap-2"
-            >
-              ワークベンチへ移動 <Wrench size={20}/>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="h-screen bg-slate-950 text-slate-200 flex flex-col overflow-hidden font-sans select-none">
-      {/* Header */}
-      <header className="bg-slate-900 border-b border-slate-800 p-3 flex justify-between items-center z-10">
-        <div className="flex items-center gap-3">
-          <button onClick={() => setGameState('menu')} className="text-slate-400 hover:text-white px-2">← Menu</button>
-          <h1 className="text-lg font-bold text-blue-400">{STAGES[currentStage].title}</h1>
-          <button onClick={() => setGameState('briefing')} className="p-1 text-slate-400 hover:text-white bg-slate-800 rounded"><Info size={18}/></button>
-        </div>
-        <button 
-          onClick={runSimulation}
-          className="px-6 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded flex items-center gap-2 shadow-[0_0_15px_rgba(220,38,38,0.5)] transition"
-        >
-          <Play size={18} fill="currentColor" /> POWER ON (RUN)
-        </button>
-      </header>
-
-      <div className="flex flex-1 overflow-hidden relative">
-        {/* Toolbar */}
-        <div className="w-20 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-4 gap-4 z-10">
-          <ToolBtn active={mode === 'select'} onClick={() => setMode('select')} icon={<Wrench size={24}/>} label="選択" />
-          <ToolBtn active={mode === 'wire'} onClick={() => { setMode('wire'); setWiringStart(null); }} icon={<Zap size={24}/>} label="配線" />
-          <div className="w-12 h-px bg-slate-700 my-2"></div>
-          <ToolBtn 
-            active={mode === 'place' && selectedTool === 'Resistor'} 
-            onClick={() => { setMode('place'); setSelectedTool('Resistor'); }} 
-            label="抵抗器" 
-          >
-            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none"><path d="M4 12 h4 l2 -3 l4 6 l4 -6 l2 3 h4" strokeLinejoin="bevel"/></svg>
-          </ToolBtn>
-          <ToolBtn 
-            active={mode === 'place' && selectedTool === 'LED'} 
-            onClick={() => { setMode('place'); setSelectedTool('LED'); }} 
-            label="LED" 
-          >
-             <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none"><path d="M4 12 h6"/><polygon points="10,8 10,16 16,12" fill="currentColor"/><line x1="16" y1="8" x2="16" y2="16"/><path d="M16 12 h4"/></svg>
-          </ToolBtn>
-          <div className="flex-1"></div>
-          <ToolBtn active={mode === 'delete'} onClick={() => setMode('delete')} icon={<XCircle size={24} className="text-red-400"/>} label="削除" />
-        </div>
-
-        {/* Workspace Canvas (SVG) */}
-        <div className="flex-1 relative bg-[#0f172a] overflow-hidden" style={{ backgroundImage: 'radial-gradient(#1e293b 1px, transparent 1px)', backgroundSize: '40px 40px' }}>
-          
-          <svg width="100%" height="100%" className="absolute inset-0" onClick={(e) => {
-             // 簡易的なグリッドスナップ配置
-             const rect = e.currentTarget.getBoundingClientRect();
-             const x = Math.floor((e.clientX - rect.left) / 40);
-             const y = Math.floor((e.clientY - rect.top) / 40);
-             handleGridClick(x, y);
-          }}>
-            <defs>
-              <filter id="glow">
-                <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-                <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
-              </filter>
-            </defs>
-
-            {/* Wires */}
-            {wires.map((w) => {
-              const startPos = getPinAbsPos(w.start);
-              const endPos = getPinAbsPos(w.end);
-              return (
-                <path 
-                  key={w.id}
-                  d={`M ${startPos.x * 40} ${startPos.y * 40} L ${endPos.x * 40} ${endPos.y * 40}`}
-                  stroke="#38bdf8" strokeWidth="4" fill="none"
-                  strokeLinecap="round"
-                />
-              );
-            })}
-
-            {/* Wiring preview */}
-            {mode === 'wire' && wiringStart && (
-               <circle cx={getPinAbsPos(wiringStart.pinStr).x * 40} cy={getPinAbsPos(wiringStart.pinStr).y * 40} r="6" fill="#fbbf24" className="animate-ping" />
-            )}
-
-            {/* Components */}
-            {components.map((comp) => {
-              const def = COMPONENT_DEF[comp.type];
-              const isExploded = simResult && simResult.exploded && simResult.exploded.includes(comp.id);
-              
-              return (
-                <g key={comp.id} transform={`translate(${comp.x * 40}, ${comp.y * 40})`} className="cursor-pointer" onClick={(e) => { e.stopPropagation(); handleCompClick(comp); }}>
-                  {/* Body rendering */}
-                  <g transform="scale(40)">
-                    {def.render(comp.params)}
-                  </g>
-                  
-                  {/* Pins (Interaction targets) */}
-                  {def.pins.map(pin => (
-                    <circle 
-                      key={pin.id}
-                      cx={pin.x * 40} cy={pin.y * 40} r="12" 
-                      fill="transparent" stroke={mode === 'wire' ? 'rgba(255,255,255,0.5)' : 'transparent'} strokeWidth="2"
-                      onClick={(e) => { e.stopPropagation(); handlePinClick(comp, pin); }}
-                      className={mode === 'wire' ? 'hover:stroke-yellow-400 hover:fill-yellow-400/20 cursor-crosshair' : ''}
-                    />
-                  ))}
-
-                  {/* Explosion Effect */}
-                  {isExploded && (
-                    <g transform="translate(40, 20)">
-                      <circle r="30" fill="rgba(239, 68, 68, 0.4)" filter="url(#glow)"/>
-                      <circle r="15" fill="#f59e0b"/>
-                      <text y="-35" fill="#ef4444" fontSize="14" fontWeight="bold" textAnchor="middle" filter="url(#glow)">🔥BOMB!🔥</text>
-                    </g>
-                  )}
-                </g>
-              );
-            })}
-          </svg>
-
-          {/* Mode Indicator Overlay */}
-          <div className="absolute top-4 left-4 bg-black/50 text-white px-3 py-1 rounded text-sm font-mono pointer-events-none border border-slate-700">
-            MODE: {mode.toUpperCase()}
-          </div>
-        </div>
-
-        {/* Right Panel: Simulation Results & Params */}
-        {(simResult || editingComp) && (
-          <div className="w-80 bg-slate-900 border-l border-slate-800 p-4 flex flex-col z-10 shadow-[-10px_0_20px_rgba(0,0,0,0.5)]">
-            
-            {editingComp && mode === 'select' && (
-              <div className="mb-6 bg-slate-800 p-4 rounded border border-slate-700">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="font-bold text-yellow-400 flex items-center gap-2"><Wrench size={16}/> パラメータ設定</h3>
-                  <button onClick={() => setEditingComp(null)}><XCircle size={18} className="text-slate-500 hover:text-white"/></button>
-                </div>
-                {editingComp.type === 'Resistor' && (
-                  <div>
-                    <label className="block text-sm text-slate-400 mb-1">抵抗値 (Ω)</label>
-                    <input 
-                      type="number" 
-                      value={editingComp.params.value}
-                      onChange={(e) => {
-                        const val = Math.max(1, parseInt(e.target.value) || 1);
-                        setComponents(components.map(c => c.id === editingComp.id ? {...c, params: {value: val}} : c));
-                        setEditingComp({...editingComp, params: {value: val}});
-                      }}
-                      className="w-full bg-slate-950 border border-slate-600 rounded p-2 text-white font-mono"
-                    />
-                    <p className="text-xs text-slate-500 mt-2">※現実の抵抗器は1/4W(0.25W)の定格電力が一般的です。電流×電圧、または電流²×抵抗がこれを超えると燃焼します。</p>
-                  </div>
-                )}
+          <div className="flex flex-1 overflow-hidden">
+            {/* Sidebar */}
+            <aside className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col z-10 shadow-lg">
+              <div className="p-4 border-b border-gray-700 bg-gray-900">
+                <h2 className="text-lg font-bold text-yellow-400 mb-1">{stage.title}</h2>
+                <p className="text-sm text-gray-300 leading-relaxed">{stage.desc}</p>
               </div>
-            )}
 
-            {simResult && (
-              <div className="flex-1 flex flex-col">
-                <h3 className={`text-lg font-bold mb-3 flex items-center gap-2 ${simResult.success ? 'text-green-400' : 'text-red-400'}`}>
-                  {simResult.success ? 'SUCCESS!' : simResult.exploded?.length ? '💥 SYSTEM FAILURE' : <><AlertTriangle size={20}/> ERROR</>}
-                </h3>
-                <div className="flex-1 bg-black rounded p-3 font-mono text-sm overflow-y-auto space-y-2 border border-slate-800">
-                  {simResult.log.map((l, i) => (
-                    <div key={i} className={`${l.includes('🔥') ? 'text-red-400 font-bold' : l.includes('✅') ? 'text-green-400 font-bold' : 'text-slate-300'}`}>
-                      {l}
+              <div className="p-4 flex-1 scrollable overflow-y-auto">
+                <h3 className="text-sm text-gray-400 uppercase tracking-wider mb-3">コンポーネントパレット</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.keys(COMPONENT_DEF).map(key => (
+                    <button key={key} onClick={() => addComponent(key)}
+                            className="bg-gray-700 hover:bg-gray-600 p-2 rounded flex flex-col items-center transition-colors">
+                      <span className="text-xs mt-1">{COMPONENT_DEF[key].name}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {selectedComp && (
+                  <div className="mt-6 bg-gray-900 p-3 rounded border border-gray-700">
+                    <h3 className="text-sm font-bold text-blue-300 mb-2">プロパティ: {selectedComp.name}</h3>
+                    <div className="space-y-2 text-sm">
+                      {Object.keys(selectedComp.params).map(pKey => (
+                        <div key={pKey} className="flex justify-between items-center">
+                          <label className="text-gray-400">{pKey}</label>
+                          <input type="number" 
+                            className="w-20 bg-gray-800 text-white border border-gray-600 rounded px-1"
+                            value={selectedComp.params[pKey]}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value);
+                              setComponents(comps => comps.map(c => c.id === selectedComp.id ? {...c, params: {...c.params, [pKey]: val}} : c));
+                            }}
+                          />
+                        </div>
+                      ))}
+                      {selectedComp.broken && <p className="text-red-400 text-xs mt-2">{selectedComp.breakReason}</p>}
+                      <button onClick={() => {
+                        setComponents(comps => comps.filter(c => c.id !== selectedComp.id));
+                        setWires(ws => ws.filter(w => w.from.compId !== selectedComp.id && w.to.compId !== selectedComp.id));
+                        setSelectedComp(null);
+                      }} className="w-full mt-2 bg-red-900 hover:bg-red-800 text-red-200 py-1 rounded text-xs">削除</button>
                     </div>
-                  ))}
-                </div>
-                {simResult.success && (
-                  <button 
-                    onClick={() => { setGameState('menu'); }}
-                    className="mt-4 w-full py-3 bg-green-600 hover:bg-green-500 text-white font-bold rounded transition"
-                  >
-                    次のステージへ
-                  </button>
+                  </div>
                 )}
               </div>
-            )}
+            </aside>
+
+            {/* Main Canvas Area */}
+            <main className="flex-1 relative flex flex-col">
+              {/* Toolbar */}
+              <div className="absolute top-4 left-4 z-20 flex gap-2">
+                <button onClick={() => setIsRunning(!isRunning)} 
+                        className={`px-6 py-2 rounded font-bold shadow-lg flex items-center gap-2 ${isRunning ? 'bg-red-600 hover:bg-red-500' : 'bg-green-600 hover:bg-green-500'}`}>
+                  {isRunning ? '⏹ 停止' : '▶ 実行 (熱シミュレーション)'}
+                </button>
+                <button onClick={clearAll} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded shadow-lg">🗑 クリア</button>
+              </div>
+
+              {/* Status Overlay */}
+              <div className="absolute top-4 right-4 z-20 bg-gray-900/80 p-3 rounded border border-gray-700 text-xs text-gray-300 pointer-events-none">
+                <div className="mb-1">Time: {(simRef.current.time).toFixed(3)} s</div>
+                {selectedComp && (
+                  <>
+                    <div className="text-yellow-400 border-t border-gray-700 pt-1 mt-1">選択部品情報</div>
+                    <div>V: {selectedComp.currentV !== undefined ? selectedComp.currentV.toFixed(3) : 0} V</div>
+                    <div>I: {selectedComp.currentI !== undefined ? (selectedComp.currentI*1000).toFixed(2) : 0} mA</div>
+                    <div>P: {selectedComp.currentP !== undefined ? (selectedComp.currentP*1000).toFixed(2) : 0} mW</div>
+                    <div className={selectedComp.tj > 100 ? 'text-red-400' : 'text-blue-300'}>
+                      Tj: {selectedComp.tj ? selectedComp.tj.toFixed(1) : 25.0} ℃
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Canvas Container */}
+              <div className="flex-1 grid-bg relative"
+                   onPointerMove={handlePointerMove}
+                   onPointerUp={handlePointerUp}
+                   onPointerLeave={handlePointerUp}>
+                
+                <svg ref={canvasRef} className="svg-canvas" 
+                     onPointerDown={() => setSelectedComp(null)}>
+                  <defs>
+                    <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                      <path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" />
+                    </marker>
+                  </defs>
+                  {renderWires()}
+                  {components.map(renderComponentSvg)}
+                  
+                  {/* Drawing Wire Preview */}
+                  {wiringStart && dragInfo === null && (
+                    <line x1={wiringStart.x*GRID_SIZE} y1={wiringStart.y*GRID_SIZE} 
+                          x2={wiringStart.x*GRID_SIZE} y2={wiringStart.y*GRID_SIZE} // Will be updated by mouse move if complex state management was added, simplified for performance
+                          stroke="#94a3b8" strokeWidth="2" strokeDasharray="4" />
+                  )}
+                </svg>
+              </div>
+            </main>
           </div>
-        )}
-      </div>
-    </div>
-  );
-}
+        </div>
+      );
+    }
 
-// ツールバーボタン用コンポーネント
-const ToolBtn = ({ active, onClick, icon, label, children }) => (
-  <button 
-    onClick={onClick}
-    className={`w-14 h-14 flex flex-col items-center justify-center gap-1 rounded-xl transition ${active ? 'bg-blue-600 text-white shadow-[0_0_10px_rgba(37,99,235,0.5)]' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'}`}
-  >
-    {icon || children}
-    <span className="text-[10px] font-bold">{label}</span>
-  </button>
-);
-
-```
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
