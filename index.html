@@ -539,14 +539,24 @@
       const handlePointerDown = (e, comp, type, pinId) => {
         e.stopPropagation();
         if (type === 'pin') {
-          // 配線開始
           const pinDef = comp.pins[pinId];
-          setWiringStart({
-            compId: comp.id, pinId, 
-            x: comp.x + pinDef.x, y: comp.y + pinDef.y
-          });
+          if (wiringStart) {
+            if (wiringStart.compId !== comp.id || wiringStart.pinId !== pinId) {
+              const newWire = {
+                id: `W_${Date.now()}`,
+                from: { compId: wiringStart.compId, pinId: wiringStart.pinId },
+                to: { compId: comp.id, pinId: pinId }
+              };
+              setWires([...wires, newWire]);
+            }
+            setWiringStart(null);
+          } else {
+            setWiringStart({
+              compId: comp.id, pinId: pinId, 
+              x: comp.x + pinDef.x, y: comp.y + pinDef.y
+            });
+          }
         } else if (type === 'body') {
-          // 部品移動 & 選択
           setSelectedComp(comp);
           const pos = getGridPos(e);
           setDragInfo({ compId: comp.id, offsetX: comp.x - pos.x, offsetY: comp.y - pos.y });
@@ -565,22 +575,9 @@
       const handlePointerUp = (e) => {
         setDragInfo(null);
       };
-      
-      const handlePinPointerUp = (e, targetComp, targetPinId) => {
-        e.stopPropagation();
-        if (wiringStart && (wiringStart.compId !== targetComp.id || wiringStart.pinId !== targetPinId)) {
-          // 配線追加
-          const newWire = {
-            id: `W_${Date.now()}`,
-            from: { compId: wiringStart.compId, pinId: wiringStart.pinId },
-            to: { compId: targetComp.id, pinId: targetPinId }
-          };
-          setWires([...wires, newWire]);
-        }
-        setWiringStart(null);
-      };
 
       const clearAll = () => {
+
         setComponents([]); setWires([]); setSelectedComp(null); setIsRunning(false);
         simRef.current = new CircuitSimulator();
       };
@@ -644,7 +641,6 @@
             {c.pins.map((p, idx) => (
               <circle key={idx} cx={p.x*GRID_SIZE} cy={p.y*GRID_SIZE} r="6" fill="#fff" stroke="#444" strokeWidth="2"
                       onPointerDown={(e) => handlePointerDown(e, c, 'pin', idx)}
-                      onPointerUp={(e) => handlePinPointerUp(e, c, idx)}
                       style={{cursor: 'crosshair'}} />
             ))}
           </g>
@@ -761,8 +757,9 @@
                    onPointerLeave={handlePointerUp}>
                 
                 <svg ref={canvasRef} className="svg-canvas" 
-                     onPointerDown={() => setSelectedComp(null)}>
+                     onPointerDown={() => { setSelectedComp(null); setWiringStart(null); }}>
                   <defs>
+
                     <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                       <path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" />
                     </marker>
