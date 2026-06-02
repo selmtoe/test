@@ -487,9 +487,11 @@
       const [wires, setWires] = useState([]);
       const [isRunning, setIsRunning] = useState(false);
       const [selectedComp, setSelectedComp] = useState(null);
-      const [wiringStart, setWiringStart] = useState(null); // {compId, pinId, x, y}
+      const [wiringStart, setWiringStart] = useState(null);
+      const [wireEndPos, setWireEndPos] = useState(null);
       
       const simRef = useRef(new CircuitSimulator());
+
       const canvasRef = useRef(null);
       const requestRef = useRef();
 
@@ -529,8 +531,15 @@
       
       const getGridPos = (e) => {
         const rect = canvasRef.current.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        let clientX = e.clientX;
+        let clientY = e.clientY;
+        if (e.touches && e.touches.length > 0) {
+          clientX = e.touches[0].clientX;
+          clientY = e.touches[0].clientY;
+        } else if (e.changedTouches && e.changedTouches.length > 0) {
+          clientX = e.changedTouches[0].clientX;
+          clientY = e.changedTouches[0].clientY;
+        }
         const x = Math.round((clientX - rect.left) / GRID_SIZE);
         const y = Math.round((clientY - rect.top) / GRID_SIZE);
         return {x, y};
@@ -550,9 +559,13 @@
               setWires([...wires, newWire]);
             }
             setWiringStart(null);
+            setWireEndPos(null);
           } else {
             setWiringStart({
-              compId: comp.id, pinId: pinId, 
+              compId: comp.id, pinId: pinId,
+              x: comp.x + pinDef.x, y: comp.y + pinDef.y
+            });
+            setWireEndPos({
               x: comp.x + pinDef.x, y: comp.y + pinDef.y
             });
           }
@@ -566,13 +579,41 @@
       const handlePointerMove = (e) => {
         if (dragInfo) {
           const pos = getGridPos(e);
-          setComponents(comps => comps.map(c => 
+          setComponents(comps => comps.map(c =>
             c.id === dragInfo.compId ? { ...c, x: pos.x + dragInfo.offsetX, y: pos.y + dragInfo.offsetY } : c
           ));
+        } else if (wiringStart) {
+          const pos = getGridPos(e);
+          setWireEndPos(pos);
         }
       };
 
       const handlePointerUp = (e) => {
+        if (wiringStart && wireEndPos) {
+          const isSameStart = wireEndPos.x === wiringStart.x && wireEndPos.y === wiringStart.y;
+          if (!isSameStart) {
+            let targetPin = null;
+            for (let i = 0; i < components.length; i++) {
+              const c = components[i];
+              for (let j = 0; j < c.pins.length; j++) {
+                if (c.x + c.pins[j].x === wireEndPos.x && c.y + c.pins[j].y === wireEndPos.y) {
+                  targetPin = { compId: c.id, pinId: j };
+                  break;
+                }
+              }
+              if (targetPin) break;
+            }
+            if (targetPin && (targetPin.compId !== wiringStart.compId || targetPin.pinId !== wiringStart.pinId)) {
+              setWires([...wires, {
+                id: `W_${Date.now()}`,
+                from: { compId: wiringStart.compId, pinId: wiringStart.pinId },
+                to: { compId: targetPin.compId, pinId: targetPin.pinId }
+              }]);
+              setWiringStart(null);
+              setWireEndPos(null);
+            }
+          }
+        }
         setDragInfo(null);
       };
 
@@ -637,11 +678,11 @@
             {/* Warning Icon if broken */}
             {c.broken && <text x="10" y="-5" fontSize="20" fill="red">🔥破壊</text>}
 
-            {/* Pins */}
             {c.pins.map((p, idx) => (
-              <circle key={idx} cx={p.x*GRID_SIZE} cy={p.y*GRID_SIZE} r="6" fill="#fff" stroke="#444" strokeWidth="2"
-                      onPointerDown={(e) => handlePointerDown(e, c, 'pin', idx)}
-                      style={{cursor: 'crosshair'}} />
+              <g key={idx} onPointerDown={(e) => handlePointerDown(e, c, 'pin', idx)} style={{cursor: 'crosshair'}}>
+                <circle cx={p.x*GRID_SIZE} cy={p.y*GRID_SIZE} r="15" fill="transparent" />
+                <circle cx={p.x*GRID_SIZE} cy={p.y*GRID_SIZE} r="6" fill="#fff" stroke="#444" strokeWidth="2" />
+              </g>
             ))}
           </g>
         );
@@ -757,9 +798,8 @@
                    onPointerLeave={handlePointerUp}>
                 
                 <svg ref={canvasRef} className="svg-canvas" 
-                     onPointerDown={() => { setSelectedComp(null); setWiringStart(null); }}>
+                  onPointerDown={() => { setSelectedComp(null); setWiringStart(null); setWireEndPos(null); }}>
                   <defs>
-
                     <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                       <path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" />
                     </marker>
@@ -767,14 +807,14 @@
                   {renderWires()}
                   {components.map(renderComponentSvg)}
                   
-                  {/* Drawing Wire Preview */}
-                  {wiringStart && dragInfo === null && (
+                  {wiringStart && wireEndPos && (
                     <line x1={wiringStart.x*GRID_SIZE} y1={wiringStart.y*GRID_SIZE} 
-                          x2={wiringStart.x*GRID_SIZE} y2={wiringStart.y*GRID_SIZE} // Will be updated by mouse move if complex state management was added, simplified for performance
+                          x2={wireEndPos.x*GRID_SIZE} y2={wireEndPos.y*GRID_SIZE}
                           stroke="#94a3b8" strokeWidth="2" strokeDasharray="4" />
                   )}
                 </svg>
               </div>
+
             </main>
           </div>
         </div>
